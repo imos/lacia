@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="wide">
+<h1>動いている会話</h1>
+<p class="hint">過去12時間に <code>lacia</code> コマンドを使った会話と、進行中のタスクを担当する会話を表示します。会話の名前は、場所と種類（codex、claude）の組み合わせです。場所には、サーバーならプロファイル名、登録した端末なら登録時の場所の名前を使います。場所の指定がなければ <code>local</code> です。</p>
+<table class="tasks">
+<thead><tr><th>名前</th><th>進めているタスク</th><th>最後の記録</th><th>動いている場所</th></tr></thead>
+<tbody>
+{{range .Data}}<tr>
+  <td>{{.Label}}</td>
+  <td>{{range .Tasks}}<div><a href="{{taskURL .ID}}">{{.ID}}</a> {{.Title}}</div>{{end}}</td>
+  <td>{{clock .Last}}{{if not .Active}} <span class="tag">12時間より前です</span>{{end}}</td>
+  <td>{{.Details}}</td>
+</tr>{{else}}<tr><td colspan="4">該当する会話はありません。</td></tr>{{end}}
+</tbody>
+</table>
+</section>
+{{end}}

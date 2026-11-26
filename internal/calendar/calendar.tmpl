@@ -1,0 +1,70 @@
+{{define "calendar-chips"}}<div class="calendar-chips">{{range .}}<label class="calendar-pick calendar-chip{{if .Point}} calendar-point-chip{{end}}" for="{{.For}}" title="{{.Label}}" style="{{.Style}}">{{if .Number}}<span class="calendar-no">No.{{.Number}}</span>{{end}}<span class="calendar-chip-time">{{.Time}}</span><span class="calendar-chip-title">{{.Title}}</span><span class="calendar-chip-source">{{.Source}}</span></label>{{end}}</div>{{end}}
+
+{{define "calendar-notes"}}{{range .}}<p class="{{if .Empty}}calendar-empty{{else}}calendar-hint{{end}}">{{.Text}}</p>{{end}}{{end}}
+
+{{define "calendar"}}<section class="calendar-section" aria-labelledby="calendar-heading">
+<h2 id="calendar-heading">予定</h2>
+{{if .Notice}}<p class="calendar-status" role="status">{{.Notice}}</p>{{end}}
+<div class="calendar-legend" aria-label="カレンダーの色と取得状態">{{range .Legend}}<span class="calendar-key" style="{{.Style}}">{{.Text}}</span>{{end}}</div>
+<details class="calendar-details"><summary>取得の詳細</summary><div class="calendar-hint calendar-sources">{{range .SourceNotes}}<p>{{.}}</p>{{end}}</div></details>
+<div class="calendar-panels">
+<div class="calendar-main">
+<section class="calendar-card calendar-panel calendar-days" data-calendar-day="{{.Now.Day}}">
+<div class="calendar-band" aria-hidden="true">
+<div class="calendar-band-scale"><div class="calendar-band-ticks">{{range .BandTicks}}<span style="{{.Style}}">{{.Label}}</span>{{end}}</div></div>
+{{range .Days}}<div class="calendar-band-row"><span class="calendar-band-day">{{.Short}}</span><span class="calendar-band-edge">{{.EarlyLabel}}</span><div class="calendar-band-track">{{range .BandBars}}<i class="calendar-band-bar" style="{{.Style}}"></i>{{end}}{{range .BandPoints}}<i class="calendar-band-point" style="{{.Style}}"></i>{{end}}{{if .IsToday}}<i class="calendar-band-now" style="{{$.Now.BandStyle}}"{{if not $.Now.Inside}} hidden{{end}}></i>{{end}}</div><span class="calendar-band-edge">{{.LateLabel}}</span></div>
+{{end}}</div>
+<div class="calendar-days-grid">
+<div class="calendar-rail"></div>
+{{range .Days}}<div class="calendar-day-head"><h3>{{.Title}}</h3><p class="calendar-date">{{.DateLabel}}</p>{{if .IsToday}}<span class="calendar-now-status" role="timer" aria-live="off"{{if not $.Now.Visible}} hidden{{end}}>{{$.Now.Label}}</span>{{end}}</div>
+{{end}}
+{{if .HasNotes}}<div class="calendar-rail"></div>
+{{range .Days}}<div class="calendar-day-notes">{{template "calendar-notes" .Notes}}</div>
+{{end}}{{end}}
+{{if .HasAllDay}}<div class="calendar-rail">終日</div>
+{{range .Days}}{{template "calendar-chips" .AllDay}}
+{{end}}{{end}}
+{{if .HasEarly}}<div class="calendar-rail">8時より前</div>
+{{range .Days}}{{template "calendar-chips" .Early}}
+{{end}}{{end}}
+<div class="calendar-rail calendar-hours" aria-hidden="true">{{range .Hours}}<span style="{{.Style}}">{{.Label}}</span>{{end}}</div>
+{{range .Days}}<div class="calendar-axis" role="group" aria-label="{{.AxisLabel}}">
+{{range .Overlaps}}<span class="calendar-overlap" style="{{.Style}}" title="{{.Text}}">{{if .ShowCount}}<span aria-hidden="true">{{.Count}}</span>{{end}}<span class="calendar-sr">{{.Text}}</span></span>{{end}}
+{{if .IsToday}}<div class="calendar-now-line" aria-hidden="true" style="{{$.Now.LineStyle}}"{{if not $.Now.Inside}} hidden{{end}}></div>{{end}}
+<div class="calendar-lane">
+{{range .Blocks}}<label class="calendar-pick calendar-block{{if .Short}} is-short{{end}}{{if .CutTop}} is-cut-top{{end}}{{if .CutBottom}} is-cut-bottom{{end}}" for="{{.For}}" title="{{.Label}}" style="{{.Style}}">{{if .Short}}<span class="calendar-callout" aria-hidden="true">{{.Number}}</span><span class="calendar-sr">{{.Label}}</span>{{else}}<span class="calendar-block-line"><span class="calendar-block-no">{{.Number}}</span><span>{{.Title}}</span></span>{{if .Meta}}<span class="calendar-block-meta">{{.Meta}}</span>{{end}}{{end}}</label>
+{{end}}{{range .PointMarks}}<span class="calendar-point" aria-hidden="true" style="{{.Style}}"></span>{{end}}{{range .PointRefs}}<span class="calendar-point-ref" aria-hidden="true" style="{{.Style}}">{{.Label}}</span>{{end}}
+</div>
+</div>
+{{end}}
+{{if .HasPoints}}<div class="calendar-rail">時刻</div>
+{{range .Days}}{{template "calendar-chips" .Points}}
+{{end}}{{end}}
+{{if .HasLate}}<div class="calendar-rail">20時より後</div>
+{{range .Days}}{{template "calendar-chips" .Late}}
+{{end}}{{end}}
+</div>
+</section>
+<section class="calendar-card calendar-panel calendar-week">
+<h3>{{.Week.Title}}</h3>
+<p class="calendar-date">{{.Week.RangeLabel}}</p>
+<p class="calendar-period-note">{{.Week.PeriodNote}}</p>
+{{template "calendar-notes" .Week.Notes}}
+<ul class="calendar-week-grid">
+{{range .Week.Days}}<li class="calendar-week-day"><p class="calendar-week-date{{if .DateClass}} {{.DateClass}}{{end}}">{{.Label}}{{if .HolidayName}} <span role="img" aria-label="祝日：{{.HolidayName}}" title="{{.HolidayName}}">🎌</span>{{end}}</p>{{template "calendar-chips" .Chips}}</li>
+{{end}}</ul>
+</section>
+</div>
+<aside class="calendar-card calendar-detail" id="calendar-detail" aria-label="選択した予定の詳細">
+<input class="calendar-sr calendar-detail-radio calendar-detail-none" type="radio" name="calendar-event" id="calendar-event-none" aria-label="予定を選択しない" checked>
+<p class="calendar-empty calendar-detail-blank">予定を選ぶと、その内容を見られます。</p>
+{{range .Details}}<input class="calendar-sr calendar-detail-radio" type="radio" name="calendar-event" id="{{.ID}}" aria-label="{{.Label}}">
+<div class="calendar-detail-item">
+<div class="calendar-detail-head"><span class="calendar-key" style="{{.Style}}">{{.Source}}</span>{{if .Number}}<span class="calendar-no">No.{{.Number}}</span>{{end}}<label class="calendar-detail-close" for="calendar-event-none">閉じる</label></div>
+{{if .URL}}<a class="calendar-title" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.Title}}</a>{{else}}<p class="calendar-title">{{.Title}}</p>{{end}}
+<p class="calendar-detail-time">{{.Time}}{{if .Duration}}（{{.Duration}}）{{end}}</p>
+{{if .Flags}}<p class="calendar-detail-flags">{{range .Flags}}<span class="calendar-flag{{if .Warn}} is-warn{{end}}">{{.Text}}</span>{{end}}</p>{{end}}
+</div>
+{{end}}</aside>
+</div>
+</section>{{end}}

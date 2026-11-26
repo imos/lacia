@@ -1,0 +1,95 @@
+package doctor
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func write(t *testing.T, root, rel, text string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const taskMD = "---\nid: T1001\ntitle: 試し\nstatus: todo\ncreated: 2026-11-24\n---\n\n## ひとことで\n\n試します。\n\n## 次にすること\n\nレイシアが進めます。\n"
+
+func TestCleanRepository(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".lacia/config.json", `{"format": 1, "areas": ["work"]}`)
+	write(t, root, ".gitignore", "/local/\n/.lacia/source/\n/areas/*/tasks/*/*/files/\n")
+	write(t, root, "AGENTS.md", "[タスク](areas/work/tasks/2026-11/T1001/task.md)\n")
+	write(t, root, "areas/work/tasks/2026-11/T1001/task.md", taskMD)
+	write(t, root, "areas/work/tasks/2026-11/T1001/log.jsonl", `{"at":"2026-11-24T09:00:00+09:00","type":"created","text":"作りました。"}`+"\n")
+	write(t, root, "areas/work/projects/alpha/project.md", "---\ntitle: アルファ\n---\n")
+	r := Check(root, true)
+	if len(r.Errors) != 0 || len(r.Notes) != 0 {
+		t.Errorf("report = %+v", r)
+	}
+}
+
+func TestProblems(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".lacia/config.json", `{"format": 1, "areas": ["work", "memory", "gone"]}`)
+	write(t, root, "work/README.md", "top level area\n")
+	write(t, root, "areas/work/tasks/2026-11/T1001/task.md", taskMD)
+	write(t, root, "areas/work/tasks/2026-11/T1001/log.md", "# 履歴\n")
+	write(t, root, "areas/work/tasks/2026-11/T1001/memo.txt", "x\n")
+	write(t, root, "areas/work/tasks/2026-11/T1001/log.jsonl", "{\"at\":\"x\",\"type\":\"note\"}\nnot json\n{\"type\":\"note\"}\n")
+	write(t, root, "areas/work/projects/old/notes.md", "以前の資料\n")
+	write(t, root, "areas/memory/.keep", "")
+	write(t, root, "areas/extra/.keep", "")
+	write(t, root, "schedules/broken.md", "no front matter\n")
+	write(t, root, "scripts/run.sh", "")
+	write(t, root, "rules/local.md", "[ない](missing.md) [ある](local.md) [外](https://example.com)\n```\n[囲み](none.md)\n```\n")
+	write(t, root, "archive/old.md", "[ない](missing.md)\n")
+	r := Check(root, true)
+	text := strings.Join(r.Errors, "\n")
+	for _, want := range []string{
+		"領域の名前 memory は",
+		"最上位に、領域と同じ名前のディレクトリー work",
+		"areas/gone がありません",
+		"areas/extra は、設定の areas にない領域",
+		"T1001/log.md が残っています",
+		"T1001/memo.txt は",
+		"log.jsonl の2行目を、JSON として読めません",
+		"log.jsonl の3行目に、at か type がありません",
+		"areas/work/projects/old には project.md がありません",
+		"予約 broken の定義を読めません",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no error containing %q in:\n%s", want, text)
+		}
+	}
+	notes := strings.Join(r.Notes, "\n")
+	for _, want := range []string{"scripts", ".gitignore に、次の行がありません: /local/、/.lacia/source/、/areas/*/tasks/*/*/files/", "rules/local.md:1 missing.md"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("no note containing %q in:\n%s", want, notes)
+		}
+	}
+	if r.Broken != 1 {
+		t.Errorf("broken = %d:\n%s", r.Broken, notes)
+	}
+}
+
+// A repository of format 0 gets only the checks that hold for both shapes.
+func TestFormat0(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".lacia/config.json", `{"areas": ["work"]}`)
+	write(t, root, ".gitignore", "/local/\n/.lacia/source/\n/*/tasks/*/*/files/\n")
+	write(t, root, "work/tasks/2026-11/T1001/task.md", taskMD)
+	write(t, root, "work/tasks/2026-11/T1001/log.md", "# T1001 の履歴\n")
+	write(t, root, "work/projects/old/notes.md", "以前の資料\n")
+	write(t, root, "scripts/run.sh", "")
+	if r := Check(root, true); len(r.Errors) != 0 || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "lacia migrate") {
+		t.Errorf("report = %+v", r)
+	}
+	write(t, root, "work/tasks/2026-11/T1002/task.md", "broken\n")
+	if r := Check(root, false); len(r.Errors) != 1 || !strings.Contains(r.Errors[0], "T1002/task.md を読めません") {
+		t.Errorf("report = %+v", r)
+	}
+}

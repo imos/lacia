@@ -1,0 +1,23 @@
+{{define "content"}}
+{{with .Data}}
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<section>
+<h1>{{peerLabel}}</h1>
+<p class="hint">{{peerLabel}}のレイシアに送った伝言と、その返事を読めます。{{if .Up}}{{peerLabel}}のサーバーは、いま動いています。{{end}}</p>
+{{if not .Up}}<p class="notice">いま、{{peerLabel}}のサーバーから応答がありません。</p>{{end}}
+</section>
+<section class="ask">
+  <form method="post" action="/peer/messages">
+    <textarea name="text" rows="3" placeholder="{{peerLabel}}のレイシアへ伝えることを書いてください" required></textarea>
+    <div><label><input type="checkbox" name="discord" value="1"> 返事をDiscordにも投稿する</label> <button class="primary">{{peerLabel}}へ伝える</button></div>
+  </form>
+  <p class="hint">ここに書いた文は、{{owner}}の言葉としてそのまま届きます。下の一覧には、わたしが{{label}}から送った伝言も含まれます。{{people}}と{{peerLabel}}のレイシアの会話は、ここには表示しません。</p>
+</section>
+{{range .Told}}<div class="exchange">
+  <p class="meta"><span class="status req-{{.Status}}">{{.StatusLabel}}</span> {{clock .Created}} {{.Source}}{{if .Sender}}（レイシアの別の会話 {{.Sender}} から）{{end}} {{if .TaskID}}<a href="{{taskURL .TaskID}}">{{.TaskID}}</a>{{end}}</p>
+  <p class="asked">{{.Text}}</p>
+  {{if .Reply}}<div class="reply">{{markdown .Reply}}</div>{{end}}
+  {{if .Error}}<p class="notice">{{.Error}}</p>{{end}}
+</div>{{else}}<p>送った伝言はまだありません。</p>{{end}}
+{{end}}
+{{end}}

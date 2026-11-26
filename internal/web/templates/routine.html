@@ -1,0 +1,19 @@
+{{define "content"}}{{with .Data}}
+<section class="wide">
+<p><a href="/">ホーム</a> / <a href="/routines">定期タスク</a></p>
+<h1>{{.Name}} {{.Title}}</h1>
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<h2 id="receipts">受付 <span class="count">未確認 {{len .Snapshot.Pending}}件</span></h2>
+{{if .Snapshot.Pending}}<form method="post" action="/routines/{{.Name}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">未確認分をまとめて確認する</button></form><p class="hint">この画面を開いたときの未確認分を確認済みにします。次の実行は続きます。</p>{{end}}
+<table class="tasks"><thead><tr><th>受付</th><th>届いた時刻</th><th>概要</th><th>確認</th></tr></thead><tbody>
+{{range .Receipts}}<tr id="receipt-{{.Sequence}}"><td><a href="{{receiptURL $.Data.Name .Sequence}}">受付 {{.Sequence}}</a></td><td>{{clock .AcceptedAt}}</td><td>{{receiptBrief .}}</td><td>{{if .Reviewed}}確認済み{{else}}未確認{{end}}</td></tr>
+{{else}}<tr><td colspan="4">結果はまだありません。</td></tr>{{end}}
+</tbody></table>
+<h2>いまの様子</h2><p>{{if .Next.IsZero}}次回の実行はありません。{{else}}次は{{clock .Next}}に動きます。{{end}}{{if .Err}}{{.Err}}{{else if not .Enabled}}いまは止めてあります。{{end}}</p>
+{{if .Health.Unverified}}<p>確認できていない範囲：</p><ul>{{range $scope, $health := .Health.Unverified}}<li>{{$scope}}：{{$health.Count}}回続いています。{{clock $health.Since}}から確認できていません。</li>{{end}}</ul>{{end}}
+<p>最後に全範囲を確認した時刻：{{if .Health.LastSuccess.IsZero}}まだ記録がありません。{{else}}{{clock .Health.LastSuccess}}{{end}}</p>
+{{if .Executions}}<table class="tasks"><thead><tr><th>本来の時刻</th><th>実行先</th><th>状態</th></tr></thead><tbody>{{range .Executions}}<tr><td>{{clock .Job.Slot}}</td><td>{{.DestinationLabel}}（{{.Device}}）{{if .Result.Profile}} / {{.Result.Profile}}{{end}}</td><td>{{.StatusLabel}}</td></tr>{{end}}</tbody></table>{{end}}
+<h2>実行の履歴</h2>{{if .Months}}<p>月：{{range .Months}}<a href="/routines/{{$.Data.Name}}?month={{.}}">{{.}}</a> {{end}}</p>{{end}}
+<table class="tasks"><thead><tr><th>本来の時刻</th><th>結果</th><th>ひとこと</th></tr></thead><tbody>{{range .Runs}}<tr id="{{.Anchor}}"><td>{{clock .At}}</td><td>{{.OutcomeLabel}}</td><td>{{if .Receipt}}{{brief .Summary}} <a href="{{receiptURL $.Data.Name .Receipt}}">受付 {{.Receipt}}</a>{{else}}{{.Summary}}{{end}}{{if .Handoffs}}<ul>{{range .Handoffs}}<li><a href="/tasks/{{.TaskID}}">{{.TaskID}}</a> {{.Summary}}</li>{{end}}</ul>{{end}}{{if .UnverifiedHandoffs}}<p>引き継ぎ先のタスクを確認できませんでした。{{range .UnverifiedHandoffs}} {{.}}{{end}}</p>{{end}}{{if and (not .Receipt) .Unverified}}<ul>{{range .Unverified}}<li>{{.}}</li>{{end}}</ul>{{end}}</td></tr>{{else}}<tr><td colspan="3">実行の記録は、まだありません。</td></tr>{{end}}</tbody></table>
+<h2>定義と手順</h2>{{if .DefinitionURL}}<p><a href="{{.DefinitionURL}}">定義を開く</a></p>{{end}}<div class="markdown">{{.PromptHTML}}</div>
+</section>{{end}}{{end}}

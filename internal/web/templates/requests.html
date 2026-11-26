@@ -1,0 +1,14 @@
+{{define "content"}}
+<section>
+<h1>やり取り</h1>
+<p class="hint"><a href="/requests">最近のやり取りを50件まで見る</a> · <a href="/requests?all=1">システムからのお知らせも含める</a></p>
+</section>
+{{range .Data}}<div class="exchange">
+  <p class="meta"><span class="status req-{{.Status}}">{{.StatusLabel}}</span> {{clock .Created}} {{.Source}}{{if .Sender}}（レイシアの別の会話 {{.Sender}} から）{{end}} {{if .TaskID}}<a href="{{taskURL .TaskID}}">{{.TaskID}}</a>{{end}}</p>
+  <p class="hint"><a href="/requests/{{.ID}}">この依頼</a>{{if .ResumeOf}} · <a href="/requests/{{.ResumeOf}}">元の依頼と結果</a>{{end}}</p>
+  <p class="asked">{{.Text}}</p>
+  {{if .Reply}}<div class="reply">{{markdown .Reply}}</div>{{end}}
+  {{if .DeliveryLabel}}<p class="hint">{{.DeliveryLabel}}</p>{{end}}{{if .Error}}<p class="notice">{{.Error}}</p>{{end}}
+{{if .CanResume}}<form method="post" action="/requests/{{.ID}}/resume"><p class="hint">再開する前に、どこまで作業が済んだかを記録で確かめます。外部で操作した結果が分からないときは、その操作を繰り返しません。</p><button type="submit">記録を確かめて続きを進める</button></form>{{end}}
+</div>{{else}}<p>やり取りはまだありません。</p>{{end}}
+{{end}}

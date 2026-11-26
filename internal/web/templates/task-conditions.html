@@ -1,0 +1,12 @@
+{{define "task-list-age"}}{{if .StatusAge}}<time class="task-age" datetime="{{.StatusSince.Format "2006-01-02T15:04:05Z07:00"}}" title="{{dateTime .StatusSince}}">({{.StatusAge}})</time>{{end}}{{end}}
+
+{{define "task-list-conditions"}}{{if not .Status.Closed}}
+{{if .HasReadyConditions}}{{with .ReadyLabel (eq .ListStatus "doing")}}<span class="tag resume">{{.Prefix}}{{range $j, $b := .Blockers}}{{if $j}}、{{end}}<a href="{{taskURL $b}}">{{$b}}</a>{{end}}{{.RoutinePrefix}}{{with .Routine}}<a href="{{routineURL .}}">{{.}}</a>{{end}}{{.Suffix}}</span>{{end}}{{end}}
+{{with .ReadyRunRef}}<span class="tag resume"><a href="{{.}}">待っていた実行の結果</a></span>{{end}}
+{{if .Queued}}<span class="tag resume">会話の順番待ち</span>{{end}}
+{{if .RequestRunning}}<span class="tag resume">会話が依頼を処理しています</span>{{end}}
+{{range .Waits}}<span class="tag resume">{{.Target}}。{{.SeenLabel}}。確認の期限は {{dateTime .By}} です。</span>{{end}}
+{{range .HandoverConditions}}<span class="tag resume">{{.Next}} への申し送り。{{.Text}}</span>{{end}}
+{{if .MissingCondition}}<span class="tag resume">再開条件が未登録</span>{{end}}
+{{if .RequestFinished}}<span class="tag resume">受け付けた依頼は終了しました。タスクの状態確認が必要です。</span>{{end}}
+{{end}}{{end}}

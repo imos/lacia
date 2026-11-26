@@ -1,0 +1,16 @@
+{{define "content"}}{{with .Data}}
+<section class="wide">
+<p><a href="/">ホーム</a> / <a href="/routines">定期タスク</a> / <a href="{{routineURL .Name}}#receipts">{{.Name}} {{.Title}}</a></p>
+<h1>{{.Title}} 受付 {{.Receipt.Sequence}}</h1>
+<p>{{dateTime .Receipt.AcceptedAt}}に届きました。{{if .Receipt.Reviewed}}確認済みです。{{else}}未確認です。{{end}}</p>
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+{{with .Receipt}}
+{{if .Summary}}<p class="receipt-summary">{{.Summary}}</p>{{end}}
+{{if .Reference}}<p><a href="{{.Reference}}">結果を開く</a></p>{{end}}
+{{if .Matters}}<h2>見ていただきたいこと</h2><ul>{{range .Matters}}<li>{{.Summary}}{{if .Reference}} <a href="{{.Reference}}">元の対象を開く</a>{{end}}</li>{{end}}</ul>{{end}}
+{{if .Unverified}}<h2>まだ確かめられていない範囲</h2><ul>{{range .Unverified}}<li>{{.}}</li>{{end}}</ul>{{end}}
+{{end}}
+{{if .RunURL}}<p><a href="{{.RunURL}}">この回の実行履歴を開く</a></p>{{end}}
+{{if .Token}}<form method="post" action="{{receiptURL .Name .Receipt.Sequence}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">この受付を確認済みにする</button></form>{{end}}
+{{if .History}}<h2>確認の履歴</h2><ul>{{range .History}}<li>{{dateTime .At}}に{{.Completion.Actor}}が確認しました。</li>{{end}}</ul>{{end}}
+</section>{{end}}{{end}}

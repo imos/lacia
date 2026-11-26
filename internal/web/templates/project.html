@@ -1,0 +1,38 @@
+{{define "content"}}{{with .Data}}
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<section class="head">
+<p class="crumbs">{{areaLabel .Plan.Area}} › <a href="/projects">プロジェクト</a></p>
+<h1>{{.Plan.Title}}</h1>
+<p class="meta"><span class="status project-{{.Plan.Status}}">{{projectStatus .Plan.Status}}</span> <span>全{{len .Plan.Entries}}件のうち、未完了が{{.Plan.Unfinished}}件</span></p>
+<p class="path"><code>{{.Plan.Dir}}</code> · 元のファイル <a href="/files/{{.Plan.Dir}}/project.md?view=source">project.md</a></p>
+</section>
+
+<article class="markdown">{{.Body}}</article>
+
+<section class="order">
+  <h2>タスクに取りかかる順</h2>
+  <p class="hint">わたしがプロジェクトの進め方に沿って順番を決めます。順番を変えたいときは、矢印でタスクを動かすか、わたしにお伝えください。</p>
+  <ol class="order">
+  {{range $i, $e := .Plan.Entries}}{{if not $e.Status.Closed}}{{$row := index $.Data.Rows $e.ID}}<li>
+    <span class="status {{$row.ListStatus}}">{{taskListLabel $row.ListStatus}}</span>
+    <a class="id" href="{{taskURL $e.ID}}">{{$e.ID}}</a> <a class="title" href="{{taskURL $e.ID}}">{{$e.Title}}</a>
+    {{if and $.Data.Plan.Next (eq $.Data.Plan.Next.ID $e.ID)}}<span class="tag resume">次の1件</span>{{end}}
+    {{if $e.ReadySince}}<span class="tag resume">着手できます</span>{{end}}
+    {{template "task-list-conditions" $row}}
+    {{if and (eq $row.ListStatus "waiting") $row.Next}}<p class="next">{{$row.Next}}</p>{{end}}
+    {{if $e.Unordered}}<span class="tag">順序が未定</span>{{end}}
+    <form method="post" action="{{projectURL $.Data.Plan.Project}}/move" class="move"><input type="hidden" name="id" value="{{$e.ID}}"><button name="dir" value="up" title="1つ前へ">↑</button><button name="dir" value="down" title="1つ後ろへ">↓</button></form>
+    {{if $e.Reason}}<p class="next">{{$e.Reason}}</p>{{end}}
+  </li>{{end}}{{end}}
+  </ol>
+  {{if .Plan.Missing}}<p class="hint">順序に書かれている {{range $i, $id := .Plan.Missing}}{{if $i}}、{{end}}{{$id}}{{end}} は、このプロジェクトのタスクではありません。タスクの冒頭に <code>project: {{.Plan.Slug}}</code> があるかを確かめてください。</p>{{end}}
+</section>
+
+{{if .Plan.Closed}}<details class="notes"><summary>完了したタスクと取りやめたタスク（{{.Plan.Closed}}件）</summary><ul class="rows">
+{{range .Plan.Entries}}{{if .Status.Closed}}<li><span class="status {{.Status}}">{{.Status.Label}}</span> <a class="id" href="{{taskURL .ID}}">{{.ID}}</a> <a class="title" href="{{taskURL .ID}}">{{.Title}}</a> <span class="due">{{.Done}}</span></li>{{end}}{{end}}
+</ul></details>{{end}}
+
+{{if .Files}}<details class="notes"><summary>資料（{{len .Files}}件）</summary><ul>{{range .Files}}<li><a href="/files/{{$.Data.Plan.Dir}}/{{.}}">{{.}}</a></li>{{end}}</ul></details>{{end}}
+
+{{if .Log}}<section class="log"><h2>履歴</h2><ul>{{range .Log}}<li>{{.}}</li>{{end}}</ul><p><a href="/projects/{{.Plan.Area}}/{{.Plan.Slug}}/log">履歴をすべて見る</a></p></section>{{end}}
+{{end}}{{end}}

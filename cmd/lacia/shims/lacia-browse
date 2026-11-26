@@ -1,0 +1,123 @@
+#!/bin/sh
+# A browser for pages that need no login: playwright-cli, pointed at the
+# browser Pod.
+#
+#   lacia-browse read https://example.com      print the text of a page, done
+#   lacia-browse open https://example.com      open a page (starts a session)
+#   lacia-browse snapshot                      the page as a tree with refs
+#   lacia-browse fill e12 "東京"               act on a ref from the snapshot
+#   lacia-browse close
+#
+# Each conversation gets a session of its own, named after its ID, so two of
+# them in one Pod do not share a page. -s=<name> picks another.
+#
+# LACIA_BROWSER_ENDPOINT names a Playwright server to connect to, such as
+# one in a Pod of its own that holds no credentials. Inside a cluster it is
+# required: the Chrome must not run beside the server's credentials. Outside
+# one, or with LACIA_BROWSER_ENDPOINT set to an empty string, playwright-cli
+# starts the local Chrome with its sandbox on.
+#
+# The environment is not passed on: tokens in it must not reach a process
+# that runs code on behalf of a web page.
+set -eu
+# Keep the default the same as the version of the Playwright server.
+VERSION="${LACIA_PLAYWRIGHT_CLI_VERSION:-0.1.25}"
+BASE="${LACIA_BROWSE_HOME:-${TMPDIR:-/tmp}/lacia-browse}"
+WORK="$BASE/work"
+if [ -n "${LACIA_BROWSER_ENDPOINT+set}" ]; then
+  ENDPOINT="$LACIA_BROWSER_ENDPOINT"
+elif [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+  echo "LACIA_BROWSER_ENDPOINT に、ブラウザーのサーバーのアドレス（例: ws://browser:3000/）を設定してください。" >&2
+  exit 2
+else
+  ENDPOINT=""
+fi
+
+# A session nobody closed must not keep a Chrome alive in the browser Pod:
+# after this long without a command the session closes itself. playwright-cli
+# only does this on its own for a browser it started, not for a remote one.
+IDLE_MS="${LACIA_BROWSE_IDLE_MS:-900000}"
+
+# The image may carry the CLI; otherwise the pinned version is installed on
+# first use. It must match the server's.
+CLI=$(command -v playwright-cli || true)
+if [ -z "$CLI" ] || [ "$("$CLI" --version 2>/dev/null)" != "$VERSION" ]; then
+  ROOT="$BASE/cli-$VERSION"
+  if [ ! -x "$ROOT/node_modules/.bin/playwright-cli" ]; then
+    mkdir -p "$BASE"
+    tmp=$(mktemp -d "$BASE/install.XXXXXX")
+    npm install --prefix "$tmp" --no-audit --no-fund --loglevel=error "@playwright/cli@$VERSION" >&2
+    mv "$tmp" "$ROOT" 2>/dev/null || rm -rf "$tmp"
+  fi
+  CLI="$ROOT/node_modules/.bin/playwright-cli"
+fi
+
+mkdir -p "$WORK/.playwright" "$WORK/home"
+if [ -n "$ENDPOINT" ]; then
+  cat > "$WORK/.playwright/cli.config.json" <<JSON
+{"browser":{"browserName":"chromium","remoteEndpoint":"$ENDPOINT","remoteHeaders":{"x-playwright-browser":"chromium","x-playwright-launch-options":"{\"channel\":\"chrome\",\"headless\":true,\"chromiumSandbox\":false}"},"contextOptions":{"locale":"ja-JP","timezoneId":"Asia/Tokyo"}},"timeouts":{"idle":$IDLE_MS}}
+JSON
+else
+  cat > "$WORK/.playwright/cli.config.json" <<JSON
+{"browser":{"browserName":"chromium","isolated":true,"launchOptions":{"channel":"chrome","headless":true,"chromiumSandbox":true},"contextOptions":{"locale":"ja-JP","timezoneId":"Asia/Tokyo"}},"timeouts":{"idle":$IDLE_MS}}
+JSON
+fi
+cd "$WORK"
+
+SESSION=""
+for arg in "$@"; do
+  case "$arg" in -s|-s=*|--session|--session=*) SESSION=given ;; esac
+done
+if [ -z "$SESSION" ]; then
+  id=$(printf %s "${CODEX_THREAD_ID:-${CLAUDE_CODE_SESSION_ID:-}}" | tr -cd 'a-zA-Z0-9' | cut -c1-12)
+  [ -n "$id" ] && SESSION="c-$id"
+fi
+# LIMIT, when set, is "timeout <seconds>" in front of the command.
+LIMIT=""
+run() {
+  case "$SESSION" in
+    ""|given) env -i HOME="$WORK/home" PATH="$PATH" TZ="${TZ:-Asia/Tokyo}" LANG="${LANG:-C.UTF-8}" $LIMIT "$CLI" "$@" ;;
+    *) env -i HOME="$WORK/home" PATH="$PATH" TZ="${TZ:-Asia/Tokyo}" LANG="${LANG:-C.UTF-8}" $LIMIT "$CLI" "-s=$SESSION" "$@" ;;
+  esac
+}
+# opened runs "open" and explains a failure: the errors of playwright-cli do
+# not say what to do about the browser Pod.
+opened() {
+  # A server that is full does not refuse: the connection waits. Give up
+  # after a while instead of hanging the conversation.
+  if command -v timeout >/dev/null 2>&1; then LIMIT="timeout ${LACIA_BROWSE_OPEN_SECONDS:-90}"; fi
+  if out=$(run open "$@" 2>&1) && ! printf %s "$out" | grep -q '^### Error'; then
+    LIMIT=""
+    return 0
+  fi
+  [ -n "$LIMIT" ] && LIMIT="timeout 10"
+  run close >/dev/null 2>&1 || true
+  LIMIT=""
+  printf '%s\n' "$out" >&2
+  if [ -n "$ENDPOINT" ]; then
+    echo "ページを開けませんでした。ブラウザーの Pod（$ENDPOINT）が止まっているか、開いているセッションが上限に達した可能性があります。lacia-browse list でセッションを確かめ、使い終えたものを lacia-browse close で閉じてから、もう1度試してください。" >&2
+  else
+    echo "ページを開けませんでした。この環境に Chrome が入っているかを確かめてください。" >&2
+  fi
+  return 1
+}
+
+case "${1:-}" in
+  read)
+    # One page, as text: open, wait for the scripts to settle, print, close.
+    url="${2:?URL を指定してください: lacia-browse read <URL>}"
+    SESSION="read-$$"
+    trap 'run close >/dev/null 2>&1 || true' EXIT
+    opened "$url" || exit 1
+    run --raw run-code "async page => { await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {}); const text = await page.evaluate(() => document.body.innerText); return '# ' + (await page.title()) + '\n' + page.url() + '\n\n' + text.replace(/\n{3,}/g, '\n\n'); }" |
+      node -e 'let s = ""; process.stdin.on("data", d => s += d).on("end", () => { try { s = JSON.parse(s) } catch {} process.stdout.write(String(s).trimEnd() + "\n") })'
+    ;;
+  open)
+    shift
+    opened "$@" || exit 1
+    printf '%s\n' "$out"
+    ;;
+  *)
+    run "$@"
+    ;;
+esac

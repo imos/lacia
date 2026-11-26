@@ -1,0 +1,42 @@
+{{define "content"}}{{with .Data}}
+<section>
+<h1>予定の連携</h1>
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<p>ここでGoogle Calendarと連携すると、サーバーが予定を直接取得できます。{{if .Write}}Googleには、予定を読み取る許可と、予定を作成したり変更したりする許可を求めます。サーバーが自分から予定を書き換えることはありません。{{else}}Googleに求める許可は、予定の読み取りだけです。この連携で予定を作成したり、変更したりすることはできません。{{end}}</p>
+{{if .Ready}}<p class="flash">設定したすべてのカレンダーを読み取る準備ができました。サーバーは10分ごとに予定を取得します。</p>
+{{else if .Rows}}<p class="notice">サーバーがGoogleから予定を直接取得するのは、下のカレンダーをすべて読み取れるようになってからです。それまでは、これまでの取得方法を使います。</p>
+{{else}}<p class="notice">読み取るカレンダーが未設定です。サーバーの設定で、<code>calendars</code> にカレンダーの一覧を指定してください。</p>{{end}}
+
+</section>
+
+{{range .Rows}}
+<section class="list">
+  <h2>{{.Label}} <span class="count">{{.Account}}</span></h2>
+  {{if .Connected}}<p><span class="status todo">連携済み</span> 許可した日時 {{.Connected}}</p>{{else if .Via}}<p><span class="status todo">読み取れます</span> 連携済みの {{.Via}} と共有されているので、このカレンダーも読み取れます。ここで改めて許可する必要はありません。</p>{{else}}<p><span class="status review">未連携</span></p>{{end}}
+  <form method="post" action="/settings/calendar/connect" class="settings">
+    <input type="hidden" name="account" value="{{.Account}}">
+    {{if not $.Data.Default}}<label>クライアントID <input name="client_id" size="60" autocomplete="off" {{if not .HasClient}}required{{end}}></label>
+    <label>クライアントシークレット <input name="client_secret" type="password" size="40" autocomplete="off" {{if not .HasClient}}required{{end}}></label>{{end}}
+    <button class="primary">{{if .Connected}}許可をやり直す{{else}}Googleで許可する{{end}}</button>
+  </form>
+  {{if and .HasClient (not $.Data.Default)}}<p class="hint">両方の欄を空にして「{{if .Connected}}許可をやり直す{{else}}Googleで許可する{{end}}」を押すと、保存してあるクライアントIDとシークレットを使います。</p>{{end}}
+  {{if .HasClient}}
+  <form method="post" action="/settings/calendar/disconnect"><input type="hidden" name="account" value="{{.Account}}"><button>連携を外す</button></form>{{end}}
+</section>
+{{end}}
+
+{{if .Default}}<section class="list">
+  <p class="hint">サーバーの設定で <code>google-client</code> を指定していれば、そのクライアントを使います。省いた場合は <code>lacia</code> に付属するものを使います。Googleで許可すると、ブラウザーは <code>{{.Redirect}}</code> に戻ります。</p>
+</section>{{else}}
+<section class="list">
+  <h2>クライアントIDの作り方</h2>
+  <ol>
+    <li>連携するアカウントで <a href="https://console.cloud.google.com/apis/credentials">Google Cloud の「認証情報」</a>を開きます。</li>
+    <li>プロジェクトで Google Calendar API を有効にします。</li>
+    <li>「OAuth クライアント ID」の種類に「ウェブ アプリケーション」を選んで作成します。</li>
+    <li>「承認済みのリダイレクト URI」に、次のアドレスを登録します。<br><code>{{.Redirect}}</code></li>
+    <li>表示されたクライアントIDとクライアントシークレットを、上の欄に入力して「Googleで許可する」を押します。</li>
+  </ol>
+  <p class="hint">入力したシークレットと、連携に必要な認証情報は、サーバーでGitの管理外に保存します。保存した値を画面やログに表示することはありません。</p>
+</section>{{end}}
+{{end}}{{end}}

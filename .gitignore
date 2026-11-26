@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.venv/
+local/
+runtime/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+*.key
+*.pem
+secrets/*

@@ -1,0 +1,25 @@
+{{define "content"}}{{with .Data}}
+<section class="wide">
+<h1>すべてのタスク</h1>
+<form class="filter" method="get" action="/tasks">
+  <select name="status"><option value="">状態：すべて</option>{{range .Statuses}}<option value="{{.}}" {{if eq (print .) $.Data.Status}}selected{{end}}>{{taskListLabel .}}</option>{{end}}</select>
+  <select name="area"><option value="">領域：すべて</option>{{range .Areas}}<option value="{{.}}" {{if eq . $.Data.Area}}selected{{end}}>{{areaLabel .}}</option>{{end}}</select>
+  <input name="q" value="{{.Query}}" placeholder="ID、題名、本文を検索">
+  <button>絞り込む</button>
+</form>
+<p class="hint">{{.Total}}件のうち{{len .Rows}}件を表示しています。</p>
+<table class="tasks">
+<thead><tr><th>ID</th><th>状態</th><th>題名</th><th class="task-detail-column">領域</th><th class="task-detail-column">作成日</th><th class="task-detail-column">終了日</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr class="{{.ListStatus}}">
+  <td class="task-ref"><a href="{{taskURL .ID}}">{{.ID}}</a>{{template "task-list-age" .}}</td><td><span class="status {{.ListStatus}}">{{taskListLabel .ListStatus}}</span></td>
+  <td class="task-list-body"><a href="{{taskURL .ID}}">{{.Title}}</a>
+    {{if .Owner}}<span class="task-owner">担当 {{.Owner}}</span>{{end}}
+    <span class="task-detail-inline">{{areaLabel .Area}} ・ 作成 {{.Created}}{{if .Done}} ・ 終了 {{.Done}}{{end}}</span>
+    {{template "task-list-conditions" .}}{{if and (eq .ListStatus "waiting") .Next}}<p class="next">{{.Next}}</p>{{end}}
+  </td><td class="task-detail-column">{{areaLabel .Area}}</td><td class="task-detail-column">{{.Created}}</td><td class="task-detail-column">{{.Done}}</td>
+</tr>{{end}}
+</tbody>
+</table>
+</section>
+{{end}}{{end}}

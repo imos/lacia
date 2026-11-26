@@ -1,0 +1,124 @@
+{{define "content"}}{{with .Data}}
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<section class="head">
+<p class="crumbs">{{areaLabel .Task.Area}}{{if .Plan}} › <a href="{{projectURL .Plan.Project}}">{{.Plan.Title}}</a>{{if .Entry}}（{{len .Plan.Entries}}件のうち {{.Position}}番目）{{end}}{{end}}{{if .Parent}} › <a href="{{taskURL .Parent.ID}}">{{.Parent.ID}} {{.Parent.Title}}</a>{{end}}</p>
+<h1><span class="id">{{.Task.ID}}</span> {{.Task.Title}}</h1>
+<p class="meta">
+  <span class="status {{.ListStatus}}">{{taskListLabel .ListStatus}}</span>
+  {{with .Owner}}<span class="owner">担当 {{.Label}}{{if .Known}}（最後の記録 {{clock .Last}}{{if .Details}}、{{.Details}}{{end}}）{{end}}</span>{{end}}
+  <span>作成日 {{.Task.Created}}</span>
+  {{if .ReviewSince}}<span>{{.Task.Status.Label}}になった日時 {{.ReviewSince}}</span>{{end}}
+  {{if .Task.Done}}<span>{{if eq .Task.Status "cancelled"}}取りやめ日{{else}}完了日{{end}} {{.Task.Done}}</span>{{end}}
+  {{if .Task.Due}}<span>期限 {{.Task.Due}}</span>{{end}}
+  {{if .Task.Priority}}<span>優先度 {{.Task.Priority}}</span>{{end}}
+  {{if .Task.ReadySince}}<span class="resume">{{.Task.ReadySince}} に、着手できるようになりました</span>{{end}}
+  {{if .Task.StoppedAt}}<span class="resume">短い間に書き込みが続いたため、{{.Task.StoppedAt}} から30分間、その呼び出し元からこのタスクへの書き込みを止めました</span>{{end}}
+</p>
+{{template "task-list-conditions" .Conditions}}
+{{if and .Task.ReadySince .CanAsk}}<form class="actions" method="post" action="/tasks/{{.Task.ID}}/start"><button class="primary">着手を頼む</button> <span class="hint">着手の依頼を受け付けて、タスクを進行中にします。</span></form>{{end}}
+<form class="actions" method="post" action="/tasks/{{.Task.ID}}/status">
+  {{range .Actions}}<button name="status" value="{{.Status}}" {{if .Primary}}class="primary"{{end}}>{{.Label}}</button>{{end}}
+  <input name="note" placeholder="ひとこと（履歴に残ります）" size="30">
+</form>
+{{with .Conditions.WaitingWarning}}<p class="notice" role="status">{{.}}</p>{{end}}
+{{if not .Task.Status.Closed}}<details class="schedule"{{if .Conditions.MissingCondition}} open{{end}}><summary>着手の条件と、着手を自動で頼む設定</summary>
+{{if or (eq .Task.Status "doing") .Conditions.MissingCondition}}<p class="hint">日時、ほかのタスク、次の定期実行を待つ場合は、下の該当する欄で指定できます。判断や操作をお願いする場合は、「確認待ちにする」を選ぶと要対応に出ます。</p>{{end}}
+<form method="post" action="/tasks/{{.Task.ID}}/schedule">
+  <input type="date" name="date" required aria-label="日付"> <input type="time" name="time" aria-label="時刻（省くと、その日の0時）">
+  <label><input type="checkbox" name="hide" value="1"{{if .Task.ResumeOn}} checked{{end}}> 指定した日時まで「待機」にする</label>
+  <button>指定する</button>
+</form>
+{{if or .Task.ResumeOn .Task.ReviewAt}}<form method="post" action="/tasks/{{.Task.ID}}/schedule"><button name="clear" value="1">指定を外す</button></form>{{end}}
+<p class="hint">時刻を省くと、その日の0時になります。チェックを外したままなら、日時を指定してもタスクはいまの一覧に残ります。</p>
+<form method="post" action="/tasks/{{.Task.ID}}/after">
+  <label>待つタスクのID <input name="after" value="{{range $j, $b := .Task.After}}{{if $j}}, {{end}}{{$b}}{{end}}" placeholder="X58, X61" size="18"></label>
+  <button>指定する</button>
+</form>
+<p class="hint">指定したすべてのタスクが「完了」か「取りやめ」になるまで待ちます。日時も指定した場合は、両方の条件がそろったときに着手できます。欄を空にして「指定する」を押すと、待つタスクの指定を外せます。</p>
+<form method="post" action="/tasks/{{.Task.ID}}/after-run">
+  <label>次の実行を待つ定期タスク <input name="after_run" list="after-run-routines" value="{{.Task.AfterRun}}" placeholder="S1001" size="18"></label>
+  <datalist id="after-run-routines">{{range .RoutineJobs}}<option value="{{.Name}}">{{.Title}}</option>{{end}}</datalist>
+  <button>指定する</button>
+</form>
+<p class="hint">指定したあとに予定された回の実行が終わるまで待ちます。失敗や一部だけ実行できた回は、条件がそろったときに「要対応」へ出します。欄を空にして指定すると、条件を外せます。</p>
+<form method="post" action="/tasks/{{.Task.ID}}/on-ready">
+  <label><input type="checkbox" name="start" value="1"{{if .Task.OnReady}} checked{{end}}> 条件がそろったら、自動で着手を頼む</label>
+  <label>宛先 <input name="to" value="{{.Task.ReadyTarget}}" placeholder="既定の会話" size="18"></label>
+  <button>指定する</button>
+</form>
+<p class="hint">自動で着手を頼む指定がなければ、条件がそろったときに「要対応」へ出します。</p>
+</details>{{end}}
+<p class="path"><code>{{.Task.Dir}}</code> · 元のファイル <a href="/tasks/{{.Task.ID}}/files/task.md?view=source">task.md</a>{{if .Notes}} <a href="/tasks/{{.Task.ID}}/files/notes.md?view=source">notes.md</a>{{end}}{{if .HasLog}} <a href="/tasks/{{.Task.ID}}/files/{{.LogName}}?view=source">{{.LogName}}</a>{{end}}</p>
+</section>
+
+{{if .Waits}}<section class="waits">
+  <h2>いま待っているもの</h2>
+  <ul>{{range .Waits}}<li>{{.Target}} の終了を待っています（待ちのID <code>{{.ID}}</code>）。{{.SeenLabel}}{{if not .SeenAt.IsZero}}（{{clock .SeenAt}} に確認）{{end}}。期限は {{clock .By}} です。{{if .Then}}<br><span class="hint">終わったらすること: {{.Then}}</span>{{end}}</li>{{end}}</ul>
+</section>{{end}}
+{{if .Handovers}}<section class="waits">
+  <h2>申し送り</h2>
+  <ul>{{range .Handovers}}<li>{{.Target}}（<code>{{.ID}}</code>）です。宛先は <code>{{.Next}}</code> です。{{.StatusText}}{{if .RequestedAction}}<br><strong>{{.RequestedAction}}</strong>{{end}}<br><span class="hint">{{.Then}}</span></li>{{end}}</ul>
+</section>{{end}}
+
+
+<article class="markdown">{{.Body}}</article>
+{{if .PastMaterials}}<details class="notes"><summary>これまでの資料</summary><ul>{{range .PastMaterials}}<li><a href="{{.URL}}">{{.Title}}</a> <span class="hint">最後に載っていた日時 {{.At}}</span></li>{{end}}</ul></details>{{end}}
+
+{{if .CanAsk}}<section class="ask">
+  <form method="post" action="/requests">
+    <input type="hidden" name="task" value="{{.Task.ID}}">
+    <textarea name="text" rows="2" placeholder="このタスクについて、レイシアに頼みたいことを書いてください" required></textarea>
+    <div><button class="primary">依頼する</button></div>
+  </form>
+  {{range .Requests}}<div class="exchange"><p class="meta"><a href="/requests/{{.ID}}">この依頼と続き</a> <span class="status req-{{.Status}}">{{.StatusLabel}}</span> {{clock .Created}}{{if .Sender}} レイシアの別の会話（{{.Sender}}）から{{end}}</p><p class="asked">{{.Text}}</p>{{if .Reply}}<div class="reply">{{markdown .Reply}}</div>{{end}}{{if .DeliveryLabel}}<p class="hint">{{.DeliveryLabel}}</p>{{end}}{{if .Error}}<p class="notice">{{.Error}}</p>{{end}}</div>{{end}}
+</section>{{end}}
+{{if .CanTellPeer}}<section class="ask">
+  <h2>{{peerLabel}}のレイシアへ伝える</h2>
+  <form method="post" action="/peer/messages">
+    <input type="hidden" name="task" value="{{.Task.ID}}">
+    <textarea name="text" rows="2" placeholder="このタスクについて、{{peerLabel}}のレイシアへ伝えることを書いてください" required></textarea>
+    <div><label><input type="checkbox" name="discord" value="1"> 返事をDiscordにも投稿する</label> <button>{{peerLabel}}へ伝える</button></div>
+  </form>
+  <p class="hint">入力した文は、{{label}}の会話を通さず、そのまま{{peerLabel}}のレイシアへ届けます。</p>
+  {{range .Told}}<div class="exchange"><p class="meta"><span class="status req-{{.Status}}">{{.StatusLabel}}</span> {{clock .Created}} {{.Source}}{{if .Sender}}（レイシアの別の会話 {{.Sender}} から）{{end}}</p><p class="asked">{{.Text}}</p>{{if .Reply}}<div class="reply">{{markdown .Reply}}</div>{{end}}{{if .Error}}<p class="notice">{{.Error}}</p>{{end}}</div>{{end}}
+</section>{{end}}
+
+{{if .Artifacts}}<section>
+  <h2>成果物</h2>
+  <ul class="files">{{range .ArtifactInfo}}<li><a href="/tasks/{{$.Data.Task.ID}}/files/{{.Path}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}</li>{{end}}</ul>
+</section>{{end}}
+
+<section class="stored">
+  {{if .Stored}}<h2>大きな成果物 <span class="count">{{len .Stored}}件、{{.StoredSum}}</span></h2>
+  <p class="hint">グラフや画像を埋め込んだHTMLなど、作り直せる大きなファイルは、Webサーバーにあるタスクの <code>files/</code> に保存します。Gitには含めません。{{if .ExpiresOn}}ここにあるファイルは {{.ExpiresOn}} に消えます。{{else if .Pinned}}タスクを閉じたあとも残します。{{else}}タスクを閉じてから90日で消えます。{{end}}</p>
+  <ul class="files">{{range .StoredInfo}}<li><a href="/tasks/{{$.Data.Task.ID}}/files/{{.Path}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}
+    <span class="due">{{size .Size}}</span><form method="post" action="/tasks/{{$.Data.Task.ID}}/stored" class="inline"><button name="remove" value="{{.RemovePath}}" class="quiet" title="このファイルを消す">消す</button></form></li>{{end}}</ul>{{end}}
+  <details class="schedule"><summary>成果物のファイルを置く</summary>
+  <form method="post" action="/tasks/{{.Task.ID}}/upload" enctype="multipart/form-data">
+    <input type="file" name="file" multiple required>
+    <label><input type="radio" name="to" value="files" checked> 大きな成果物（Gitに入れない）</label>
+    <label><input type="radio" name="to" value="artifacts"> 成果物（Gitに入れる）</label>
+    <button>置く</button>
+  </form>
+  <form method="post" action="/tasks/{{.Task.ID}}/stored">{{if .Pinned}}<button name="keep" value="0">大きな成果物を残す指定を外す</button>{{else}}<button name="keep" value="1">大きな成果物をタスクの終了後も残す</button>{{end}}</form>
+  <p class="hint">ファイルは1件につき50 MiBまでです。「大きな成果物」はタスクごとに合計500 MiBまで保存できます。残す指定がなければ、タスクを閉じてから90日で消えます。</p>
+  </details>
+</section>
+
+{{if .Children}}<section>
+  <h2>子のタスク</h2>
+  <ul class="rows">{{range .Children}}<li><a class="id" href="{{taskURL .ID}}">{{.ID}}</a> <a class="title" href="{{taskURL .ID}}">{{.Title}}</a> <span class="status {{.Status}}">{{.Status.Label}}</span></li>{{end}}</ul>
+</section>{{end}}
+
+{{if .Notes}}<details class="notes"><summary>補足</summary><article class="markdown">{{.Notes}}</article></details>{{end}}
+
+{{if .Warnings}}<details class="notes"><summary>書き方の点検で気になる点（{{len .Warnings}}件）</summary><ul class="warnings">{{range .Warnings}}<li>{{.}}</li>{{end}}</ul><p class="hint">書き方は、<code>lacia rules tasks</code> で読めます。</p></details>{{end}}
+
+{{if .HasLog}}<section class="log">
+  <h2>履歴</h2>
+  {{if .History}}{{template "history-groups" .History}}{{else}}<ul>{{range .Recent}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <p><a href="/tasks/{{.Task.ID}}/log">履歴をすべて見る</a></p>
+</section>{{end}}
+{{end}}{{end}}
+
+{{define "history-groups"}}{{range .}}<details class="history-group"><summary>{{.Label}}（{{len .Entries}}件）</summary><ul>{{range .Entries}}<li>{{.Text}}{{if .Body}}<details><summary>このときの本文</summary><article class="markdown">{{.Body}}</article></details>{{end}}</li>{{end}}</ul></details>{{end}}{{end}}

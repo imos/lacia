@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="icon" type="image/png" href="/static/brand.png?shape=circle">
+<link rel="stylesheet" href="{{appCSS}}">
+<script src="/static/app.js" defer></script>
+{{block "head" .}}{{end}}
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="/" aria-label="レイシアのトップページへ"><img src="/static/brand.png" alt="" width="48" height="48"><span>レイシア<small>(Lacia)</small></span></a>
+  <nav><a href="/">ホーム</a>{{if .Tasks}}<a href="/projects">プロジェクト</a><a href="/tasks">すべてのタスク</a>{{end}}<a href="/requests">やり取り</a>{{if .HasPeer}}<a href="/peer">{{peerLabel}}</a>{{end}}{{if .HasSelf}}<a href="/self">レイシアのこと</a>{{end}}<a href="/routines">定期タスク</a><a href="/who">会話</a><a href="/settings/calendar">予定の連携</a></nav>
+</header>
+<main>
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+{{if .Problems}}<div class="notice"><p>読み込めないタスクがあります。ファイルを直すと表示されます。</p><ul>{{range .Problems}}<li><code>{{.Path}}</code>：{{.Err}}</li>{{end}}</ul></div>{{end}}
+{{block "content" .}}{{end}}
+</main>
+<footer class="site">{{if .Version}}版：{{.Version}}{{end}}</footer>
+</body>
+</html>

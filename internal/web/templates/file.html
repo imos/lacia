@@ -1,0 +1,12 @@
+{{define "content"}}{{with .Data}}
+<section class="head"><p class="crumbs">{{if .Task}}<a href="{{taskURL .Task.ID}}">{{.Task.ID}} {{.Task.Title}}</a> › {{end}}<code>{{.Path}}</code></p>
+{{if .Markdown}}<p class="views">{{if .Source}}<a href="{{.URL}}">整えた表示</a> <strong>Markdown</strong> <button type="button" class="copy" data-copy="#source">すべてコピー</button>{{else}}<strong>整えた表示</strong> <a href="{{.URL}}?view=source">Markdown</a>{{end}}</p>{{end}}
+</section>
+{{if .Settings}}<details class="notes file-settings">
+<summary>設定</summary>
+<dl>{{range .Settings}}<dt><code>{{.Key}}</code></dt><dd>{{.Value}}</dd>{{end}}</dl>
+</details>{{end}}
+{{if .History}}{{template "history-groups" .History}}{{else if or .Body .Settings}}<article class="markdown">{{.Body}}</article>{{else}}<pre class="plain" id="source">{{.Plain}}</pre>{{end}}
+{{end}}{{end}}
+
+{{define "history-groups"}}{{range .}}<details class="history-group"><summary>{{.Label}}（{{len .Entries}}件）</summary><ul>{{range .Entries}}<li>{{.Text}}{{if .Body}}<details><summary>このときの本文</summary><article class="markdown">{{.Body}}</article></details>{{end}}</li>{{end}}</ul></details>{{end}}{{end}}

@@ -1,0 +1,11 @@
+{{define "content"}}
+<section class="head"><h1>プロジェクト</h1><p class="hint">プロジェクトごとに、目的と進め方、タスクに取りかかる順番を見られます。</p></section>
+{{range .Data}}
+<section class="project-card">
+  <h2><a href="{{projectURL .Project}}">{{.Title}}</a> <span class="status project-{{.Status}}">{{projectStatus .Status}}</span> <span class="count">全{{len .Entries}}件のうち、未完了が{{.Unfinished}}件</span></h2>
+  <p class="hint">{{areaLabel .Area}} · <code>{{.Dir}}</code></p>
+  {{if .Next}}<p class="next-task">次に着手するタスク <a href="{{taskURL .Next.ID}}">{{.Next.ID}} {{.Next.Title}}</a></p>{{end}}
+</section>
+{{else}}<section><p>まだプロジェクトがありません。領域のディレクトリーの下に <code>projects/&lt;名前&gt;/project.md</code> を置くと、ここに表示されます。</p></section>
+{{end}}
+{{end}}

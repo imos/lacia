@@ -1,0 +1,37 @@
+{{define "content"}}
+{{with .Data}}
+{{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+<section>
+<h1>レイシアのこと</h1>
+<p class="hint">日々のやり取りを通じて、わたしがどんなふうに考えるようになったかを書いています。決まりでも、出来事の記録でもありません。気づいたことはその日のうちに書き留め、{{if .At}}毎日 {{.At}} に{{else}}1日に1回、{{end}}やり取りと一緒に読み返して、自分についての記録を書き直します。</p>
+</section>
+<section class="ask">
+  <form method="post" action="/self/comments">
+    <textarea name="text" rows="3" placeholder="レイシアについて、感じたことや直してほしいところを書いてください" required></textarea>
+    <div><button class="primary">レイシアへ伝える</button></div>
+  </form>
+  <p class="hint">入力した文は{{owner}}の言葉として保存し、次に夜の書き直しをするときに読みます。</p>
+</section>
+<section>
+<h2>いまの記録</h2>
+{{if .Document}}<div class="reply">{{markdown .Document}}</div>{{else}}<p>自分についての記録はまだありません。</p>{{end}}
+</section>
+<section>
+<h2>書き直しに使う書き留め</h2>
+<p class="hint">書き直した文書を採用したら、それに使った書き留めを消します。</p>
+{{range .Notes}}<div class="exchange">
+  <p class="meta">{{clock .At}} {{if .From}}{{.From}}{{else}}レイシア{{end}} {{if .Task}}<a href="{{taskURL .Task}}">{{.Task}}</a>{{end}}</p>
+  <p class="asked">{{.Text}}</p>
+</div>{{else}}<p>書き留めはありません。</p>{{end}}
+</section>
+<section>
+<h2>夜ごとの記録</h2>
+{{range .Nights}}<div class="exchange">
+  <p class="meta">{{clock .At}} {{if .Accepted}}<span class="status req-done">書き直しました</span>{{else if .Skipped}}<span class="status">材料がなく、見送りました</span>{{else}}<span class="status req-failed">採用しませんでした</span>{{end}}{{if .Weekly}} 週に1度の見直し{{end}}</p>
+  {{if .Summary}}<p class="asked">{{.Summary}}</p>{{end}}
+  {{if .Reason}}<p class="notice">{{.Reason}} 前の版を残しています。{{if .Draft}} <a href="/self/rejected/{{.Draft}}">採用しなかった案を読む</a>{{end}}</p>{{end}}
+  {{if .Sharing}}<p class="notice">{{.Sharing}}</p>{{end}}
+</div>{{else}}<p>書き直しの記録はまだありません。</p>{{end}}
+</section>
+{{end}}
+{{end}}

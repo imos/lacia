@@ -1,0 +1,107 @@
+# Lacia License 1.0
+
+Copyright (c) 2026 imos
+
+This license is written in English and Japanese. The Japanese version follows the English version. If the two versions differ, the Japanese version prevails.
+
+このライセンスは、英語と日本語で書かれています。日本語版は、英語版のあとにあります。2つの版に食い違いがあるときは、日本語版が優先します。
+
+## Acceptance
+
+By copying or using the software, you agree to these terms.
+
+## License
+
+The licensor grants you a free, non-exclusive, non-transferable license to use, copy, and modify the software for your own use, subject to the limitations and conditions below.
+
+Your own use covers your private life and your own work, whether for your employer, your clients, or your own business. You may run the software on any computer, server, or cloud environment set up for you, including one provided by your employer. For example:
+
+- You may be paid for work you do with the software, and deliver the results of that work.
+- The software may contact other people on your behalf, such as by email or chat.
+- Your employer, or someone you ask, may install and maintain the software for you, and may be paid for that work.
+- Your family may use your setup for household matters.
+- You may fork the official GitHub repository and publish changes in your fork in order to propose them to the licensor.
+
+## Limitations
+
+Unless the licensor gives you separate permission in writing (email is sufficient), you may not:
+
+- sell the software, or provide it as part of a paid product or service;
+- let anyone other than you and your family use the software for their own purposes, whether as a service for others or as a setup shared within an organization; or
+- give copies of the software to others or make them public, even free of charge, except as described under "License".
+
+## Notices
+
+You may not remove the copyright notice or these terms from the software.
+
+## Termination
+
+If you violate these terms, your license ends. However, the first time the licensor notifies you of a violation, your license continues if you correct the violation within 30 days of the notice.
+
+## No Warranty and Limited Liability
+
+The software is provided "as is", without warranty of any kind. Except in cases of intent or gross negligence on the licensor's part, the licensor's total liability for damages relating to the software is limited to 10,000 yen.
+
+## Other Terms
+
+These terms grant no rights other than those expressly stated. Third-party materials included in the software remain under their own licenses. These terms are governed by the laws of Japan. If the English and Japanese versions differ, the Japanese version prevails.
+
+## Definitions
+
+The **licensor** is the copyright holder named above.
+
+The **software** is the software the licensor makes available under these terms, including any part of it and any modified version.
+
+**You** means the individual who agrees to these terms. A company or other organization cannot be a licensee.
+
+---
+
+# レイシア利用ライセンス 1.0
+
+## 同意
+
+本ソフトウェアを複製したり使用したりすると、この条件に同意したことになります。
+
+## 許諾
+
+権利者は、あなたが自分のために本ソフトウェアを使用、複製、改変することを、下の制限と条件のもとで許諾します。この許諾は無償、非独占で、ほかの人に譲ることはできません。
+
+「自分のため」には、私生活と、あなた自身の仕事が含まれます。仕事は、勤務先の業務でも、受託した仕事でも、自分の事業でも構いません。あなたのために用意された環境であれば、勤務先から提供されたものを含めて、どのPC、サーバー、クラウドでも使えます。たとえば、次のことができます。
+
+- 本ソフトウェアを使って行った仕事の報酬を受け取り、その成果を納めること。
+- あなたの用件について、本ソフトウェアがメールやチャットでほかの人に連絡すること。
+- 勤務先や、あなたが頼んだ人が、あなたのために本ソフトウェアを導入、保守し、その作業の対価を受け取ること。
+- あなたの環境を、家族が家庭の用事に使うこと。
+- GitHub の公式リポジトリーをフォークし、変更を権利者に提案するために、そのフォークで変更を公開すること。
+
+## 制限
+
+権利者から書面（電子メールで足ります）で別の許諾を得ない限り、次のことはできません。
+
+- 本ソフトウェアを販売すること、有償の製品やサービスの一部として提供すること。
+- あなたと家族以外の人に、その人自身の目的で本ソフトウェアを使わせること。外部向けのサービスとして提供する場合も、組織の中で共用する場合も含みます。
+- 本ソフトウェアの複製物を、ほかの人に渡すこと、公開すること。無償でも同じです。ただし、「許諾」に書いた場合を除きます。
+
+## 表示
+
+本ソフトウェアから、著作権表示とこの条件を取り除くことはできません。
+
+## 終了
+
+この条件に違反すると、許諾は終了します。ただし、権利者から初めて違反の通知を受けたときは、通知から30日以内に違反を解消すれば、許諾は続きます。
+
+## 無保証と責任の制限
+
+本ソフトウェアは、現状のまま、いかなる保証もなく提供されます。権利者に故意又は重大な過失がある場合を除き、本ソフトウェアに関して権利者が負う損害賠償の責任は、合計1万円を上限とします。
+
+## そのほか
+
+この条件は、明記した以外の権利を与えるものではありません。本ソフトウェアに含まれる第三者の素材には、それぞれのライセンスが適用されます。この条件は日本法に従います。英語版と日本語版に食い違いがあるときは、日本語版が優先します。
+
+## 定義
+
+「権利者」は、上の著作権表示に記載された著作権者です。
+
+「本ソフトウェア」は、権利者がこの条件のもとで提供するソフトウェアです。その一部と、改変したものを含みます。
+
+「あなた」は、この条件に同意する個人です。会社などの組織は、許諾を受けることができません。

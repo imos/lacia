@@ -42,6 +42,7 @@ const (
 	EventHandover = "handover"
 	EventLegacy   = "legacy"
 	EventOrder    = "order"
+	EventRecheck  = "recheck"
 )
 
 // MaxHandoverBody is how much of task.md a handover event keeps.
@@ -215,8 +216,8 @@ func ReadHistory(dir string, format int, tail int) ([]string, error) {
 
 // ReadHistoryIn renders the history in the configured local time.
 func ReadHistoryIn(dir string, format int, tail int, loc *time.Location) ([]string, error) {
-	if err := (Config{Format: format}).RequireCurrentFormat(); err != nil {
-		return nil, err
+	if format == 0 {
+		return nil, (Config{Format: format}).RequireCurrentFormat()
 	}
 	events, err := ReadEvents(filepath.Join(dir, HistoryFile))
 	if err != nil {

@@ -152,7 +152,8 @@ func TestPartialCoverageKeepsRealFindingsReviewable(t *testing.T) {
 		}
 	}
 	snap, err := s.Routines.Snapshot("S1001")
-	if err != nil || len(snap.Pending) != 1 || len(snap.Pending[0].Matters) != 1 || len(snap.Pending[0].Unverified) != 1 {
+	if err != nil || len(snap.Pending) != 2 || len(snap.Pending[0].Matters) != 1 || len(snap.Pending[0].Unverified) != 1 ||
+		len(snap.Pending[1].Matters) != 0 || snap.Pending[1].ProblemKey == "" {
 		t.Fatalf("snapshot=%+v err=%v", snap, err)
 	}
 	out := httptest.NewRecorder()
@@ -167,7 +168,7 @@ func TestPartialCoverageKeepsRealFindingsReviewable(t *testing.T) {
 	}
 	out = httptest.NewRecorder()
 	h.ServeHTTP(out, httptest.NewRequest("GET", "/api/routine-notices", nil))
-	if out.Code != 200 || strings.Count(out.Body.String(), "routine_id") != 1 || !strings.Contains(out.Body.String(), `"receipt_page":true`) {
+	if out.Code != 200 || strings.Count(out.Body.String(), "routine_id") != 2 || !strings.Contains(out.Body.String(), `"receipt_page":true`) {
 		t.Fatalf("notices %d %s", out.Code, out.Body)
 	}
 }

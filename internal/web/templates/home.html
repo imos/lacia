@@ -1,7 +1,7 @@
 {{define "rows"}}
 <ul class="rows">
 {{range .}}<li class="task-list-row">
-  <div class="task-ref"><a class="id" href="{{if .URL}}{{.URL}}{{else}}{{taskURL .ID}}{{end}}">{{.ID}}</a>{{template "task-list-age" .}}</div>
+  <div class="task-ref">{{if .ID}}<a class="id" href="{{if .URL}}{{.URL}}{{else}}{{taskURL .ID}}{{end}}">{{.ID}}</a>{{template "task-list-age" .}}{{end}}</div>
   <div class="task-list-body">
   <a class="title" href="{{if .URL}}{{.URL}}{{else}}{{taskURL .ID}}{{end}}">{{.Title}}</a>
   {{if .Routine}}<span class="tag">定期タスク</span>{{end}}
@@ -13,8 +13,9 @@
   {{if eq .ListStatus "closing"}}<form method="post" action="/tasks/{{.ID}}/status" class="start"><input type="hidden" name="back" value="home"><input type="hidden" name="status" value="done"><button class="primary">完了にする</button></form>{{end}}
   {{if .Owner}}<span class="task-owner">担当 {{.Owner}}</span>{{end}}
   {{if .HandoverAction}}<p class="next">{{.HandoverAction}}</p>{{end}}
+  {{if .RoutineTaskNext}}<p class="next">{{.RoutineTaskNext}} <a href="{{.URL}}#task">タスクを開く</a></p>{{end}}
   {{if .Next}}<p class="next">{{.Next}}{{if .RoutineReceiptURL}} <a href="{{.RoutineReceiptURL}}">最新の未確認受付を開く</a>{{end}}</p>{{end}}
-  {{with .ParentTask}}<p class="next parent">親タスク: <a href="{{taskURL .ID}}">{{.ID}} {{.Title}}</a></p>{{end}}
+  {{with .ParentTask}}<p class="next parent">親タスク: <a href="{{taskURL .ID}}">{{.ID}} {{.Title}}</a></p>{{end}}{{range .RoutineIssues}}{{if .}}<p class="next">{{.}}</p>{{end}}{{end}}
   </div>
 </li>{{end}}
 </ul>
@@ -47,19 +48,12 @@
 {{if .Calendar}}<section class="calendar">{{.Calendar}}</section>{{end}}
 
 
-{{if .Troubles}}<section class="list review">
-  <h2>予約の不調 <span class="count">{{len .Troubles}}</span></h2>
-  <p class="hint">実行した回の記録で失敗が2回以上続いた予約や、2回以上続けて実行されなかった予約を表示します。設定に問題がある予約や、認証を待っている端末もここに出ます。問題が解消すると一覧から消えます。</p>
-  <ul class="rows">
-  {{range .Troubles}}<li>{{if .Name}}<a class="title" href="/routines/{{.Name}}">{{.Title}}</a>{{else}}<a class="title" href="/routines">{{.Title}}</a>{{end}}<p class="next">{{.Text}}</p></li>{{end}}
-  </ul>
-</section>{{end}}
 {{range .Sections}}{{if eq .Key "ready"}}{{template "projects" $.Data.Projects}}{{end}}{{if .Count}}
 <section class="list {{.Key}}">
   <h2>{{.Title}} <span class="count">{{.Count}}</span></h2>
   <p class="hint">{{.Hint}}</p>
   {{range .Blocks}}
-  <h3>{{areaLabel .Area}}</h3>
+  {{if .Area}}<h3>{{areaLabel .Area}}</h3>{{end}}
   {{template "rows" .Rows}}
   {{end}}
 </section>

@@ -39,7 +39,7 @@ func sessionRules(ctx context.Context, root, executable string) rules.SessionRul
 	cfg, _ := task.LoadConfig(root)
 	current, err := rules.ReadSessionRules(root, cfg.OwnerName())
 	if err != nil {
-		return rules.SessionRules{Behavior: strings.TrimSpace(chat.Behavior)}
+		return rules.SessionRules{Behavior: chat.BehaviorFor(cfg.OwnerName())}
 	}
 	if usingReplacement {
 		// An unavailable replacement is not evidence of a rollback. The

@@ -15,9 +15,11 @@ type ScopeHealth struct {
 
 // Health keeps full success separate from success of an individual scope.
 type Health struct {
-	LastSuccess    time.Time
-	Failed, Missed int
-	Unverified     map[string]ScopeHealth
+	LatestExecution Run
+	LastSuccess     time.Time
+	LastSuccessAt   time.Time
+	Failed, Missed  int
+	Unverified      map[string]ScopeHealth
 }
 
 const healthMonths = 3
@@ -52,6 +54,12 @@ func HealthOf(root, name string) Health {
 			}
 			seen[id] = true
 		}
+		switch run.Outcome {
+		case RunDone, RunNothing, RunPartial, RunFailed:
+			if h.LatestExecution.At.IsZero() {
+				h.LatestExecution = run
+			}
+		}
 		outcome := run.Outcome
 		if (outcome == RunDone || outcome == RunNothing) && len(run.Unverified) > 0 {
 			outcome = RunPartial
@@ -70,7 +78,8 @@ func HealthOf(root, name string) Health {
 			missing, failing = false, false
 		case RunDone, RunNothing:
 			missing, failing = false, false
-			if h.LastSuccess.IsZero() {
+			if h.LastSuccessAt.IsZero() {
+				h.LastSuccessAt = run.At
 				h.LastSuccess = run.Finished
 			}
 		}

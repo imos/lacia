@@ -19,6 +19,6 @@
 {{if .Problems}}<div class="notice"><p>読み込めないタスクがあります。ファイルを直すと表示されます。</p><ul>{{range .Problems}}<li><code>{{.Path}}</code>：{{.Err}}</li>{{end}}</ul></div>{{end}}
 {{block "content" .}}{{end}}
 </main>
-<footer class="site">{{if .Version}}版：{{.Version}}{{end}}</footer>
+<footer class="site"><a href="/design/">設計の文書</a>{{if .Version}} · 版：{{.Version}}{{end}}</footer>
 </body>
 </html>

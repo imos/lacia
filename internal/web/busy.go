@@ -53,3 +53,19 @@ func (s *Server) apiBusy(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, s.busy(within))
 }
+
+// apiRestart answers `lacia restart --when-idle`: the server stops once its
+// work is done, and whatever supervises it starts the binary on disk. The
+// server keeps the request itself, so the one who asks needs to know neither
+// its state directory nor which binary is running.
+func (s *Server) apiRestart(w http.ResponseWriter, _ *http.Request) {
+	if s.RestartWhenIdle == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "このサーバーは状態ディレクトリーを使っていないので、再起動を予約できません。"})
+		return
+	}
+	if err := s.RestartWhenIdle(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "再起動を予約できませんでした: " + err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"scheduled": true})
+}

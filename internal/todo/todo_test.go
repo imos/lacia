@@ -20,7 +20,10 @@ func TestRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ := store.Create(task.NewTask{Area: "work", Title: "確認してほしいこと", Status: task.Review})
-	store.Create(task.NewTask{Area: "personal", Title: "外の返事を待つこと（再開条件が未登録）", Status: task.Waiting})
+	// A record from before a waiting task needed a condition.
+	old, _ := store.Create(task.NewTask{Area: "personal", Title: "外の返事を待つこと（再開条件が未登録）"})
+	testrecords.WaitWithoutCondition(t, root, old.Dir)
+	store.Refresh(old.ID)
 	store.Create(task.NewTask{Area: "work", Title: "終わったこと", Status: task.Done})
 	later, _ := store.Create(task.NewTask{Area: "work", Title: "来年のこと"})
 	store.SetField(later.ID, "resume_on", "2999-01-01", "テスト")

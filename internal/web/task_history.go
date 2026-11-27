@@ -26,6 +26,7 @@ type historyGroup struct {
 type artifactInfo struct {
 	Size                        int64
 	Path, Title, At, RemovePath string
+	URL                         string // the page that shows the file
 	Current                     bool
 	at                          time.Time
 }
@@ -124,7 +125,7 @@ func eventStatus(e task.Event) task.Status {
 	switch e.Type {
 	case task.EventCreated:
 		return task.Status(e.Status)
-	case task.EventStatus, task.EventWoke, task.EventStopped:
+	case task.EventStatus, task.EventWoke, task.EventStopped, task.EventRecheck:
 		if e.From != e.To {
 			return task.Status(e.To)
 		}
@@ -195,6 +196,14 @@ func artifactInfos(root string, t task.Task, paths []string, lines []task.Line, 
 		return out[i].at.After(out[j].at)
 	})
 	return out
+}
+
+// setMaterialURLs points each file at the page under base that shows it:
+// /tasks/<ID> for a task, /routines/<ID> for a routine's task.
+func setMaterialURLs(items []artifactInfo, base string) {
+	for i := range items {
+		items[i].URL = base + "/files/" + items[i].Path
+	}
 }
 
 func (s *Server) taskReviewSince(t task.Task, lines []task.Line) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -13,16 +14,47 @@ import (
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
+	"github.com/imos/lacia/internal/testrecords"
 	"github.com/imos/lacia/internal/wait"
 )
 
-func TestWaitingGuidanceMatchesPageAndAPI(t *testing.T) {
+// waitWithoutCondition leaves a task waiting with nothing registered, the
+// way a record from before a waiting task needed a condition still reads.
+func waitWithoutCondition(t testing.TB, store *task.Store, id string) {
+	t.Helper()
+	item, err := store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testrecords.WaitWithoutCondition(t, store.Root(), item.Dir)
+	if err := store.Refresh(id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitingNeedsAConditionOnPageAndAPI(t *testing.T) {
 	store, s, handler, _ := setupWaits(t)
 	id := "T1001"
 	path := "/tasks/" + id
 	set := func(value string) map[string]any {
 		t.Helper()
 		return as(t, handler, caller.Caller{}, "POST", "/api"+path, `{"status":"`+value+`"}`)
+	}
+	refused := func(what string, code int, body string) {
+		t.Helper()
+		if code != http.StatusBadRequest || !strings.Contains(body, task.ErrWaitingNeedsCondition.Error()) || !strings.Contains(body, "lacia task set "+id+" review") {
+			t.Fatalf("%s was not refused with the way out: %d %s", what, code, body)
+		}
+		if got, _ := store.Get(id); got.Status != task.Doing {
+			t.Fatalf("%s moved the task: %+v", what, got)
+		}
+	}
+	api := func(body string) (int, string) {
+		t.Helper()
+		req := httptest.NewRequest("POST", "/api"+path, strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
 	}
 	check := func(warn bool) {
 		t.Helper()
@@ -31,7 +63,7 @@ func TestWaitingGuidanceMatchesPageAndAPI(t *testing.T) {
 			t.Fatalf("detail did not match expected warning %v (status %d)", warn, code)
 		}
 		if warn && !strings.Contains(body, `<details class="schedule" open>`) {
-			t.Fatal("condition settings are hidden after entering waiting without a condition")
+			t.Fatal("condition settings are hidden for a task that waits without a condition")
 		}
 		code, body, _ = get(t, handler, "/api/tasks/waiting-warnings")
 		var warnings map[string]string
@@ -39,19 +71,15 @@ func TestWaitingGuidanceMatchesPageAndAPI(t *testing.T) {
 			t.Fatalf("lint API did not match expected warning %v: %d %s", warn, code, body)
 		}
 	}
+	// Neither the page nor the API lets a task wait with nothing to bring it back.
 	rec := post(handler, path+"/status", "", url.Values{"status": {"waiting"}})
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("the Web save must succeed without a condition: %d", rec.Code)
-	}
-	saved, err := store.Get(id)
-	if err != nil || saved.Status != task.Waiting || saved.Owner != "" {
-		t.Fatalf("Web did not save ordinary waiting status: %+v %v", saved, err)
-	}
-	check(true)
+	refused("the Web save", rec.Code, rec.Body.String())
+	code, body := api(`{"status":"waiting"}`)
+	refused("the API save", code, body)
+	check(false)
 	for _, condition := range []struct{ field, value string }{
-		{"resume_on", "2026-11-20"}, {"after", "T1002"}, {"after_run", "S1001"},
+		{"resume_on", "2026-11-20"}, {"review_at", "2026-11-20 09:00"}, {"after", "T1002"}, {"after_run", "S1001"},
 	} {
-		set("doing")
 		if _, _, err := store.SetField(id, condition.field, condition.value, "test"); err != nil {
 			t.Fatal(err)
 		}
@@ -59,24 +87,37 @@ func TestWaitingGuidanceMatchesPageAndAPI(t *testing.T) {
 			t.Fatalf("waiting with %s: %v", condition.field, reply)
 		}
 		check(false)
+		// The last condition stays while the task waits.
+		if code, body := api(`{"field":"` + condition.field + `","value":""}`); code != http.StatusBadRequest || !strings.Contains(body, task.ErrWaitingNeedsCondition.Error()) {
+			t.Fatalf("removing %s from the waiting task: %d %s", condition.field, code, body)
+		}
+		set("doing")
 		if _, _, err := store.SetField(id, condition.field, "", "test"); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A handover somebody has yet to take is a condition the server keeps.
+	handoverRecord, _, err := s.Handovers.Add(handover.Handover{TaskID: id, Next: "local-codex", Then: "結果を確かめます。"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply := set("waiting"); reply["changed"] != true || reply["waiting_warning"] != nil {
+		t.Fatalf("waiting for a handover: %v", reply)
+	}
+	check(false)
+	if _, _, err := s.Handovers.Update(handoverRecord.ID, func(h *handover.Handover) bool { h.State = handover.Acked; return true }); err != nil {
+		t.Fatal(err)
+	}
+	// A condition that went away afterwards is still pointed out.
+	check(true)
+	if reply := set("waiting"); reply["changed"] != false || reply["waiting_warning"] != task.WaitingConditionWarning {
+		t.Fatalf("repeating the status of a task with no condition: %v", reply)
 	}
 	watch := addWait(t, handler, macClaude, "")
 	check(false)
 	as(t, handler, caller.Caller{}, "POST", "/api/waits/"+watch, `{"seen":"running"}`)
 	check(false)
 	if _, _, err := s.Waits.Update(watch, func(w *wait.Wait) bool { w.State = wait.Cancelled; return true }); err != nil {
-		t.Fatal(err)
-	}
-	check(true)
-	handoverRecord, _, err := s.Handovers.Add(handover.Handover{TaskID: id, Next: "local-codex", Then: "結果を確かめます。"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	check(false)
-	if _, _, err := s.Handovers.Update(handoverRecord.ID, func(h *handover.Handover) bool { h.State = handover.Acked; return true }); err != nil {
 		t.Fatal(err)
 	}
 	check(true)
@@ -92,14 +133,23 @@ func TestWaitingGuidanceMatchesPageAndAPI(t *testing.T) {
 	check(false)
 	queued.Resolve(item.ID, request.Running, "", "", false)
 	check(false)
-	queued.Resolve(item.ID, request.Done, "終わりました。", "", false)
-	check(true)
+	// The request being worked on is often the conversation that is about to
+	// leave the task: it does not let the task wait.
 	set("doing")
-	if reply := set("waiting"); reply["changed"] != true || reply["waiting_warning"] != task.WaitingConditionWarning {
-		t.Fatalf("unregistered API save: %v", reply)
-	}
+	code, body = api(`{"status":"waiting"}`)
+	refused("the API save during a request", code, body)
+	queued.Resolve(item.ID, request.Done, "終わりました。", "", false)
 	set("review")
 	check(false)
+}
+
+// A wait registered through the API puts its task aside by itself.
+func TestRegisteringAWaitLetsTheTaskWait(t *testing.T) {
+	store, _, handler, _ := setupWaits(t)
+	addWait(t, handler, macClaude, "")
+	if got, _ := store.Get("T1001"); got.Status != task.Waiting {
+		t.Fatalf("the task did not wait for the registered job: %+v", got)
+	}
 }
 
 func homeTaskSection(body, key string) string {
@@ -112,10 +162,11 @@ func TestTaskListsShowWaitingConditionsAndWatchProgress(t *testing.T) {
 	store, s, h, now := setupWaits(t)
 	add := func(title string) task.Task {
 		t.Helper()
-		v, err := store.Create(task.NewTask{Area: "work", Title: title, Status: task.Waiting})
+		v, err := store.Create(task.NewTask{Area: "work", Title: title})
 		if err != nil {
 			t.Fatal(err)
 		}
+		waitWithoutCondition(t, store, v.ID)
 		return v
 	}
 	field := func(v task.Task, key, value string) {
@@ -256,10 +307,18 @@ func TestTaskListSuppliesStructuredConditionAndKeepsTaskBody(t *testing.T) {
 	store, s, h, now := setupWaits(t)
 	newTask := func(title string, status task.Status) task.Task {
 		t.Helper()
+		waits := status == task.Waiting
+		if waits {
+			status = task.Todo
+		}
 		item, err := store.Create(task.NewTask{Area: "work", Title: title, Status: status,
 			Body: task.Body(store.Format(), "概要です。", "PRの結果を本文に書きます。")})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if waits {
+			waitWithoutCondition(t, store, item.ID)
+			item, _ = store.Get(item.ID)
 		}
 		return item
 	}

@@ -21,8 +21,8 @@ func TestEmbeddedRulesAreForAnyOwner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(text, OwnerMark) {
-			t.Errorf("%s: the owner's name was not filled in", doc.Name)
+		if strings.Contains(text, OwnerMark) || strings.Contains(text, DefaultOwner) {
+			t.Errorf("%s: the configured owner's name was not used", doc.Name)
 		}
 	}
 	core, _ := Load("", Core, "田中さん")
@@ -33,8 +33,8 @@ func TestEmbeddedRulesAreForAnyOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(voice, "役割を指すときは「オーナーさん」と書きます") || !strings.Contains(voice, "その方を呼ぶときは「田中さん」を使います") {
-		t.Error("voice must keep the role wording and the configured name")
+	if !strings.Contains(voice, "この記録の持ち主に呼びかけるときは「田中さん」を使います") {
+		t.Error("voice must use the configured name for the record owner")
 	}
 }
 
@@ -136,12 +136,22 @@ func TestLocalAdditions(t *testing.T) {
 }
 
 func TestCoreIncludesTheSharedChatBehavior(t *testing.T) {
-	core, err := Load("", Core, "")
-	if err != nil {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("lacia rules"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(core, strings.TrimSpace(chat.Behavior)) || strings.Contains(core, "{{案内の直接の宛先}}") {
-		t.Fatal("core does not include the shared behavior")
+	for _, name := range []string{DefaultOwner, "設定名さん"} {
+		session, err := ReadSessionRules(root, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if session.Behavior != chat.BehaviorFor(name) || strings.Count(session.Core, session.Behavior) != 1 ||
+			strings.Contains(session.Core, "{{案内の直接の宛先}}") || strings.Contains(session.Core, OwnerMark) {
+			t.Fatalf("core does not include the shared behavior for %s", name)
+		}
+		if name != DefaultOwner && strings.Contains(session.AddBehavior(session.Core), DefaultOwner) {
+			t.Fatal("configured instructions include the default name")
+		}
 	}
 }
 

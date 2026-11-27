@@ -28,6 +28,20 @@ func StateWarnings(t Task, tasks map[string]Task, context StateContext) []Warnin
 			out = append(out, Warning{Message: fmt.Sprintf("定期タスク %s を待ちますが、待機の登録時刻がありません。lacia task field %s after_run %s で待機を登録し直してください。", t.AfterRun, t.ID, t.AfterRun)})
 		}
 	}
+	if t.Rechecks() {
+		next, nextErr := ParseWhenIn(t.ResumeOn, t.location())
+		switch {
+		case t.Status != Waiting:
+			out = append(out, Warning{Message: fmt.Sprintf("%sですが、繰り返しの確認の項目（recheck_every など）が残っています。確認は外部待ちのあいだだけ動きます。続けるときは lacia task recheck %s --every %s --until 日時 で登録し直してください。", t.Status.Label(), t.ID, t.RecheckEvery)})
+		case t.ResumeOn == "" || nextErr != nil:
+			out = append(out, Warning{Message: "繰り返しの確認の、次の回の日時（resume_on）を読めません。サーバーが次の見回りで確認を頼み直します。"})
+		case !context.Now.IsZero() && context.Now.After(addEvery(next, t.RecheckEvery)):
+			out = append(out, Warning{Message: fmt.Sprintf("繰り返しの確認の予定（%s）を、間隔1回分より長く過ぎています。サーバーが動いていて、確認を頼めているかを確かめてください。", t.ResumeOn)})
+		}
+		if t.Status == Waiting && t.RecheckMissed > 0 {
+			out = append(out, Warning{Message: fmt.Sprintf("前回の確認は、結果が残らなかったか、対象を確かめられませんでした（続けて%d回）。%d回続くと、確認待ちへ出します。", t.RecheckMissed, MaxRecheckMisses)})
+		}
+	}
 	if t.Status == Doing && t.OwnerSession != "" && context.StaleAfter > 0 {
 		if last, ok := context.OwnerLast[t.OwnerSession]; ok && !last.IsZero() && context.Now.Sub(last) >= context.StaleAfter {
 			out = append(out, Warning{Message: fmt.Sprintf("進行中ですが、担当の会話 %s が最後にコマンドを使った記録は %s で、%d時間以上前です。会話がいまも動いているかは、この記録だけでは分かりません。", t.Owner, last.Format(time.RFC3339), int(context.StaleAfter.Hours()))})

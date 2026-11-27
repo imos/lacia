@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,19 +24,37 @@ func TestWaitingGuidanceInStandaloneAndConnectedCLI(t *testing.T) {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			t.Setenv("LACIA_API", "")
 			root := t.TempDir()
-			taskMirrorFixture(t, root, false)
+			dir := taskMirrorFixture(t, root, false)
 			if err := os.WriteFile(filepath.Join(root, task.ConfigFile), fmt.Appendf(nil, `{"format":%d}`, format), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			const id = "T1001"
-			out, advice, err := captureMirrorTask(t, "set", "--root", root, id, "waiting")
-			if err != nil || !strings.Contains(out, "にしました") || !strings.Contains(advice, task.WaitingConditionWarning) || !strings.Contains(advice, "task set T1001 review") {
-				t.Fatalf("standalone set: %q %q %v", out, advice, err)
+			refused := func(what string, err error) {
+				t.Helper()
+				if !errors.Is(err, task.ErrWaitingNeedsCondition) && (err == nil || !strings.Contains(err.Error(), task.ErrWaitingNeedsCondition.Error())) {
+					t.Fatalf("%s let the task wait with no condition: %v", what, err)
+				}
+				if !strings.Contains(err.Error(), "lacia task field "+id+" review_at") || !strings.Contains(err.Error(), "lacia task set "+id+" review") {
+					t.Fatalf("%s does not say how to go on: %v", what, err)
+				}
+				stored, readErr := os.ReadFile(filepath.Join(dir, task.TaskFile))
+				if readErr != nil || !strings.Contains(string(stored), "status: todo") {
+					t.Fatalf("%s moved the task: %s %v", what, stored, readErr)
+				}
 			}
-			out, _, err = captureMirrorTask(t, "lint", "--root", root, id)
-			if err != nil || !strings.Contains(out, task.WaitingConditionWarning) {
-				t.Fatalf("standalone lint: %q %v", out, err)
+			_, _, err := captureMirrorTask(t, "set", "--root", root, id, "waiting")
+			if format == 1 {
+				if err == nil || !strings.Contains(err.Error(), "lacia migrate --dry-run") {
+					t.Fatalf("format 1 did not get migration guidance: %v", err)
+				}
+				return
 			}
+			refused("the standalone command", err)
+			if _, _, err := captureMirrorTask(t, "new", "--root", root, "--area", "work", "--title", "待って作る", "--status", "waiting"); err == nil || !strings.Contains(err.Error(), task.ErrWaitingNeedsCondition.Error()) {
+				t.Fatalf("made a task that waits with no condition: %v", err)
+			}
+
+			// A handover in the state directory is a condition the server keeps.
 			state := t.TempDir()
 			if err := os.WriteFile(filepath.Join(state, "sessions.json"), []byte("[]"), 0o600); err != nil {
 				t.Fatal(err)
@@ -47,6 +66,15 @@ func TestWaitingGuidanceInStandaloneAndConnectedCLI(t *testing.T) {
 			pending, _, err := handovers.Add(handover.Handover{TaskID: id, Next: "local-codex", Then: "結果を確かめます。"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			out, advice, err := captureMirrorTask(t, "set", "--root", root, "--state", state, id, "waiting")
+			if err != nil || !strings.Contains(out, "にしました") || strings.Contains(advice, task.WaitingConditionWarning) {
+				t.Fatalf("standalone set with a handover: %q %q %v", out, advice, err)
+			}
+			// Without the state directory, the same task reads as one with no condition.
+			out, _, err = captureMirrorTask(t, "lint", "--root", root, id)
+			if err != nil || !strings.Contains(out, task.WaitingConditionWarning) {
+				t.Fatalf("standalone lint: %q %v", out, err)
 			}
 			out, _, err = captureMirrorTask(t, "lint", "--root", root, "--state", state, id)
 			if err != nil || strings.Contains(out, task.WaitingConditionWarning) {
@@ -70,13 +98,29 @@ func TestWaitingGuidanceInStandaloneAndConnectedCLI(t *testing.T) {
 			if _, _, err := handovers.Update(pending.ID, func(h *handover.Handover) bool { h.State = handover.Acked; return true }); err != nil {
 				t.Fatal(err)
 			}
+			// The condition went away afterwards: the task is pointed out.
 			out, _, err = captureMirrorTask(t, "lint", "--root", root, id)
 			if err != nil || !strings.Contains(out, task.WaitingConditionWarning) {
 				t.Fatalf("connected lint after acknowledgement: %q %v", out, err)
 			}
 			_, advice, err = captureMirrorTask(t, "set", "--root", root, id, "waiting")
-			if err != nil || !strings.Contains(advice, task.WaitingConditionWarning) {
-				t.Fatalf("connected set: %q %v", advice, err)
+			if err != nil || !strings.Contains(advice, task.WaitingConditionWarning) || !strings.Contains(advice, "task set T1001 review") {
+				t.Fatalf("connected set of a task that already waits: %q %v", advice, err)
+			}
+			if _, _, err := captureMirrorTask(t, "set", "--root", root, id, "todo"); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = captureMirrorTask(t, "set", "--root", root, id, "waiting")
+			refused("the connected command", err)
+			if _, _, err := captureMirrorTask(t, "field", "--root", root, id, "review_at", "2999-01-01"); err != nil {
+				t.Fatal(err)
+			}
+			out, advice, err = captureMirrorTask(t, "set", "--root", root, id, "waiting")
+			if err != nil || !strings.Contains(out, "にしました") || strings.Contains(advice, task.WaitingConditionWarning) {
+				t.Fatalf("connected set with a date: %q %q %v", out, advice, err)
+			}
+			if _, _, err := captureMirrorTask(t, "field", "--root", root, id, "review_at"); err == nil || !strings.Contains(err.Error(), task.ErrWaitingNeedsCondition.Error()) {
+				t.Fatalf("removed the last condition of a waiting task: %v", err)
 			}
 		})
 	}
@@ -154,7 +198,7 @@ func TestStateConditionsInDoctorAndSelectedLint(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := taskMirrorFixture(t, root, false)
-	body := "---\nid: T1001\ntitle: 確認する\nstatus: review\ncreated: 2026-11-25\nresume_on: 2999-01-01\nafter: T1002\n---\n\n## ひとことで\n\n確認します。\n\n## 次にすること\n\n利用者さんに確認していただきます。\n"
+	body := "---\nid: T1001\ntitle: 確認する\nstatus: review\ncreated: 2026-11-25\nresume_on: 2999-01-01\nafter: T1002\n---\n\n## ひとことで\n\n確認します。\n\n## 次にすること\n\nオーナーさんに確認していただきます。\n"
 	if err := os.WriteFile(filepath.Join(dir, task.TaskFile), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}

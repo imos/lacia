@@ -127,7 +127,13 @@ func New(cfg Config) *Bridge {
 		cfg.Threads = 8
 	}
 	if cfg.Instructions == "" {
-		cfg.Instructions = chat.WithBehavior(rules.FillPeer(strings.ReplaceAll(Instructions, rules.OwnerMark, task.OwnerName), ""))
+		owner := task.OwnerName
+		if cfg.Workspace != "" {
+			if record, err := task.LoadConfig(cfg.Workspace); err == nil {
+				owner = record.OwnerName()
+			}
+		}
+		cfg.Instructions = chat.WithBehavior(rules.FillPeer(strings.ReplaceAll(Instructions, rules.OwnerMark, owner), ""), owner)
 	}
 	return &Bridge{cfg: cfg, turns: map[string]*turn{}}
 }

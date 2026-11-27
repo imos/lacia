@@ -1,0 +1,9 @@
+{{/* Parts of a task that the task page and a routine's page share. */}}
+
+{{define "task-artifacts"}}<ul class="files">{{range .}}<li><a href="{{.URL}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}</li>{{end}}</ul>{{end}}
+
+{{define "task-notes"}}{{if .}}<details class="notes"><summary>補足</summary><article class="markdown">{{.}}</article></details>{{end}}{{end}}
+
+{{define "task-warnings"}}{{if .}}<details class="notes"><summary>書き方の点検で気になる点（{{len .}}件）</summary><ul class="warnings">{{range .}}<li>{{.}}</li>{{end}}</ul><p class="hint">書き方は、<code>lacia rules tasks</code> で読めます。</p></details>{{end}}{{end}}
+
+{{define "history-groups"}}{{range .}}<details class="history-group"><summary>{{.Label}}（{{len .Entries}}件）</summary><ul>{{range .Entries}}<li>{{.Text}}{{if .Body}}<details><summary>このときの本文</summary><article class="markdown">{{.Body}}</article></details>{{end}}</li>{{end}}</ul></details>{{end}}{{end}}

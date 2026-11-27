@@ -49,7 +49,7 @@ func lintWaitingConditions(api apiClient, state string, targets []task.Task) (ma
 	if !slices.ContainsFunc(targets, func(t task.Task) bool { return t.MissingWaitingCondition(false) }) {
 		return nil, nil
 	}
-	live, err := localWaitConditions(state)
+	live, err := localWaitConditions(state, true)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +62,18 @@ func lintWaitingConditions(api apiClient, state string, targets []task.Task) (ma
 }
 
 // A standalone CLI checks the runtime records only when given their location.
-func localWaitConditions(state string) (map[string]bool, error) {
+// A request in the queue hides the warning in a list, but it is no reason
+// to let a task start waiting (withRequests false): see Server.liveCondition.
+func localWaitConditions(state string, withRequests bool) (map[string]bool, error) {
 	if state == "" {
 		return nil, nil
 	}
 	requests, err := openExistingState(state, "requests", request.OpenRecords)
 	if err != nil {
 		return nil, err
+	}
+	if !withRequests {
+		requests = nil
 	}
 	watches, err := openExistingState(state, "waits", wait.Open)
 	if err != nil {

@@ -35,16 +35,20 @@ type Handoff struct {
 
 // Result is one run's report of coverage, findings and handoffs.
 type Result struct {
-	Version     int      `json:"version,omitempty"`
-	CheckStatus string   `json:"check_status,omitempty"`
-	Checks      []Check  `json:"checks,omitempty"`
-	Unverified  []string `json:"unverified,omitempty"`
-	Nothing     bool     `json:"nothing,omitempty"`
-	RunID       string   `json:"run_id"`
-	Summary     string   `json:"summary,omitempty"`
-	Reference   string   `json:"reference,omitempty"`
-	Matters     []Matter `json:"matters,omitempty"`
-	Suppress    bool     `json:"-"`
+	Resolved     []string  `json:"resolved,omitempty"`
+	Version      int       `json:"version,omitempty"`
+	CheckStatus  string    `json:"check_status,omitempty"`
+	Checks       []Check   `json:"checks,omitempty"`
+	Unverified   []string  `json:"unverified,omitempty"`
+	Nothing      bool      `json:"nothing,omitempty"`
+	RunID        string    `json:"run_id"`
+	Summary      string    `json:"summary,omitempty"`
+	Reference    string    `json:"reference,omitempty"`
+	Matters      []Matter  `json:"matters,omitempty"`
+	Suppress     bool      `json:"-"`
+	ProblemKey   string    `json:"-"`
+	ProblemAt    time.Time `json:"-"`
+	ProblemSince time.Time `json:"-"`
 
 	Handoffs []Handoff `json:"handoffs,omitempty"`
 }
@@ -55,6 +59,9 @@ func ReceiptURL(id string, sequence uint64) string {
 }
 
 type Receipt struct {
+	Outcome    string    `json:"outcome,omitempty"`
+	ProblemKey string    `json:"problem_key,omitempty"`
+	ProblemAt  time.Time `json:"problem_at,omitzero"`
 	Unverified []string  `json:"unverified,omitempty"`
 	Sequence   uint64    `json:"sequence"`
 	RunID      string    `json:"run_id"`
@@ -81,6 +88,7 @@ type Event struct {
 	At         time.Time   `json:"at"`
 	Receipt    *Receipt    `json:"receipt,omitempty"`
 	RunID      string      `json:"run_id,omitempty"`
+	ProblemKey string      `json:"problem_key,omitempty"`
 	Sequence   uint64      `json:"sequence,omitempty"`
 	Completion *Completion `json:"completion,omitempty"`
 }
@@ -146,6 +154,7 @@ func (s *Store) read(id string) (Snapshot, error) {
 		return state, err
 	}
 	sort.Strings(paths)
+	var previousID string
 	for _, path := range paths {
 		f, err := os.Open(path)
 		if err != nil {
@@ -160,7 +169,17 @@ func (s *Store) read(id string) (Snapshot, error) {
 			if err = json.Unmarshal(scan.Bytes(), &e); err != nil {
 				break
 			}
-			if e.RoutineID != id {
+			if e.RoutineID != id && previousID == "" {
+				// A renamed routine keeps its earlier events byte-for-byte.
+				if raw, readErr := os.ReadFile(filepath.Join(dir, "routine.md")); readErr == nil {
+					if doc, parseErr := task.ParseDoc(string(raw)); parseErr == nil {
+						if alias := doc.Get("legacy_name"); task.ValidRoutineID(alias) {
+							previousID = alias
+						}
+					}
+				}
+			}
+			if e.RoutineID != id && (previousID == "" || e.RoutineID != previousID) {
 				err = errors.New("履歴の定期タスクIDが一致しません")
 				break
 			}
@@ -300,19 +319,23 @@ func (s *Store) Accept(id string, result Result) (Receipt, bool, error) {
 		if err != nil {
 			return err
 		}
-		for _, e := range state.History {
-			if e.RunID == result.RunID || (e.Receipt != nil && e.Receipt.RunID == result.RunID) {
-				for _, r := range state.Receipts {
-					if r.RunID == result.RunID {
-						out = r
-						break
-					}
-				}
+		for _, receipt := range state.Receipts {
+			if receipt.RunID == result.RunID {
+				out = receipt
+				return nil
+			}
+		}
+		for _, event := range state.History {
+			if event.RunID == result.RunID && (result.ProblemKey == "" || event.ProblemKey != "") {
 				return nil
 			}
 		}
 		known := map[[2]string]bool{}
+		problemKey := result.ProblemKey
 		for _, r := range state.Receipts {
+			if problemKey == r.ProblemKey && r.ProblemAt.After(result.ProblemSince) {
+				problemKey = ""
+			}
 			for _, m := range r.Matters {
 				known[[2]string{m.Key, m.Revision}] = true
 			}
@@ -329,12 +352,16 @@ func (s *Store) Accept(id string, result Result) (Receipt, bool, error) {
 			}
 		}
 		e := Event{RoutineID: id, At: s.now(), RunID: result.RunID}
-		if result.Suppress || result.Nothing {
+		if result.ProblemKey == "" && (result.Suppress || result.Nothing) {
 			e.Type = "suppressed"
-		} else if len(result.Matters) > 0 && len(matters) == 0 {
+		} else if problemKey == "" && len(matters) == 0 && (len(result.Matters) > 0 || result.ProblemKey != "") {
 			e.Type = "deduplicated"
+			e.ProblemKey = result.ProblemKey
 		} else {
-			out = Receipt{Unverified: result.Unverified, Sequence: state.LatestSequence + 1, RunID: result.RunID, Summary: result.Summary, Reference: result.Reference, Matters: matters, AcceptedAt: e.At}
+			out = Receipt{ProblemKey: problemKey, Unverified: result.Unverified, Sequence: state.LatestSequence + 1, RunID: result.RunID, Summary: result.Summary, Reference: result.Reference, Matters: matters, AcceptedAt: e.At}
+			if problemKey != "" {
+				out.ProblemAt = result.ProblemAt
+			}
 			e.Type = "accepted"
 			e.Receipt = &out
 		}
@@ -345,6 +372,37 @@ func (s *Store) Accept(id string, result Result) (Receipt, bool, error) {
 		return nil
 	})
 	return out, created, err
+}
+
+// Record puts one execution in the receipt history. Older receipts and their
+// signed links keep their original number. Another run of the same problem
+// is its own record; deduplication belongs to the task, not these records.
+func (s *Store) Record(id, outcome string, result Result) (Receipt, error) {
+	var out Receipt
+	err := s.locked(id, func() error {
+		if result.RunID == "" {
+			return errors.New("実行IDが必要です")
+		}
+		state, err := s.read(id)
+		if err != nil {
+			return err
+		}
+		for _, receipt := range state.Receipts {
+			if receipt.RunID == result.RunID {
+				out = receipt
+				return nil
+			}
+		}
+		at := s.now()
+		out = Receipt{
+			Outcome: outcome, Sequence: state.LatestSequence + 1,
+			RunID: result.RunID, AcceptedAt: at, Summary: result.Summary,
+			Reference: result.Reference, Unverified: result.Unverified,
+			Matters: result.Matters, ProblemKey: result.ProblemKey, ProblemAt: result.ProblemAt,
+		}
+		return s.appendEvent(id, Event{Type: "accepted", RoutineID: id, At: at, RunID: result.RunID, Receipt: &out})
+	})
+	return out, err
 }
 
 func (s *Store) Complete(id string, c Completion) (Snapshot, error) {

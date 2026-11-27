@@ -23,6 +23,7 @@ h3 { font-size: .9rem; color: var(--muted); margin: 1rem 0 .2rem; }
 h4 { font-size: .9rem; margin: .8rem 0 .1rem; font-weight: 600; }
 .count { color: var(--muted); font-weight: 400; font-size: .9rem; }
 .hint, .crumbs, .path, .meta { color: var(--muted); font-size: .85rem; margin: .2rem 0; }
+.item-date { color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; margin-right: .2rem; }
 .notice { background: #fff2db; color: #9a5f06; border: 1px solid #f1dfbd; border-radius: 6px; padding: .5rem .8rem; }
 .receipt-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
 .flash { background: #e4f3ea; color: #1e6f47; border: 1px solid #c7e3d3; border-radius: 6px; padding: .4rem .8rem; }
@@ -137,3 +138,9 @@ p.more a { color: var(--muted); }
 form.inline { display: inline; }
 button.quiet { border: 0; background: none; color: var(--muted); font-size: .78rem; cursor: pointer; padding: 0 .3rem; }
 button.quiet:hover { color: #b3261e; }
+/* A routine's definition is a request to a conversation; its headings sit below the page's own. */
+.routine-prompt h2 { font-size: .95rem; border-bottom: 0; margin-top: 1rem; }
+.routine-prompt h3, .routine-prompt h4 { font-size: .9rem; }
+section.routine-task > .markdown { margin-top: .6rem; }
+#problem { border-left: 3px solid var(--review); padding: .1rem 0 .1rem .8rem; margin: .6rem 0; }
+#problem h3 { color: var(--review); margin-top: .2rem; }

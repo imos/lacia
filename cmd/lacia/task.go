@@ -19,7 +19,7 @@ import (
 
 func runTask(args []string) error {
 	if len(args) == 0 {
-		return errors.New("task のあとに list、show、log、new、set、claim、field、note、write、attach、lint、path のどれかを指定してください")
+		return errors.New("task のあとに list、show、log、new、set、claim、field、recheck、rechecked、note、write、attach、lint、path のどれかを指定してください")
 	}
 	fs := commandFlags("task " + args[0])
 	root := fs.String("root", "", "記録のリポジトリー")
@@ -35,6 +35,9 @@ func runTask(args []string) error {
 	note := fs.String("note", "", "履歴に残す補足")
 	to := fs.String("to", task.FilesDir, "成果物の置き場所。files は Git の管理外に置き、artifacts は Git に保存します")
 	as := fs.String("as", "", "成果物に付ける名前（省くと元のファイル名を使います）")
+	every := fs.String("every", "", "recheck で、確認の間隔（1d、3h のように、日か時間で書きます）")
+	until := fs.String("until", "", "recheck で、確認を続ける期限の日付か日時")
+	next := fs.String("next", "", "recheck で、最初の確認の日時（省くと、いまから間隔1回分のあとです）")
 	// Flags may come before or after the positional arguments.
 	var positional []string
 	rest := args[1:]
@@ -91,6 +94,9 @@ func runTask(args []string) error {
 		}
 	}
 
+	if err := requireCurrentRecords(dir); err != nil {
+		return err
+	}
 	store, err := task.Open(dir)
 	if err != nil {
 		return err
@@ -98,6 +104,12 @@ func runTask(args []string) error {
 	for _, p := range store.Problems() {
 		fmt.Fprintf(os.Stderr, "読み込めないタスクがあります: %s: %s\n", p.Path, p.Err)
 	}
+	// Without a server, the waits and handovers it keeps are read from its
+	// state directory when the caller says where that is.
+	store.SetLiveCondition(func(id string) bool {
+		live, err := localWaitConditions(*state, false)
+		return err == nil && live[id]
+	})
 	// The server names the conversation itself; only an explicit name is
 	// sent. Without a server, the name comes from the caller found here.
 	actor := os.Getenv("LACIA_ACTOR")
@@ -136,9 +148,6 @@ func runTask(args []string) error {
 			return err
 		}
 		if *asJSON {
-			if store.Format() < 1 {
-				return errors.New("このタスクの履歴は log.md にあります。表示するには --json を外してください")
-			}
 			events, err := task.ReadEvents(filepath.Join(dir, t.Dir, task.HistoryFile))
 			if err != nil {
 				return err
@@ -199,7 +208,7 @@ func runTask(args []string) error {
 				return err
 			}
 			if t.MissingWaitingCondition(false) {
-				live, err := localWaitConditions(*state)
+				live, err := localWaitConditions(*state, true)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "再開条件の登録状況を確かめられませんでした。", err)
 				} else if !live[t.ID] {
@@ -268,6 +277,61 @@ func runTask(args []string) error {
 			}
 		}
 		fmt.Printf("%s の %s を更新しました。\n", strings.ToUpper(positional[0]), positional[1])
+	case "recheck":
+		// Registers how often and until when a waiting task is looked at.
+		// The server keeps the time of the next look.
+		if err := need(1, "ID"); err != nil {
+			return err
+		}
+		var t task.Task
+		var changed bool
+		if api != "" {
+			var out updateReply
+			if err := api.call("POST", "/api/tasks/"+positional[0], map[string]any{"recheck": map[string]string{"every": *every, "until": *until, "next": *next}, "actor": actor}, &out); err != nil {
+				return err
+			}
+			t, changed = out.Task, out.Changed
+			out.warn()
+		} else {
+			var err error
+			if t, changed, err = store.SetRecheck(positional[0], *every, *until, *next, actor); err != nil {
+				return err
+			}
+		}
+		if !changed {
+			fmt.Printf("%s には、同じ確認がすでに登録されています。\n", t.ID)
+			return nil
+		}
+		fmt.Printf("%s を外部待ちにして、%sと登録しました。最初の確認は %s です。\n", t.ID, t.RecheckLabel(), t.ResumeOn)
+		fmt.Println("「次にすること」に、何を確かめるのかと、何が起きたらお知らせするのかを書いておいてください。確認する会話は、それだけを読んで動きます。")
+	case "rechecked":
+		// Records what one look at a waiting task found.
+		if err := need(3, "ID、結果（same、changed、unknown のどれか）、何を確かめてどうだったのか"); err != nil {
+			return err
+		}
+		text := strings.Join(positional[2:], " ")
+		var t task.Task
+		if api != "" {
+			var out updateReply
+			if err := api.call("POST", "/api/tasks/"+positional[0], map[string]string{"rechecked": positional[1], "text": text, "actor": actor}, &out); err != nil {
+				return err
+			}
+			t = out.Task
+			out.warn()
+		} else {
+			var err error
+			if t, _, err = store.Rechecked(positional[0], positional[1], text, actor); err != nil {
+				return err
+			}
+		}
+		switch positional[1] {
+		case task.RecheckChanged:
+			fmt.Printf("%s の結果を「変化あり」と記録して、確認待ちにしました。繰り返しの確認は止まりました。\n", t.ID)
+		case task.RecheckUnknown:
+			fmt.Printf("%s の結果を「確かめられなかった」と記録しました。外部待ちを続けます。%s。\n", t.ID, t.RecheckState())
+		default:
+			fmt.Printf("%s の結果を「変化なし」と記録しました。外部待ちを続けます。%s。\n", t.ID, t.RecheckState())
+		}
 	case "attach":
 		if err := need(2, "IDと、置くファイルかディレクトリー"); err != nil {
 			return err
@@ -554,6 +618,9 @@ func outputTaskList(tasks []task.Task, statuses, area string, all, asJSON bool) 
 }
 
 func printTaskDetail(detail task.Detail) {
+	if detail.Routine {
+		fmt.Printf("定期タスク「%s」のタスクです。題名と定義は routine.md にあります。\n\n", detail.Title)
+	}
 	fmt.Print(detail.Markdown)
 	fmt.Printf("\n場所: %s\n", detail.Dir)
 	artifacts := false
@@ -581,6 +648,10 @@ func printTaskDetail(detail task.Detail) {
 // and nothing else points out that the status still says whose turn it was
 // before. The status is left alone: a note on a waiting task can be only a note.
 func resumeReminder(t task.Task) string {
+	// A routine's task waits for the next run between pieces of work.
+	if t.Routine && t.Status == task.Waiting {
+		return ""
+	}
 	switch t.Status {
 	case task.Todo, task.Waiting, task.Review, task.Closing:
 		return fmt.Sprintf("%s は「%s」のままです。これから作業を始めるときや、途中の作業を再開したときは、`lacia task set %s doing` を実行してください。", t.ID, t.Status.Label(), t.ID)
@@ -593,7 +664,7 @@ func resumeReminder(t task.Task) string {
 // over, and a task that only asks whether it may be closed belongs in
 // "closing".
 func closingReminder(t task.Task) string {
-	if t.Status != task.Review {
+	if t.Status != task.Review || t.Routine {
 		return ""
 	}
 	return fmt.Sprintf("お願いが「これで完了にしてよいか」の確認だけのときは、`lacia task set %s closing` で「完了確認待ち」にしてください。判断、回答、操作のお願いが残るときは、このままで構いません。", t.ID)
@@ -611,7 +682,7 @@ type updateReply struct {
 
 func printWaitingGuidance(id, warning string) {
 	fmt.Fprintln(os.Stderr, "注意: "+warning)
-	fmt.Fprintf(os.Stderr, "日時まで待つ場合は `lacia task field %s resume_on 日時`、ほかのタスクを待つ場合は `lacia task field %s after タスクID`、次の定期実行を待つ場合は `lacia task field %s after_run 定期タスクID` で登録できます。判断や操作をお願いする場合は、`lacia task set %s review` で要対応に出します。\n", id, id, id, id)
+	fmt.Fprintf(os.Stderr, "外部の変化を繰り返し確かめながら待つ場合は `lacia task recheck %s --every 1d --until 期限`、日時まで待つ場合は `lacia task field %s resume_on 日時`、ほかのタスクを待つ場合は `lacia task field %s after タスクID`、次の定期実行を待つ場合は `lacia task field %s after_run 定期タスクID` で登録できます。判断や操作をお願いする場合は、`lacia task set %s review` で要対応に出します。\n", id, id, id, id, id)
 }
 
 // warn passes on what the server noticed, such as another conversation

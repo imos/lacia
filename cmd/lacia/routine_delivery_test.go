@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,5 +88,38 @@ func TestRoutineTextDeliveryKeepsReviewAndDoesNotResend(t *testing.T) {
 				t.Fatal("duplicate or different-route send", bot)
 			}
 		})
+	}
+}
+
+func TestSyncExistingRoutineProblemsUsesLatestStoredFailure(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "routines", "S1042", "runs", "2026-11")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	history := `{"at":"2026-11-26T09:00:00+09:00","outcome":"failed","summary":"以前の理由です。"}` + "\n" +
+		`{"at":"2026-11-27T09:00:00+09:00","outcome":"failed","summary":"3拠点ともPod一覧を取得できませんでした。","failure_kind":"check_unavailable","check_status":"unavailable","unverified":["cluster:site-a/auth","cluster:site-b/auth","cluster:site-c/auth"],"checks":[{"scope":"cluster:site-a/auth","status":"unverified","reason":"通信エラー"},{"scope":"cluster:site-b/auth","status":"unverified","reason":"通信エラー"},{"scope":"cluster:site-c/auth","status":"unverified","reason":"通信エラー"}],"id":"run-2026-11-27"}` + "\n"
+	file := filepath.Join(dir, "runs.jsonl")
+	if err := os.WriteFile(file, []byte(history), 0644); err != nil {
+		t.Fatal(err)
+	}
+	jobs := []schedule.Job{{ID: "S1042", Name: "S1042", Enabled: true}}
+	store := routine.NewStore(root)
+	for range 2 {
+		if err := syncExistingRoutineProblems(store, jobs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := store.Snapshot("S1042")
+	if err != nil || len(snapshot.Pending) != 1 {
+		t.Fatalf("review: %+v, %v", snapshot, err)
+	}
+	failure := snapshot.Pending[0]
+	if failure.RunID != "run-2026-11-27" || len(failure.Unverified) != 3 ||
+		failure.Unverified[0] != "cluster:site-a/auth：通信エラー" {
+		t.Errorf("incorrect failure receipt: %+v", failure)
+	}
+	if original, err := os.ReadFile(file); err != nil || string(original) != history {
+		t.Fatal("stored run history was changed", err)
 	}
 }

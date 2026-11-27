@@ -53,7 +53,7 @@ func runServe(args []string) error {
 	addr := fs.String("addr", "127.0.0.1:10148", "待ち受けるアドレス。ローカル環境で使う場合は既定のまま、別の端末から使う場合は接続できるアドレスを指定します")
 	root := fs.String("root", "", "記録のリポジトリー")
 	rescan := fs.Duration("rescan", 10*time.Second, "ファイルの変更を取り込む間隔")
-	calendarOverrides := fs.String("calendar-overrides", "", "予定の表示を上書きする JSON ファイル。記録のリポジトリーからの相対パスで指定します。既定の場所は形式0では "+calendarOverridesDefault0+"、形式1では "+calendarOverridesDefault1+" です。ファイルがあれば、その設定を使います")
+	calendarOverrides := fs.String("calendar-overrides", "", "予定の表示を上書きする JSON ファイル。記録のリポジトリーからの相対パスで指定します。既定の場所は "+calendarOverridesDefault+" です。ファイルがあれば、その設定を使います")
 	calendarPath := fs.String("calendar", "", "予定のスナップショットのパス（省くと記録のリポジトリーから探します）")
 	calendarDirect := fs.Bool("calendar-direct", true, "サーバーが直接取得します。false で従来の予定ファイルを再び読みます")
 	site := fs.String("site", "", "ブラウザーからこの Web サーバーに接続するための URL（予定の連携などで使います）")
@@ -87,6 +87,7 @@ func runServe(args []string) error {
 	people := fs.String("people", "", "オーナーさんのほかにわたしが話す方々の呼び名（例: ご家族）。伝言や引き継ぎの文面に使います。省略すると「ほかの方」です")
 	selfTidyPrompt := fs.String("self-tidy-prompt", "", "夜の整理の指示文。指定すると、実行ファイルに入っている指示文の代わりに使います")
 	selfTidy := fs.Bool("self-tidy", true, "夜の書き直しの前に、その日の話題を保存し、memory/ に残す候補を窓口に知らせます（--self-exchanges が必要です）。--discord-log があれば、その日のログにも書きます")
+	selfImprove := fs.Bool("self-improve", false, "夜の書き直しで、「わたしのこと」の項目のうち仕組みで直せそうなものを候補に挙げ、窓口に知らせます。タスクを持つプロファイルで有効にします")
 	routineExplicitMatters := fs.Bool("routine-explicit-matters", false, "定期タスクでは、本人への用件が明示された回だけ受付を作ります")
 	nowPath := fs.String("now", "memory/now.md", "ふだんと違う状況を書いた文書（記録のリポジトリーからの相対パス）。読めた内容を予約の依頼に添えます")
 	instructionsPath := fs.String("instructions", "", "会話への指示の文書。指定すると、実行ファイルに入っている指示の代わりに使います")
@@ -118,6 +119,13 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg, err := task.LoadConfig(dir)
+	if err != nil {
+		return err
+	}
+	if err := cfg.RequireCurrentFormat(); err != nil {
+		return err
+	}
 	// The repository's own settings come last, so the command line and the
 	// file outside the repository win, and only what is safe to leave to
 	// the repository is read from it.
@@ -146,15 +154,11 @@ func runServe(args []string) error {
 			return fmt.Errorf("--calendars: %w", err)
 		}
 	}
-	if cfg, err := task.LoadConfig(dir); err != nil {
+	if err := calendar.SetHidden(cfg.CalendarHidden.Always, cfg.CalendarHidden.Week); err != nil {
 		return err
-	} else if err := calendar.SetHidden(cfg.CalendarHidden.Always, cfg.CalendarHidden.Week); err != nil {
-		return err
-	} else if *calendarOverrides == "" {
-		*calendarOverrides = calendarOverridesDefault0
-		if cfg.Format >= 1 {
-			*calendarOverrides = calendarOverridesDefault1
-		}
+	}
+	if *calendarOverrides == "" {
+		*calendarOverrides = calendarOverridesDefault
 	}
 	rollover, err := parseRolloverWindow(*windowRollover)
 	if err != nil {
@@ -260,6 +264,7 @@ func runServe(args []string) error {
 	var rollWindow func()
 	if *stateDir != "" {
 		restart.path = filepath.Join(*stateDir, restartRequestFile)
+		server.RestartWhenIdle = func() error { return requestIdleRestart(restart.path) }
 		restartBusy = func() bool { return fileExists(filepath.Join(*stateDir, "drain")) }
 	}
 	takesRequests := len(kinds) > 0
@@ -561,6 +566,18 @@ func runServe(args []string) error {
 			if *selfTidy && *selfExchanges {
 				wireTidy(keeper, queue, chatLog, *discordLog)
 			}
+			if *selfImprove && store.KeepsTasks() {
+				keeper.ImproveTell = func(notice, text string) error {
+					_, _, err := queue.Add(request.Request{ID: notice, Kind: request.System, Source: improveSource, Text: text})
+					return err
+				}
+				keeper.TaskState = func(id string) string {
+					if t, err := store.Get(id); err == nil {
+						return t.Status.Label()
+					}
+					return ""
+				}
+			}
 			server.Self = keeper
 			go func() {
 				ticker := time.NewTicker(time.Minute)
@@ -601,6 +618,8 @@ func runServe(args []string) error {
 		server.ScheduleDispatch = dispatch
 		reviews := routine.NewStore(dir)
 		server.Routines = reviews
+		routineActions := routineActionRuntime{stateDir: *stateDir, tasks: store, receipts: reviews, queue: queue}
+		server.RoutineActionsEnabled = routineActions.enabled
 		runs := &schedule.RunLog{Root: dir, Location: store.Location(), State: filepath.Join(*stateDir, "schedule-runs.json"), Execution: dispatch.Get,
 			ResolveName: func(name string) string {
 				for _, job := range schedule.LoadIn(dir, store.Location()) {
@@ -611,6 +630,9 @@ func runServe(args []string) error {
 				return name
 			},
 			KeepSuccess: func(name string, at time.Time) bool {
+				if routineActions.enabled() && task.ValidRoutineID(name) {
+					return true
+				}
 				for _, t := range store.List() {
 					if t.Status.Closed() || t.AfterRun == "" {
 						continue
@@ -629,9 +651,13 @@ func runServe(args []string) error {
 				return false
 			},
 			Review: func(id string, _ schedule.Run, report routine.Result) error {
+				if routineActions.enabled() {
+					return nil
+				}
 				_, _, err := reviews.Accept(id, report)
 				return err
 			},
+			Observe: routineActions.observe,
 		}
 		schedules := &schedule.Runner{Root: dir, Location: store.Location(), State: filepath.Join(*stateDir, "schedules.json"), Check: routing.Check, TaskClosed: func(id string) bool {
 			t, err := store.Get(id)
@@ -658,7 +684,7 @@ func runServe(args []string) error {
 				return err
 			}
 			if destination != schedule.LocalDevice {
-				prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.ReportInstruction(id)
+				prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.TaskInstruction(dir, routineActions.collects(job)) + job.ReportInstruction(id, routineActions.collects(job)) + routineActions.instruction(job)
 				if err := dispatch.Enqueue(id, job, prompt, time.Now()); err != nil {
 					if errors.Is(err, schedule.ErrDispatchBusy) {
 						if err := dispatch.Skip(id, job, time.Now()); err != nil {
@@ -683,7 +709,7 @@ func runServe(args []string) error {
 				}
 				return nil
 			}
-			prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.ReportInstruction(id)
+			prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.TaskInstruction(dir, routineActions.collects(job)) + job.ReportInstruction(id, routineActions.collects(job)) + routineActions.instruction(job)
 			if err := dispatch.Enqueue(id, job, prompt, time.Now()); err != nil {
 				return err
 			}
@@ -748,8 +774,17 @@ func runServe(args []string) error {
 			if err != nil {
 				slog.Error("schedule run log", "error", err)
 			}
-			if err := syncRoutineDeliveries(reviews, schedule.LoadIn(dir, store.Location()), queue.Get); err != nil {
-				slog.Error("routine delivery receipt", "error", err)
+			jobs := routing.Check(schedule.LoadIn(dir, store.Location()))
+			if err := routineActions.applyBaseline(); err != nil {
+				slog.Error("routine action baseline", "error", err)
+			}
+			if err := routineActions.syncTroubles(jobs, dispatch.Devices(), now); err != nil {
+				slog.Error("routine action health", "error", err)
+			}
+			if !routineActions.enabled() {
+				if err := syncRoutineDeliveries(reviews, jobs, queue.Get); err != nil {
+					slog.Error("routine delivery receipt", "error", err)
+				}
 			}
 		}
 		server.Schedules = func() ([]schedule.Job, map[string]string) {
@@ -760,6 +795,12 @@ func runServe(args []string) error {
 			return jobs, last
 		}
 		server.Runs = runs
+		jobs, _ := server.Schedules()
+		if !routineActions.enabled() {
+			if err := syncExistingRoutineProblems(reviews, jobs); err != nil {
+				slog.Error("routine failure receipt", "error", err)
+			}
+		}
 		unlessStopped := func(run request.Runner) request.Runner {
 			return func(ctx context.Context, text string) (string, string, error) {
 				skipped, err := dispatch.SkipLocalIfStopped(request.Current(ctx).ID, time.Now())
@@ -934,6 +975,11 @@ func runServe(args []string) error {
 						server.Changed()
 					}
 				}
+				// A waiting task that is looked at again and again gets its
+				// next round, and a conversation is asked to look.
+				if server.Recheck(now) && server.Changed != nil {
+					server.Changed()
+				}
 			}
 		}
 	}()
@@ -980,12 +1026,8 @@ func runServe(args []string) error {
 	return nil
 }
 
-// Where the overrides of how events are shown live when the settings do
-// not say, in a repository of format 0 and of format 1.
-const (
-	calendarOverridesDefault0 = "personal/knowledge/calendar-display-overrides.json"
-	calendarOverridesDefault1 = ".lacia/calendar-overrides.json"
-)
+// Where the overrides of how events are shown live when the settings do not say.
+const calendarOverridesDefault = ".lacia/calendar-overrides.json"
 
 // ownRulesNote follows the instructions in a repository that keeps its rules
 // in AGENTS.md. The instructions leave to the rules what the rules of the

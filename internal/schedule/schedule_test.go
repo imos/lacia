@@ -177,3 +177,52 @@ func TestSituation(t *testing.T) {
 		t.Fatalf("long file was not clipped")
 	}
 }
+
+func TestBundledRoutineKeepsPreviousOccurrenceName(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".lacia"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".lacia", "config.json"), []byte(`{"format":2,"areas":["work","personal"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write := func(area, id, extra string) {
+		t.Helper()
+		dir := filepath.Join(root, "areas", area, "routines", id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		data := "---\nid: " + id + "\ntitle: 点検\ndaily: 10:00\n" + extra + "---\n\n点検します。\n"
+		if err := os.WriteFile(filepath.Join(dir, "routine.md"), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("personal", "S0001", "enabled: false\n")
+	write("work", "S0002", "legacy_name: S1016\n")
+	resolved, err := ResolveWait(root, "S1016")
+	if err != nil || resolved != "S0002" {
+		t.Fatalf("ResolveWait old ID = %q, %v", resolved, err)
+	}
+	r := Runner{
+		Root: root, State: filepath.Join(root, "state.json"),
+		Submit: func(id string, job Job) error {
+			if id != "sched-S1016-2026-11-28-1000" || job.ID != "S0002" {
+				t.Errorf("submission = %s (%s)", id, job.ID)
+			}
+			return nil
+		},
+	}
+	if err := r.Tick(at("2026-11-28 10:01")); err != nil {
+		t.Fatal(err)
+	}
+	if r.Last()["S0002"] == "" || r.Last()["S1016"] != r.Last()["S0002"] {
+		t.Fatalf("last slots = %v", r.Last())
+	}
+
+	write("personal", "S1016", "")
+	for _, job := range Load(root) {
+		if job.ID != "S0001" && (job.Enabled || job.Err == "") {
+			t.Errorf("accepted colliding definition: %+v", job)
+		}
+	}
+}

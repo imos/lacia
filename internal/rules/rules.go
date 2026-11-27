@@ -34,7 +34,7 @@ const (
 	// Dir is where a task repository keeps its own versions.
 	Dir = "rules"
 	// OwnerMark stands for the name Lacia calls her owner by.
-	OwnerMark = "{{呼び名}}"
+	OwnerMark = chat.OwnerMark
 	// PeerMark stands for the label of the profile this one exchanges
 	// messages with (FillPeer).
 	PeerMark = "{{相手}}"
@@ -135,8 +135,10 @@ func fill(text, owner string) string {
 	if owner == "" {
 		owner = DefaultOwner
 	}
-	text = strings.ReplaceAll(text, "{{案内の直接の宛先}}", strings.TrimSpace(chat.Behavior))
-	return strings.ReplaceAll(text, OwnerMark, owner)
+	return strings.NewReplacer(
+		"{{案内の直接の宛先}}", chat.BehaviorFor(owner),
+		OwnerMark, owner,
+	).Replace(text)
 }
 
 // FillPeer writes the label of the peer profile where PeerMark stands. A

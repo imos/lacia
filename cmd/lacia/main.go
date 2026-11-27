@@ -25,13 +25,21 @@ const usage = `使い方: lacia <コマンド> [引数]
   task show <ID> [--json]                                 タスクの本文、成果物、子のタスクを表示します。
   task log <ID> [--tail N]                                タスクの履歴を表示します。
   task new --area 領域 --title 題名 [--parent ID]         タスクを作ります。
-  task set <ID> <状態> [--note 補足]                      タスクの状態を変えます。
+  task set <ID> <状態> [--note 補足]
+    タスクの状態を変えます。
+    waiting（外部待ち）にするには、先に、戻る条件（resume_on、review_at、after、after_run、lacia wait add のどれか）を登録します。
+    外部の変化を繰り返し確かめながら待つときは、task recheck を使います。
   task field <ID> <項目> [値]
     期限、親のタスク、プロジェクトなどを設定します。
     resume_on と review_at には日時を指定します。after にほかのタスクのIDを指定すると、そのすべてが完了か取りやめになるまで待ちます。
     条件がすべてそろうと、通常はこのタスクが「要対応」に出ます。on_ready に start を指定しておくと、そのときわたしが着手します。
     start のあとに、着手する会話の宛先も指定できます。
     project にはプロジェクトのディレクトリー名を指定します。
+  task recheck <ID> --every 間隔 --until 期限 [--next 最初の日時]
+    タスクを外部待ちにして、外部の変化を繰り返し確かめます。間隔は 1d（毎日）や 3h のように書きます。
+    次の確認の日時はサーバーが入れ、別の会話に読み取りの確認を頼みます。期限が来ると「要対応」に出ます。
+  task rechecked <ID> <same|changed|unknown> <文章>
+    確認の結果を残します。same は変化なし、changed は変化あり（確認待ちへ出します）、unknown は確かめられなかった、です。
   task claim <ID> [--note 補足]                           この会話がタスクを引き継ぎ、状態を「進行中」にします。
   task note <ID> <文章>                                   タスクの履歴に書き足します。
   task write <ID> <task.md|notes.md> [ファイル]
@@ -68,6 +76,9 @@ const usage = `使い方: lacia <コマンド> [引数]
   notice [--task ID] <文章>                               心が動いたことを書き留めます。夜の書き直しの材料になります。
   self [show]                                             自分についての記録と、次の書き直しに使う書き留めを表示します。
   self tidy YYYY-MM-DD                                    指定した日の話題と覚えておく候補を表示します。
+  self improve                                            仕組みで直せそうなことの候補を表示します。
+  self improve <候補のID> task <タスクのID>               候補をタスクにしたことを残します。
+  self improve <候補のID> skip "理由"                     候補を見送ったことを残します。
   self sleep [--force]                                    夜の書き直しをいま始めます。
   self backfill --state DIR [--root DIR] [--dry-run]      残っている書き留めを、日ごとのログへ書き足します。
   discord attach --request ID --file <相対パス.pdf>       サーバーの local/ にある PDF を、元の Discord の依頼へ添付して返します。
@@ -82,6 +93,8 @@ const usage = `使い方: lacia <コマンド> [引数]
   rules [名前 | list]
     会話が従う決まりを表示します。名前を省くと、いつも守る決まり（core）を表示します。
     記録に rules/<名前>.md があれば、その文書を使います。
+  docs [名前]
+    実行ファイルに入っている設計文書を読みます。名前を省くと一覧を出します。
   codex [引数]、claude [引数]
     Codex か Claude Code でわたしとの会話を始めます。決まりと、きょうの状況を渡します。
     --login <名前>、codex-<名前>、claude-<名前> でログインを選べます。--yolo は承認とサンドボックスを外します。
@@ -89,7 +102,7 @@ const usage = `使い方: lacia <コマンド> [引数]
     残りの引数は、起動するコマンドに渡します。
   codex-login <名前> [--yolo] [引数]                      LACIA_LOGINS のファイルから指定したログインを選び、Codex を起動します。
   who                                                     この会話の名前と、最近コマンドを使った会話や進行中のタスクを受け持つ会話を表示します。
-  restart --when-idle --state DIR                        このサーバーの処理が終わったときに、監督プロセスへ再起動を任せます。
+  restart --when-idle                                    稼働中のサーバーへ頼み、処理が終わったときに、監督プロセスへ再起動を任せます。
   busy [--within 5m]                                      サーバーの再起動前に、処理中や順番待ちの依頼と、最近コマンドを使ったほかの会話を調べます。1件でもあれば終了コードは1です。
   schedules [--root DIR]                                  予約ごとに、設定した時刻や間隔と、使う会話を表示します。停止中の予約や設定の誤りも分かります。
   doctor [--root DIR] [--links] [--state DIR]              記録の形とタスクの状態を点検し、誤りとお知らせを表示します。--links を付けると相対リンクの行き先も確かめます。
@@ -176,6 +189,8 @@ func run(args []string) error {
 		return runWho(args[1:])
 	case "rules":
 		return runRules(args[1:])
+	case "docs":
+		return runDesignDocs(args[1:])
 	case "init":
 		return runInit(args[1:])
 	case "codex", "claude":
@@ -250,6 +265,16 @@ func findRoot(explicit string) (string, error) {
 	}
 }
 
+// requireCurrentRecords leaves older layouts available to read-only tools
+// and migration while keeping normal commands on one layout.
+func requireCurrentRecords(root string) error {
+	cfg, err := task.LoadConfig(root)
+	if err != nil {
+		return err
+	}
+	return cfg.RequireCurrentFormat()
+}
+
 // runTodo regenerates TODO.md. The server does this before every save; the
 // command is for a repository no server is running on.
 func runTodo(args []string) error {
@@ -260,6 +285,9 @@ func runTodo(args []string) error {
 	}
 	dir, err := findRoot(*root)
 	if err != nil {
+		return err
+	}
+	if err := requireCurrentRecords(dir); err != nil {
 		return err
 	}
 	store, err := task.Open(dir)

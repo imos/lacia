@@ -57,7 +57,7 @@ const recordsConfig = ".lacia/serve.conf"
 // command line and the file outside the repository.
 var recordsSettings = map[string]bool{
 	"label": true, "google-client": true, "calendar-write": true, "calendar": true, "calendars": true, "calendar-overrides": true, "calendar-holidays": true,
-	"now": true, "self": true, "self-at": true, "self-model": true, "self-exchanges": true,
+	"now": true, "self": true, "self-at": true, "self-model": true, "self-exchanges": true, "self-improve": true,
 	"notice-log": true, "instructions-extra": true,
 }
 

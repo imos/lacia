@@ -135,3 +135,55 @@ func TestSelfReaderHeadings(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestSelfItemDates(t *testing.T) {
+	got := string(selfMarkdown("- [2026-11-24] 手紙のことを知りたいです。\n- 日付のない項目です。\n\n本文の [2026-11-24] は、そのままです。"))
+	if !strings.Contains(got, `<li><span class="item-date">2026-11-24</span> 手紙のことを知りたいです。</li>`) || !strings.Contains(got, "<li>日付のない項目です。</li>") ||
+		!strings.Contains(got, "本文の [2026-11-24] は、そのままです。") {
+		t.Fatal(got)
+	}
+}
+
+func TestSelfImprovementsAPI(t *testing.T) {
+	root := t.TempDir()
+	told := 0
+	keeper := &self.Keeper{Path: filepath.Join(root, "repo", "memory", "self.md"), Dir: filepath.Join(root, "state"), Label: "仕事モード",
+		ImproveTell: func(string, string) error { told++; return nil }}
+	keeper.Think = func(context.Context, string) (string, error) {
+		return "<わたしのこと>\n# わたしのこと\n\n## わたし自身\n\n- 項目です。\n\n## 仕事モードで\n\n- 仕事の項目です。\n</わたしのこと>\n<今夜変えたこと>\n最初の版です。\n</今夜変えたこと>\n" +
+			"<仕組みで直せそうなこと>\n- 題名: 書き留めのきっかけを作る\n  理由: 何晩も続いています。\n</仕組みで直せそうなこと>\n", nil
+	}
+	if night, err := keeper.Sleep(context.Background(), true); err != nil || !night.Accepted || told != 1 {
+		t.Fatalf("night = %+v, %v, told %d", night, err, told)
+	}
+	os.MkdirAll(filepath.Join(root, "repo", ".lacia"), 0o755)
+	os.WriteFile(filepath.Join(root, "repo", task.ConfigFile), []byte(`{"areas":["work"]}`), 0o644)
+	store, err := task.Open(testrecords.Init(t, filepath.Join(root, "repo")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := (&Server{Store: store, Self: keeper}).Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, target, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
+		req.RemoteAddr, req.Host = "127.0.0.1:40000", "127.0.0.1:8080"
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := call("GET", "/api/self/improvements", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":"K1"`) {
+		t.Fatalf("list = %d %s", rec.Code, rec.Body)
+	}
+	if rec := call("POST", "/api/self/improvements/K1", `{"outcome":"task","task":"T404"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("an unknown task = %d %s", rec.Code, rec.Body)
+	}
+	if rec := call("POST", "/api/self/improvements/K1", `{"outcome":"skipped","note":"願いごとでした。"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"outcome":"skipped"`) {
+		t.Errorf("skip = %d %s", rec.Code, rec.Body)
+	}
+	if rec := call("GET", "/self", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "書き留めのきっかけを作る") || !strings.Contains(rec.Body.String(), `class="item-date"`) {
+		t.Errorf("page = %d", rec.Code)
+	}
+}

@@ -42,6 +42,13 @@ func Troubles(root string, jobs []Job, devices map[string]DeviceStatus) []Troubl
 			continue
 		}
 		h := HealthOf(root, job.Name)
+		if job.ID != "" {
+			// Failed runs of fixed-ID routines have review receipts.
+			if h.Missed >= troubleAfter {
+				out = append(out, Trouble{Key: "schedule:" + job.Name + ":missed", Name: job.Name, Title: title, Text: fmt.Sprintf("直近の記録では、%d回続けて予約を実行していません。", h.Missed)})
+			}
+			continue
+		}
 		covered := false
 		scopes := make([]string, 0, len(h.Unverified))
 		for scope := range h.Unverified {

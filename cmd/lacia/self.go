@@ -76,8 +76,23 @@ func runSelf(args []string) error {
 	if len(args) == 2 && args[0] == "tidy" {
 		return showTidyDay(args[1])
 	}
+	if args[0] == "improve" {
+		return runSelfImprove(args[1:])
+	}
+	if args[0] == "dates" && len(args) == 1 {
+		var out struct{ Changed bool }
+		if err := apiCall("POST", "/api/self/dates", nil, &out); err != nil {
+			return err
+		}
+		if out.Changed {
+			fmt.Println("項目に日付を付けました。本文は変えていません。")
+		} else {
+			fmt.Println("日付のない項目は、ありませんでした。")
+		}
+		return nil
+	}
 	if args[0] != "sleep" {
-		return errors.New("使い方: lacia self [show]、lacia self tidy YYYY-MM-DD、lacia self sleep [--force]、lacia self backfill --state <ディレクトリー>")
+		return errors.New("使い方: lacia self [show]、lacia self tidy YYYY-MM-DD、lacia self improve [<候補のID> task <タスクのID> | <候補のID> skip \"理由\"]、lacia self sleep [--force]、lacia self dates、lacia self backfill --state <ディレクトリー>")
 	}
 	fs := commandFlags("self sleep")
 	force := fs.Bool("force", false, "書き留めなどの材料がない日も自分についての記録を書き直します")
@@ -137,6 +152,62 @@ func showTidyDay(day string) error {
 				fmt.Printf("- %s\n", item)
 			}
 		}
+	}
+	return nil
+}
+
+// runSelfImprove lists the candidates for mending the mechanism, or records
+// what the conversation made of one.
+func runSelfImprove(args []string) error {
+	if len(args) == 0 {
+		var got struct{ Improvements []self.Improvement }
+		if err := apiCall("GET", "/api/self/improvements", nil, &got); err != nil {
+			return err
+		}
+		if len(got.Improvements) == 0 {
+			fmt.Println("仕組みで直せそうなことの候補は、まだありません。")
+			return nil
+		}
+		for _, c := range got.Improvements {
+			state := "行き先を待っています"
+			switch c.Outcome {
+			case self.ImproveTask:
+				state = "タスク " + c.Task + " になりました"
+			case self.ImproveSkipped:
+				state = "見送りました。" + c.Note
+			}
+			fmt.Printf("- %s　%s　%s（%s）\n", c.ID, c.Day, c.Title, state)
+			if c.Outcome == "" {
+				for _, part := range []struct{ label, text string }{{"もとになった項目", c.Item}, {"仕組みで直せると考えた理由", c.Reason}, {"直し方の見当", c.Fix}} {
+					if part.text != "" {
+						fmt.Printf("    %s: %s\n", part.label, part.text)
+					}
+				}
+			}
+		}
+		return nil
+	}
+	usage := errors.New("使い方: lacia self improve、lacia self improve <候補のID> task <タスクのID>、lacia self improve <候補のID> skip \"理由\"")
+	if len(args) < 3 {
+		return usage
+	}
+	in := map[string]string{}
+	switch args[1] {
+	case "task":
+		in["outcome"], in["task"] = self.ImproveTask, args[2]
+	case "skip":
+		in["outcome"], in["note"] = self.ImproveSkipped, strings.Join(args[2:], " ")
+	default:
+		return usage
+	}
+	var got self.Improvement
+	if err := apiCall("POST", "/api/self/improvements/"+args[0], in, &got); err != nil {
+		return err
+	}
+	if got.Outcome == self.ImproveTask {
+		fmt.Fprintf(os.Stderr, "候補 %s を、タスク %s にしたと残しました。\n", got.ID, got.Task)
+	} else {
+		fmt.Fprintf(os.Stderr, "候補 %s を、見送ったと残しました。\n", got.ID)
 	}
 	return nil
 }

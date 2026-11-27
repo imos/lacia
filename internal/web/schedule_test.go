@@ -49,7 +49,7 @@ func TestSchedulePage(t *testing.T) {
 	file := filepath.Join(root, "routines/github/runs/2026-11/runs.jsonl")
 	lines, _ := os.ReadFile(file)
 	os.WriteFile(file, append(lines, []byte(`{"at":"2026-11-25T09:00:00+09:00","finished":"2026-11-25T09:01:00+09:00","outcome":"failed","summary":"接続できませんでした"}`+"\n")...), 0o644)
-	if _, body, _ = get(t, h, "/"); !strings.Contains(body, "予約の不調") || !strings.Contains(body, "実行されなかった回を除くと、直近2件の記録はすべて失敗でした。") || !strings.Contains(body, `href="/routines/github"`) {
+	if _, body, _ = get(t, h, "/"); strings.Contains(body, "予約の不調") || !strings.Contains(body, "要対応") || !strings.Contains(body, "実行されなかった回を除くと、直近2件の記録はすべて失敗でした。") || !strings.Contains(body, `href="/routines/github"`) {
 		t.Error("the home page does not show a job that keeps failing")
 	}
 	if _, body, _ = get(t, h, "/api/schedule-troubles"); !strings.Contains(body, `"key":"schedule:github:failed"`) || !strings.Contains(body, `"path":"/routines/github"`) {

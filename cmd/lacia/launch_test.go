@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,12 @@ func TestLaunchMemoryProcess(t *testing.T) {
 		return
 	}
 	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".lacia"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, task.ConfigFile), []byte(`{"format": 2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	mock := filepath.Join(dir, "agent")
 	script := `#!/bin/sh
 printf '%s memory=%s\n' "$1" "${CLAUDE_CODE_DISABLE_AUTO_MEMORY-unset}"
@@ -235,7 +242,7 @@ func TestWindowInstructions(t *testing.T) {
 	// A repository that names nobody and keeps its own rules gets the
 	// default name and the shared chat behavior, without the full core rules,
 	// and is told where the parts the instructions leave to the rules are.
-	if got := windowInstructions(text, root); got != chat.WithBehavior("あなたはレイシアです。オーナーさんの秘書です。\n\n"+ownRulesNote) {
+	if got := windowInstructions(text, root); got != chat.WithBehavior("あなたはレイシアです。オーナーさんの秘書です。\n\n"+ownRulesNote, task.DefaultOwner) {
 		t.Errorf("changed: %q", got)
 	}
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
@@ -286,7 +293,7 @@ func TestInit(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
 	os.MkdirAll(filepath.Join(root, "memory"), 0o755)
-	os.WriteFile(filepath.Join(root, ".lacia", "config.json"), []byte(`{"areas": ["work", "personal"], "user": "利用者さん"}`), 0o644)
+	os.WriteFile(filepath.Join(root, ".lacia", "config.json"), []byte(`{"format": 2, "areas": ["work", "personal"], "user": "オーナーさん"}`), 0o644)
 	os.WriteFile(filepath.Join(root, "memory", "profile.md"), []byte("# 基本の情報\n\n- 呼び名：\n- 仕事：\n"), 0o644)
 	if err := runInit([]string{"--root", root, "--user", "田中さん"}); err != nil {
 		t.Fatal(err)
@@ -457,9 +464,21 @@ func TestYoloMeansTheSameForBothAgents(t *testing.T) {
 // A custom family-style AGENTS.md does not opt into task management rules,
 // but must still receive the same naming and recipient policy as a managed repository.
 func TestEveryEntryPointReceivesSharedChatBehavior(t *testing.T) {
+	t.Setenv("LACIA_USER", "")
 	for _, mode := range []string{"custom", "missing", "managed", "managed-core-override"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
+			owner := "仕事さん"
+			if mode == "custom" {
+				owner = "家庭さん"
+			}
+			if err := os.MkdirAll(filepath.Join(root, ".lacia"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			config := fmt.Sprintf(`{"user":%q,"tasks":%t}`, owner, mode != "custom")
+			if err := os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(config), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			if mode != "missing" {
 				agents := "# この家の決まり\n\nタスクは管理しません。\n"
 				if strings.HasPrefix(mode, "managed") {
@@ -487,19 +506,20 @@ func TestEveryEntryPointReceivesSharedChatBehavior(t *testing.T) {
 				"side-window":   windowInstructions(codex.SideInstructions, root),
 				"custom-window": windowInstructions("独自の起動指示です。", root),
 			} {
-				if got := strings.Count(prompt, strings.TrimSpace(chat.Behavior)); got != 1 {
+				if got := strings.Count(prompt, chat.BehaviorFor(owner)); got != 1 {
 					t.Errorf("%s has policy %d times: %s", name, got, prompt)
 				}
-				if !strings.Contains(prompt, "ふだん「さん」を付けます") || !strings.Contains(prompt, "役割を指すときは「オーナーさん」と書きます") {
+				if !strings.Contains(prompt, "ふだん「さん」を付けます") || !strings.Contains(prompt, "「"+owner+"」とお呼びします") {
 					t.Errorf("%s lacks the naming policy", name)
 				}
-				if strings.Contains(prompt, "{{案内の直接の宛先}}") {
+				if strings.Contains(prompt, "{{案内の直接の宛先}}") || strings.Contains(prompt, rules.OwnerMark) ||
+					strings.Contains(prompt, task.DefaultOwner) {
 					t.Errorf("%s has an unfilled policy mark", name)
 				}
 				if mode != "managed" && strings.Contains(prompt, "# レイシアの決まり") {
 					t.Errorf("%s imported unrelated core rules", name)
 				}
-				if chat.WithBehavior(prompt) != prompt {
+				if chat.WithBehavior(prompt, owner) != prompt {
 					t.Errorf("%s duplicated its behavior", name)
 				}
 			}

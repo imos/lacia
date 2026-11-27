@@ -99,7 +99,8 @@ func TestSleep(t *testing.T) {
 	if err != nil || !night.Accepted || night.Summary != "最初の版を書きました。" {
 		t.Fatalf("first night = %+v, %v", night, err)
 	}
-	if k.Document() != first {
+	// The server put the day of the night on every item.
+	if StripDates(k.Document()) != first || !strings.Contains(k.Document(), "- [2026-11-17] 結論を先に聞きたい方だと考えています。") {
 		t.Errorf("document = %q", k.Document())
 	}
 	for _, want := range []string{"仕事モードのレイシア", "今夜が最初の版です", "（T1）　結論より先に、表を求められました。",
@@ -167,7 +168,7 @@ func TestSleep(t *testing.T) {
 	if !night.Accepted || !strings.Contains(k.Document(), "3行目を、少し直しました") {
 		t.Errorf("a small change = %+v", night)
 	}
-	if !strings.Contains(prompts[len(prompts)-1], "- 見立ての3行目です。") {
+	if !strings.Contains(prompts[len(prompts)-1], "] 見立ての3行目です。") {
 		t.Error("the prompt lacks the previous version")
 	}
 
@@ -272,7 +273,8 @@ func TestSharingTheCore(t *testing.T) {
 	if got := keeper(t).prompt(home.now(), "", nil, nil, "", false, ""); !strings.Contains(got, "「わたし自身」は、仕事モードともう一方のモードのあなたが共有する部分です。") || strings.Contains(got, "家庭モード") {
 		t.Error("the prompt without a peer label names a profile")
 	}
-	if Core(home.Document()) != Core(merged) || Core(work.Document()) != Core(merged) {
+	// The days travel with the core, so both sides hold the same text.
+	if Core(home.Document()) != Core(work.Document()) || StripDates(Core(work.Document())) != Core(merged) || undated(Core(home.Document())) {
 		t.Errorf("cores differ:\n%s\n---\n%s", Core(home.Document()), Core(work.Document()))
 	}
 
@@ -633,7 +635,7 @@ func TestTidyPromptNamesNobodyOfItsOwn(t *testing.T) {
 	defer func() { task.OwnerName = old }()
 	task.OwnerName = "田中さん"
 	prompt := k.tidyPrompt(time.Date(2026, 11, 17, 3, 0, 0, 0, task.JST), nil, false, nil)
-	if strings.Contains(prompt, "{{") || !strings.Contains(prompt, "「- 田中さんは、木曜日の夕方は都合がつかないそうです。（11月18日 08:15、田中さん）」") {
+	if strings.Contains(prompt, "{{") || strings.Contains(prompt, task.DefaultOwner) || !strings.Contains(prompt, "「- 田中さんは、木曜日の夕方は都合がつかないそうです。（11月18日 08:15、田中さん）」") {
 		t.Errorf("the example is not about the owner the repository names:\n%s", prompt)
 	}
 	// A deployment may give a prompt of its own; the marks are filled in the same way.

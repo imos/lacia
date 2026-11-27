@@ -22,7 +22,9 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 		for _, outcome := range []string{"success", "failed", "uncertain", "concurrent-change"} {
 			t.Run(string(status)+"/"+outcome, func(t *testing.T) {
 				store, _ := setup(t)
-				if _, _, err := store.SetStatus("T1002", status, "test", ""); err != nil {
+				if status == task.Waiting {
+					waitWithoutCondition(t, store, "T1002")
+				} else if _, _, err := store.SetStatus("T1002", status, "test", ""); err != nil {
 					t.Fatal(err)
 				}
 				before, _ := store.Get("T1002")
@@ -80,8 +82,11 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 						t.Errorf("policy lost in runner: %s", prompt)
 					}
 					if outcome == "concurrent-change" {
-						wantStatus = task.Waiting
-						store.SetStatus("T1002", wantStatus, "other", "")
+						// Another conversation moves the task meanwhile.
+						wantStatus = task.Closing
+						if _, _, err := store.SetStatus("T1002", wantStatus, "other", ""); err != nil {
+							t.Error(err)
+						}
 					}
 					if outcome == "failed" {
 						return "", "turn", errors.New("fake failure")

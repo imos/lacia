@@ -1,9 +1,11 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata" // some deployment images lack zoneinfo
@@ -103,6 +105,14 @@ type Task struct {
 	AfterRun      string // routine whose next finished run this task waits for
 	AfterRunSince string // UTC RFC3339Nano timestamp of the registration
 	ReadyRunRef   string // local link to the run that released the wait
+
+	// A waiting task that is looked at again and again (recheck.go). The
+	// next round is ResumeOn. The server writes the last three.
+	RecheckEvery  string // how often: "1d", "3h"
+	RecheckUntil  string // the date or time at which the owner is asked how to go on
+	RecheckAsked  string // the round a conversation was asked to look at and has not answered
+	RecheckMissed int    // rounds in a row that ended without a look that worked
+	RecheckLast   string // when a look last found nothing new
 	// Owner is the conversation working on the task while it is "doing",
 	// such as "local-claude". OwnerSession is its key in the registry of
 	// conversations.
@@ -113,12 +123,14 @@ type Task struct {
 	// in; it is not written to the file.
 	Blockers []string
 
-	Timezone string    // resolved repository zone, supplied by the store, not persisted
-	Area     string    // "work", "personal", ...
-	Dir      string    // directory relative to the repository root
-	Body     string    // Markdown after the front matter
-	ModTime  time.Time // task.md modification time
-	Unknown  []string  // front matter keys this version does not know
+	Timezone       string // resolved repository zone, supplied by the store, not persisted
+	Routine        bool   // the task of a routine, kept in its directory (see routine_task.go)
+	routineActions routineActionState
+	Area           string    // "work", "personal", ...
+	Dir            string    // directory relative to the repository root
+	Body           string    // Markdown after the front matter
+	ModTime        time.Time // task.md modification time
+	Unknown        []string  // front matter keys this version does not know
 }
 
 // OnReadyStart is the value of on_ready that makes Lacia begin the task
@@ -152,19 +164,28 @@ func (t Task) StartsWhenReady() bool {
 	return err == nil
 }
 
-var knownKeys = []string{"id", "title", "status", "created", "done", "due", "parent", "priority", "project", "resume_on", "review_at", "after", "after_run", "after_run_since", "on_ready", "ready_since", "ready_run_ref", "stopped_at", "owner", "owner_session"}
+var knownKeys = []string{"id", "title", "status", "created", "done", "due", "parent", "priority", "project", "resume_on", "review_at", "after", "after_run", "after_run_since", "on_ready", "ready_since", "ready_run_ref", "stopped_at", "owner", "owner_session", "recheck_every", "recheck_until", "recheck_asked", "recheck_missed", "recheck_last"}
 
 var (
-	idPattern       = regexp.MustCompile(`^[A-Z][0-9]{1,6}$`)
-	datePattern     = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
-	afterRunPattern = regexp.MustCompile(`^(S[1-9][0-9]*|[a-z0-9][a-z0-9-]*)$`)
+	idPattern    = regexp.MustCompile(`^[A-Z][0-9]{1,6}$`)
+	datePattern  = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
+	afterRunSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 )
+
+func validAfterRun(value string) bool {
+	return ValidRoutineID(value) || afterRunSlug.MatchString(value)
+}
 
 // ValidID reports whether s looks like a task ID such as T1001 or L24.
 func ValidID(s string) bool { return idPattern.MatchString(s) }
 
-func fromDoc(d Doc) (Task, error) {
+func fromDoc(d Doc) (Task, error) { return parseTask(d, false) }
+
+// parseTask reads a task.md. The task of a routine takes its title from
+// routine.md and may have only the statuses in RoutineStatuses.
+func parseTask(d Doc, routine bool) (Task, error) {
 	t := Task{
+		Routine:      routine,
 		ID:           d.Get("id"),
 		Title:        d.Get("title"),
 		Status:       Status(d.Get("status")),
@@ -187,9 +208,23 @@ func fromDoc(d Doc) (Task, error) {
 		AfterRun:      d.Get("after_run"),
 		AfterRunSince: d.Get("after_run_since"),
 		ReadyRunRef:   readyRunReference(d.Get("ready_run_ref")),
+
+		RecheckEvery: d.Get("recheck_every"),
+		RecheckUntil: d.Get("recheck_until"),
+		RecheckAsked: d.Get("recheck_asked"),
+		RecheckLast:  d.Get("recheck_last"),
+	}
+	// What the server wrote is read leniently: a count nobody can read is none.
+	t.RecheckMissed, _ = strconv.Atoi(d.Get("recheck_missed"))
+	if routine {
+		state, err := readRoutineActions(d)
+		if err != nil {
+			return t, err
+		}
+		t.routineActions = state
 	}
 	for _, f := range d.Fields {
-		known := false
+		known := routine && f.Key == routineActionsField
 		for _, k := range knownKeys {
 			known = known || f.Key == k
 		}
@@ -200,7 +235,11 @@ func fromDoc(d Doc) (Task, error) {
 	switch {
 	case !ValidID(t.ID):
 		return t, fmt.Errorf("id %q がタスクのIDの形になっていません", t.ID)
-	case t.Title == "":
+	case routine && !ValidRoutineID(t.ID):
+		return t, fmt.Errorf("id %q が定期タスクのIDの形になっていません", t.ID)
+	case routine && !t.Status.RoutineStatus():
+		return t, fmt.Errorf("%s: status %q は定期タスクのタスクでは使えません。%s のどれかにしてください", t.ID, t.Status, RoutineStatusNames)
+	case t.Title == "" && !routine:
 		return t, fmt.Errorf("%s: title が空です", t.ID)
 	case !t.Status.Valid():
 		return t, fmt.Errorf("%s: status %q は使えません。%s のどれかにしてください", t.ID, t.Status, StatusNames)
@@ -220,7 +259,15 @@ func fromDoc(d Doc) (Task, error) {
 			return t, fmt.Errorf("%s: after の %q がタスクのIDの形になっていません", t.ID, id)
 		}
 	}
-	if t.AfterRun != "" && !afterRunPattern.MatchString(t.AfterRun) {
+	if t.RecheckEvery != "" {
+		if _, err := ParseEvery(t.RecheckEvery); err != nil {
+			return t, fmt.Errorf("%s: recheck_every: %w", t.ID, err)
+		}
+		if _, err := ParseWhen(t.RecheckUntil); err != nil {
+			return t, fmt.Errorf("%s: recheck_until %w", t.ID, err)
+		}
+	}
+	if t.AfterRun != "" && !validAfterRun(t.AfterRun) {
 		return t, fmt.Errorf("%s: after_run には定期タスクのID（例 S1001）か従来の名前を指定してください", t.ID)
 	}
 	if _, err := ReadyDestination(t.OnReady); err != nil {
@@ -246,7 +293,7 @@ func readyRunReference(value string) string {
 	if err != nil || link.Host != "" {
 		return ""
 	}
-	if name, ok := strings.CutPrefix(link.Path, "/routines/"); ok && afterRunPattern.MatchString(name) {
+	if name, ok := strings.CutPrefix(link.Path, "/routines/"); ok && validAfterRun(name) {
 		return value
 	}
 	return ""
@@ -254,7 +301,12 @@ func readyRunReference(value string) string {
 
 // Next returns the "次にすること" section, the one thing lists show besides
 // the title.
-func (t Task) Next() string { return Section(t.Body, "次にすること") }
+func (t Task) Next() string {
+	if text := t.RoutineActionSummary(); text != "" {
+		return text
+	}
+	return Section(withoutRoutineActionBlock(t.Body), "次にすること")
+}
 
 // HasReadyConditions reports the scheduling fields the server can act on.
 func (t Task) HasReadyConditions() bool {
@@ -262,11 +314,54 @@ func (t Task) HasReadyConditions() bool {
 }
 
 // MissingWaitingCondition reports a stored wait with no registered task or live condition.
+// The task of a routine waits for the next run, which the routine itself
+// schedules.
 func (t Task) MissingWaitingCondition(hasLiveCondition bool) bool {
-	return t.Status == Waiting && !t.HasReadyConditions() && !hasLiveCondition
+	return t.Status == Waiting && !t.Routine && !t.HasReadyConditions() && !hasLiveCondition
 }
 
-const WaitingConditionWarning = "再開条件が未登録です。システムで追えない待ちの場合は、「次にすること」に何を待ち、何がそろえばだれが動くのかを書いてください。"
+const WaitingConditionWarning = "再開条件が未登録です。いつ、何がそろえば戻るのかを登録してください。確かめようのない待ちには、「要対応」へ出す日時（review_at）を入れます。"
+
+// ErrWaitingNeedsCondition is returned when a task would wait for something
+// outside with nothing registered that brings it back. Such a task stops
+// without anybody noticing.
+var ErrWaitingNeedsCondition = errors.New("外部待ちには、再開の条件が要ります")
+
+// conditionKeys are the front matter fields that bring a waiting task back.
+var conditionKeys = []string{"resume_on", "review_at", "after", "after_run"}
+
+// docHasReadyConditions is HasReadyConditions for a task.md being changed.
+func docHasReadyConditions(d *Doc) bool {
+	for _, key := range conditionKeys {
+		if d.Get(key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// waitingConditionHelp lists the ways to register a condition. A
+// conversation that has never seen the rule has to be able to act on it.
+func waitingConditionHelp(id string) string {
+	return recheckHelp(id) + fmt.Sprintf("- 決めた日時に「要対応」へ出す: lacia task field %[1]s review_at \"2026-12-10 15:00\"（その日時まで一覧から外すときは resume_on）\n"+
+		"- ほかのタスクの完了を待つ: lacia task field %[1]s after T1002\n"+
+		"- 定期タスクの次の実行を待つ: lacia task field %[1]s after_run S1001\n"+
+		"- クラスタの Job の終了を待つ: lacia wait add --task %[1]s ...（登録すると、外部待ちになります）\n"+
+		"Web では、タスクのページの「着手の条件」で同じ指定ができます。\n"+
+		"%[2]sの判断や操作を待つときは、外部待ちではなく確認待ちにします: lacia task set %[1]s review", id, OwnerName)
+}
+
+// WaitingNeedsCondition says why a task cannot wait yet and how to fix it.
+func WaitingNeedsCondition(id string) error {
+	return fmt.Errorf("%w。%s を外部待ち（waiting）にする前に、いつ、何がそろえば戻るのかを登録してください。条件のない外部待ちは、だれにも気づかれないまま止まるためです。確かめようのない待ちにも、「要対応」へ出す日時を入れます。\n%s\n登録したら、もう1度 lacia task set %s waiting を実行してください。",
+		ErrWaitingNeedsCondition, id, waitingConditionHelp(id), id)
+}
+
+// lastConditionError refuses to take the only condition from a waiting task.
+func lastConditionError(id, key string) error {
+	return fmt.Errorf("%w。%s は外部待ちで、%s が最後の条件です。外すと、だれにも気づかれないまま止まります。先に別の条件を登録するか、lacia task set %s doing などで状態を変えてから外してください。\n%s",
+		ErrWaitingNeedsCondition, id, key, id, waitingConditionHelp(id))
+}
 
 // ReadyLabel is a compact description of a task's readiness conditions.
 // Keeping IDs separate lets the web view link each task and routine.
@@ -286,6 +381,10 @@ func (l ReadyLabel) String() string {
 func (t Task) ReadyLabel(checking bool) ReadyLabel {
 	if !t.HasReadyConditions() {
 		return ReadyLabel{}
+	}
+	// The next round is no "ready" date: RecheckLabel describes it.
+	if t.Rechecks() && t.Status == Waiting {
+		return ReadyLabel{Prefix: t.RecheckLabel()}
 	}
 	label := ReadyLabel{Blockers: t.Blockers, Suffix: "要対応"}
 	if t.StartsWhenReady() {

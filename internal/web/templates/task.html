@@ -22,7 +22,7 @@
 </form>
 {{with .Conditions.WaitingWarning}}<p class="notice" role="status">{{.}}</p>{{end}}
 {{if not .Task.Status.Closed}}<details class="schedule"{{if .Conditions.MissingCondition}} open{{end}}><summary>着手の条件と、着手を自動で頼む設定</summary>
-{{if or (eq .Task.Status "doing") .Conditions.MissingCondition}}<p class="hint">日時、ほかのタスク、次の定期実行を待つ場合は、下の該当する欄で指定できます。判断や操作をお願いする場合は、「確認待ちにする」を選ぶと要対応に出ます。</p>{{end}}
+{{if or (eq .Task.Status "doing") .Conditions.MissingCondition}}<p class="hint">「待機にする」を押す前に、日時、ほかのタスク、次の定期実行のどれかを、下の該当する欄で指定します。戻る条件がないと、待機にはできません。外部の変化を繰り返し確かめる登録は、それだけで待機になります。判断や操作をお願いする場合は、「確認待ちにする」を選ぶと要対応に出ます。</p>{{end}}
 <form method="post" action="/tasks/{{.Task.ID}}/schedule">
   <input type="date" name="date" required aria-label="日付"> <input type="time" name="time" aria-label="時刻（省くと、その日の0時）">
   <label><input type="checkbox" name="hide" value="1"{{if .Task.ResumeOn}} checked{{end}}> 指定した日時まで「待機」にする</label>
@@ -30,6 +30,13 @@
 </form>
 {{if or .Task.ResumeOn .Task.ReviewAt}}<form method="post" action="/tasks/{{.Task.ID}}/schedule"><button name="clear" value="1">指定を外す</button></form>{{end}}
 <p class="hint">時刻を省くと、その日の0時になります。チェックを外したままなら、日時を指定してもタスクはいまの一覧に残ります。</p>
+<form method="post" action="/tasks/{{.Task.ID}}/recheck">
+  <label>外部の変化を繰り返し確かめる <select name="every">{{range rechecks}}<option value="{{.Value}}"{{if eq .Value $.Data.Task.RecheckEvery}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label>期限 <input type="date" name="until" required aria-label="確認を続ける期限の日付"></label>
+  <label>最初の確認 <input type="date" name="date" aria-label="最初の確認の日付"> <input type="time" name="time" aria-label="最初の確認の時刻"></label>
+  <button>登録する</button>
+</form>
+<p class="hint">プルリクエストやIssueの変化のように、外部の変化を待つときに使います。登録すると待機になり、決めた間隔で、別の会話が読み取りだけで確かめます。変化があったときと、期限が来たとき、確認が2回続けてできなかったときに「要対応」へ出ます。最初の確認を省くと、いまから1回分の間隔のあとになります。やめるときは、状態を変えます。日時やほかのタスクを待つ指定とは、一緒に使えません。</p>
 <form method="post" action="/tasks/{{.Task.ID}}/after">
   <label>待つタスクのID <input name="after" value="{{range $j, $b := .Task.After}}{{if $j}}, {{end}}{{$b}}{{end}}" placeholder="X58, X61" size="18"></label>
   <button>指定する</button>
@@ -85,13 +92,13 @@
 
 {{if .Artifacts}}<section>
   <h2>成果物</h2>
-  <ul class="files">{{range .ArtifactInfo}}<li><a href="/tasks/{{$.Data.Task.ID}}/files/{{.Path}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}</li>{{end}}</ul>
+  {{template "task-artifacts" .ArtifactInfo}}
 </section>{{end}}
 
 <section class="stored">
   {{if .Stored}}<h2>大きな成果物 <span class="count">{{len .Stored}}件、{{.StoredSum}}</span></h2>
   <p class="hint">グラフや画像を埋め込んだHTMLなど、作り直せる大きなファイルは、Webサーバーにあるタスクの <code>files/</code> に保存します。Gitには含めません。{{if .ExpiresOn}}ここにあるファイルは {{.ExpiresOn}} に消えます。{{else if .Pinned}}タスクを閉じたあとも残します。{{else}}タスクを閉じてから90日で消えます。{{end}}</p>
-  <ul class="files">{{range .StoredInfo}}<li><a href="/tasks/{{$.Data.Task.ID}}/files/{{.Path}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}
+  <ul class="files">{{range .StoredInfo}}<li><a href="{{.URL}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span>{{if .Current}} <span class="tag">今回</span>{{end}}
     <span class="due">{{size .Size}}</span><form method="post" action="/tasks/{{$.Data.Task.ID}}/stored" class="inline"><button name="remove" value="{{.RemovePath}}" class="quiet" title="このファイルを消す">消す</button></form></li>{{end}}</ul>{{end}}
   <details class="schedule"><summary>成果物のファイルを置く</summary>
   <form method="post" action="/tasks/{{.Task.ID}}/upload" enctype="multipart/form-data">
@@ -110,9 +117,9 @@
   <ul class="rows">{{range .Children}}<li><a class="id" href="{{taskURL .ID}}">{{.ID}}</a> <a class="title" href="{{taskURL .ID}}">{{.Title}}</a> <span class="status {{.Status}}">{{.Status.Label}}</span></li>{{end}}</ul>
 </section>{{end}}
 
-{{if .Notes}}<details class="notes"><summary>補足</summary><article class="markdown">{{.Notes}}</article></details>{{end}}
+{{template "task-notes" .Notes}}
 
-{{if .Warnings}}<details class="notes"><summary>書き方の点検で気になる点（{{len .Warnings}}件）</summary><ul class="warnings">{{range .Warnings}}<li>{{.}}</li>{{end}}</ul><p class="hint">書き方は、<code>lacia rules tasks</code> で読めます。</p></details>{{end}}
+{{template "task-warnings" .Warnings}}
 
 {{if .HasLog}}<section class="log">
   <h2>履歴</h2>
@@ -120,5 +127,3 @@
   <p><a href="/tasks/{{.Task.ID}}/log">履歴をすべて見る</a></p>
 </section>{{end}}
 {{end}}{{end}}
-
-{{define "history-groups"}}{{range .}}<details class="history-group"><summary>{{.Label}}（{{len .Entries}}件）</summary><ul>{{range .Entries}}<li>{{.Text}}{{if .Body}}<details><summary>このときの本文</summary><article class="markdown">{{.Body}}</article></details>{{end}}</li>{{end}}</ul></details>{{end}}{{end}}

@@ -2,15 +2,18 @@
 <section class="wide">
 <p><a href="/">ホーム</a> / <a href="/routines">定期タスク</a> / <a href="{{routineURL .Name}}#receipts">{{.Name}} {{.Title}}</a></p>
 <h1>{{.Title}} 受付 {{.Receipt.Sequence}}</h1>
-<p>{{dateTime .Receipt.AcceptedAt}}に届きました。{{if .Receipt.Reviewed}}確認済みです。{{else}}未確認です。{{end}}</p>
+<p>{{dateTime .Receipt.AcceptedAt}}に届きました。{{if $.Data.ActionsEnabled}} <span class="tag">{{.OutcomeLabel}}</span>{{else}}{{if .Receipt.Reviewed}}確認済みです。{{else}}未確認です。{{end}}{{end}}</p>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+{{if .RoutineTaskStatus}}<p class="hint">受付は、この回の分析の結果です。いま何をすべきかは、<a href="{{routineURL .Name}}#task">定期タスクのタスク</a>（{{.RoutineTaskStatus}}）に書いてあります。{{if not $.Data.ActionsEnabled}}受付を確認済みにしても、タスクの状態は変わりません。{{end}}</p>{{end}}
+{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">この定期タスクの実行で見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の定期タスクのタスク</a>に集めています。いま何をすべきかは、そちらに書いてあります。</p>{{end}}
 {{with .Receipt}}
 {{if .Summary}}<p class="receipt-summary">{{.Summary}}</p>{{end}}
 {{if .Reference}}<p><a href="{{.Reference}}">結果を開く</a></p>{{end}}
-{{if .Matters}}<h2>見ていただきたいこと</h2><ul>{{range .Matters}}<li>{{.Summary}}{{if .Reference}} <a href="{{.Reference}}">元の対象を開く</a>{{end}}</li>{{end}}</ul>{{end}}
+{{if .Matters}}<h2>{{if $.Data.ActionsEnabled}}見つかったこと{{else}}見ていただきたいこと{{end}}</h2><ul>{{range .Matters}}<li>{{.Summary}}{{if .Reference}} <a href="{{.Reference}}">元の対象を開く</a>{{end}}</li>{{end}}</ul>{{end}}
 {{if .Unverified}}<h2>まだ確かめられていない範囲</h2><ul>{{range .Unverified}}<li>{{.}}</li>{{end}}</ul>{{end}}
 {{end}}
-{{if .RunURL}}<p><a href="{{.RunURL}}">この回の実行履歴を開く</a></p>{{end}}
+{{if .Problem.HasProblem}}<h2>実行結果</h2><p>{{.Problem.ProblemSummary}}</p>{{with .Problem.ProblemReasons}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}{{end}}
+{{if .RunURL}}<p><a href="{{.RunURL}}">この回の実行履歴を開く</a>{{if $.Data.ActionsEnabled}}（予定時刻 {{dateTime .RunAt}}）{{end}}</p>{{end}}
 {{if .Token}}<form method="post" action="{{receiptURL .Name .Receipt.Sequence}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">この受付を確認済みにする</button></form>{{end}}
-{{if .History}}<h2>確認の履歴</h2><ul>{{range .History}}<li>{{dateTime .At}}に{{.Completion.Actor}}が確認しました。</li>{{end}}</ul>{{end}}
+{{if .History}}{{if $.Data.ActionsEnabled}}<details><summary>過去の確認の履歴</summary>{{else}}<h2>確認の履歴</h2>{{end}}<ul>{{range .History}}<li>{{dateTime .At}}に{{.Completion.Actor}}が確認しました。</li>{{end}}</ul>{{if $.Data.ActionsEnabled}}</details>{{end}}{{end}}
 </section>{{end}}{{end}}

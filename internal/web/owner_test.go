@@ -129,3 +129,15 @@ func TestBusyListsTheConversationsHeardJustNow(t *testing.T) {
 		t.Fatalf("outside the window = %v", out)
 	}
 }
+
+// A restart for when the work is done is kept by the server itself. One
+// that has nowhere to keep it says so.
+func TestRestartRequestIsKeptByTheServer(t *testing.T) {
+	_, h := setup(t)
+	req := httptest.NewRequest("POST", "/api/restart", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented || !strings.Contains(rec.Body.String(), "予約できません") {
+		t.Fatalf("without a state directory = %d %s", rec.Code, rec.Body)
+	}
+}

@@ -145,6 +145,11 @@ func CheckFormat(t Task, files []string, format int) []Warning {
 			out = append(out, Warning{0, "完了確認待ちですが、「次にすること」の最初の段落に、判断や指示をお願いする言葉（「" + word + "」）があります。お願いが残るときは、`review`（確認待ち）にしてください。"})
 		}
 	}
+	// A routine's directory also holds its definition, procedures and runs;
+	// lacia doctor checks what may be there.
+	if t.Routine {
+		files = nil
+	}
 	for _, f := range files {
 		switch {
 		case f == "task.md", f == "notes.md", f == logName, strings.HasPrefix(f, "artifacts/"), strings.HasPrefix(f, "files/"):

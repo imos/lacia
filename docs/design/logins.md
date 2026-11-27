@@ -62,6 +62,9 @@
 
 選択を省くと、その種類のコマンドを持つ既定のログインを使います。候補が1つだけなら、その候補を使います。ログインの一覧がなければ、インストール済みの `codex` か `claude` を起動します。
 
+macOSの通知アプリから起動するときに自分で用意したコマンドを使う場合は、`codex` や `claude` の先頭にそのコマンドの絶対パスを書けます。
+`lacia agent` は自分の実行ファイルの場所と `~/.local/bin` に続けて、既定のログインから順に、登録した絶対パスのあるディレクトリーをコマンドの探索先に加えます。短い名前や相対パスの指定を使うときは、もとの探索先を使います。
+
 ## ログインを分けておく仕組み
 
 ### 何のための仕組みか
@@ -96,8 +99,8 @@ exec lacia codex-login work "$@"
   "worker_root": "/scratch/workers",
   "worker_rules": "/etc/lacia/worker-rules.md",
   "logins": {
-    "work": {"codex_home": "/state/home/.codex-work", "home": "/state/home"},
-    "personal": {"codex_home": "/state/home/.codex", "home": "/state/logins/personal"}
+    "work": {"codex_home": "/path/to/work-home/.codex-work", "home": "/path/to/work-home"},
+    "personal": {"codex_home": "/path/to/personal-home/.codex", "home": "/path/to/personal-home"}
   }
 }
 ```

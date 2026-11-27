@@ -225,3 +225,68 @@ func TestValidationAndJSON(t *testing.T) {
 		t.Fatal(r, err)
 	}
 }
+
+func TestRecordKeepsEveryFailureAndOldReceiptLinks(t *testing.T) {
+	s := NewStore(t.TempDir())
+	old := mustAccept(t, s, result("old", "issue", "1"))
+	if _, err := s.Complete("S1001", Completion{OperationID: "legacy", Actor: "owner", Through: old.Sequence}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ id, outcome string }{{"first", "failed"}, {"second", "failed"}, {"skipped", "skipped"}, {"empty", "nothing"}} {
+		input := Result{RunID: tc.id, Summary: "記録です。", ProblemKey: "same"}
+		first, err := s.Record("S1001", tc.outcome, input)
+		if err != nil || first.Outcome != tc.outcome {
+			t.Fatal(first, err)
+		}
+		again, err := s.Record("S1001", tc.outcome, input)
+		if err != nil || again.Sequence != first.Sequence {
+			t.Fatal(again, err)
+		}
+	}
+	got, err := NewStore(s.Root).Snapshot("S1001")
+	if err != nil || len(got.Receipts) != 5 || !got.Receipts[0].Reviewed || got.Receipts[0].Sequence != old.Sequence {
+		t.Fatal(got, err)
+	}
+}
+
+func TestRenamedRoutineKeepsReceiptsAndSequence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".lacia"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".lacia", "config.json"), []byte(`{"format":2,"areas":["work"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routines := filepath.Join(root, "areas", "work", "routines")
+	previous := filepath.Join(routines, "S1016")
+	current := filepath.Join(routines, "S0002")
+	if err := os.MkdirAll(previous, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "routine.md"), []byte("---\nid: S1016\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStore(root)
+	if receipt, created, err := s.Accept("S1016", result("old-run", "issue", "1")); err != nil || !created || receipt.Sequence != 1 {
+		t.Fatalf("original receipt: %+v, %v, %v", receipt, created, err)
+	}
+	if err := s.MarkNotified("S1016", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(previous, current); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(current, "routine.md"), []byte("---\nid: S0002\nlegacy_name: S1016\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if receipt, created, err := s.Accept("S0002", result("old-run", "issue", "1")); err != nil || created || receipt.Sequence != 1 {
+		t.Fatalf("old receipt after the move: %+v, %v, %v", receipt, created, err)
+	}
+	if receipt, created, err := s.Accept("S0002", result("new-run", "issue", "2")); err != nil || !created || receipt.Sequence != 2 {
+		t.Fatalf("new receipt after the move: %+v, %v, %v", receipt, created, err)
+	}
+	snapshot, err := s.Snapshot("S0002")
+	if err != nil || len(snapshot.History) != 3 || snapshot.History[0].RoutineID != "S1016" || snapshot.History[2].RoutineID != "S0002" {
+		t.Fatalf("history after the move: %+v, %v", snapshot.History, err)
+	}
+}

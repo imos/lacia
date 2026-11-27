@@ -20,13 +20,13 @@ func TestStructuredCheckResults(t *testing.T) {
 		review                                    int
 	}{
 		{name: "normal zero", status: "complete", nothing: true, want: RunNothing},
-		{name: "all unavailable", status: "unavailable", nothing: true, want: RunFailed},
+		{name: "all unavailable", status: "unavailable", nothing: true, want: RunFailed, review: 1},
 		{name: "partial findings", status: "partial", want: RunPartial, review: 1},
-		{name: "partial without findings", status: "partial", nothing: true, want: RunPartial},
+		{name: "partial without findings", status: "partial", nothing: true, want: RunPartial, review: 1},
 		{name: "execution failure overrides report", status: "complete", executionFailed: true, want: RunFailed, review: 1},
-		{name: "required report missing", missing: true, want: RunFailed},
+		{name: "required report missing", missing: true, want: RunFailed, review: 1},
 		{name: "legacy report", legacy: true, want: RunDone, review: 1},
-		{name: "legacy partial", status: "partial", legacy: true, nothing: true, want: RunPartial},
+		{name: "legacy partial", status: "partial", legacy: true, nothing: true, want: RunPartial, review: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
@@ -166,7 +166,7 @@ func TestCheckResultDefinitionAndPrompt(t *testing.T) {
 		if len(jobs) != 1 || jobs[0].Err != "" || !jobs[0].CheckResult {
 			t.Fatalf("definitions: %+v", jobs)
 		}
-		prompt := jobs[0].ReportInstruction("run-id")
+		prompt := jobs[0].ReportInstruction("run-id", false)
 		for _, text := range []string{"lacia run report", "run-id", "check_status", "unavailable", "nothing", "cause_key"} {
 			if !strings.Contains(prompt, text) {
 				t.Errorf("missing %s in %s", text, prompt)

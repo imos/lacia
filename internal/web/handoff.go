@@ -84,7 +84,7 @@ func (s *Server) apiHandoff(w http.ResponseWriter, r *http.Request) {
 		ID, Title, Text, From string
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	in.ID, in.Title, in.Text, in.From = strings.TrimSpace(in.ID), strings.TrimSpace(in.Title), strings.TrimSpace(in.Text), strings.TrimSpace(in.From)
@@ -93,10 +93,10 @@ func (s *Server) apiHandoff(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "いまは引き継ぎを受け付けていません"})
 		return
 	case !handoffID.MatchString(in.ID):
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "引き継ぎのIDには、英数字とハイフンだけを使えます"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "引き継ぎのIDは、半角の英数字とハイフンを使って4〜64文字で指定してください"})
 		return
 	case in.Title == "" || in.Text == "":
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "題名と、引き継ぐ内容の文章を指定してください"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "題名と、引き継ぎたい内容を書いてください"})
 		return
 	}
 	if old, ok := s.Requests.Get(handoffPrefix + in.ID); ok {

@@ -87,7 +87,7 @@ func runSelf(args []string) error {
 		if out.Changed {
 			fmt.Println("項目に日付を付けました。本文は変えていません。")
 		} else {
-			fmt.Println("日付のない項目は、ありませんでした。")
+			fmt.Println("どの項目にも日付がありました。")
 		}
 		return nil
 	}
@@ -123,7 +123,7 @@ func runSelf(args []string) error {
 			fmt.Println("今回は書き直す材料がなかったので、自分についての記録の更新を見送りました。")
 			return nil
 		default:
-			return errors.New("今回は新しい自分についての記録を採用しませんでした。" + night.Reason)
+			return errors.New("今回は「わたしのこと」の書き直しを見送りました。" + night.Reason)
 		}
 	}
 	return errors.New("夜の処理を65分待ちましたが、結果はまだ分かりません。Web の「レイシアのこと」で確かめてください")
@@ -169,7 +169,7 @@ func runSelfImprove(args []string) error {
 			return nil
 		}
 		for _, c := range got.Improvements {
-			state := "行き先を待っています"
+			state := "タスクにするか、まだ決まっていません"
 			switch c.Outcome {
 			case self.ImproveTask:
 				state = "タスク " + c.Task + " になりました"
@@ -205,9 +205,9 @@ func runSelfImprove(args []string) error {
 		return err
 	}
 	if got.Outcome == self.ImproveTask {
-		fmt.Fprintf(os.Stderr, "候補 %s を、タスク %s にしたと残しました。\n", got.ID, got.Task)
+		fmt.Fprintf(os.Stderr, "候補 %s の対応をタスク %s で進めることを記録しました。\n", got.ID, got.Task)
 	} else {
-		fmt.Fprintf(os.Stderr, "候補 %s を、見送ったと残しました。\n", got.ID)
+		fmt.Fprintf(os.Stderr, "候補 %s を見送ったことを記録しました。\n", got.ID)
 	}
 	return nil
 }

@@ -52,7 +52,7 @@ func TestRecheckCommands(t *testing.T) {
 				t.Fatalf("a result before the registration: %v", err)
 			}
 			out, _, err := captureMirrorTask(t, "recheck", "--root", root, id, "--every", "1d", "--until", "2999-01-01")
-			if err != nil || !strings.Contains(out, "T1001 を外部待ちにして、毎日") || !strings.Contains(out, "に確認（2999-01-01 まで）と登録しました") || !strings.Contains(out, "「次にすること」に") {
+			if err != nil || !strings.Contains(out, "T1001 を外部待ちにしました。確認の予定は「毎日") || !strings.Contains(out, "に確認（2999-01-01 まで）」です") || !strings.Contains(out, "「次にすること」に") {
 				t.Fatalf("register: %q %v", out, err)
 			}
 			if body := stored(); !strings.Contains(body, "status: waiting") || !strings.Contains(body, "recheck_every: 1d") || !strings.Contains(body, "recheck_until: 2999-01-01") || !strings.Contains(body, "resume_on: ") {

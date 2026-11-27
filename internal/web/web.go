@@ -288,11 +288,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/calendar/list", s.apiCalendarList)
 	mux.HandleFunc("POST /api/calendar/refresh", func(w http.ResponseWriter, r *http.Request) {
 		if s.Calendars == nil || s.Calendars.Refresh == nil {
-			http.Error(w, "予定の直接取得を利用できません", http.StatusServiceUnavailable)
+			http.Error(w, "このサーバーでは、Googleから予定を直接取得できません", http.StatusServiceUnavailable)
 			return
 		}
 		if err := s.Calendars.Refresh(r.Context()); err != nil {
-			http.Error(w, "一部の予定を確認できませんでした", http.StatusServiceUnavailable)
+			http.Error(w, "読み取りが済んでいない予定があります。「予定の連携」で各カレンダーの状態を確かめてください", http.StatusServiceUnavailable)
 			return
 		}
 		s.apiSnapshot(w, r)
@@ -359,7 +359,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		defer func() {
 			if v := recover(); v != nil {
 				slog.Error("panic", "path", r.URL.Path, "error", v)
-				http.Error(rec, "内部でエラーが起きました。", http.StatusInternalServerError)
+				http.Error(rec, "サーバーでエラーが起き、処理を続けられませんでした。", http.StatusInternalServerError)
 			}
 			if r.URL.Path != "/healthz" {
 				slog.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "ms", time.Since(start).Milliseconds())
@@ -647,9 +647,9 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		Sections: []Section{
 			s.section("review", "要対応", task.OwnerName+"の判断、回答、操作を待っています。", review, list),
 			s.section("closing", "完了確認待ち", "作業は終わっています。成果を見て、よければ完了にしてください。", closing, list),
-			s.section("ongoing", "進行中", "わたしが作業しているタスクと、処理が実行中のタスクです。", ongoing, list),
+			s.section("ongoing", "進行中", "わたしが作業を進めているタスクと、処理が動いているタスクです。", ongoing, list),
 			s.section("ready", "着手待ち", "まだ始めていないタスクです。進行中のプロジェクトで次に着手するタスクは「プロジェクト」の欄に表示します。", ready, list),
-			s.section("later", "待機", "日時やほかのタスクなど、次に進むための条件を待っています。", later, list),
+			s.section("later", "待機", "指定した日時が来るのを待っているタスクや、ほかのタスクや処理が終わるのを待っているタスクです。", later, list),
 		},
 		Projects: blocks,
 		Recent:   closed,
@@ -936,7 +936,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	r.Body = http.MaxBytesReader(w, r.Body, task.MaxFileSize*4)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		s.fail(w, http.StatusBadRequest, "ファイルを受け取れませんでした。1ファイルの上限は50 MiBです。")
+		s.fail(w, http.StatusBadRequest, "ファイルを受け取れませんでした。それぞれのファイルが50 MiB以内か確かめて、件数が多いときは分けて送ってください。")
 		return
 	}
 	kind := r.FormValue("to")
@@ -1115,7 +1115,7 @@ func (s *Server) setAfterRun(w http.ResponseWriter, r *http.Request) {
 // start asks Lacia to begin a task that became ready, without the user
 // having to write a request.
 func (s *Server) start(w http.ResponseWriter, r *http.Request) {
-	saved, _, err := s.accept(request.Request{Source: "Web", TaskID: r.PathValue("id"), Text: "Webの「着手を頼む」からの依頼です。条件がそろったので、このタスクに着手してください。"}, "")
+	saved, _, err := s.accept(request.Request{Source: "Web", TaskID: r.PathValue("id"), Text: "Webの「着手を頼む」からの依頼です。このタスクに着手してください。"}, "")
 	if err != nil {
 		s.fail(w, http.StatusBadRequest, err.Error())
 		return
@@ -1132,7 +1132,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 // for the user. If the request cannot be queued, the task asks for review
 // instead, so that it is not forgotten.
 func (s *Server) StartReady(t task.Task) {
-	req := request.Request{Source: "あらかじめ決めた条件", TaskID: t.ID, Text: "指定した着手の条件がそろったので、サーバーがこの依頼を出しました。待っていた条件は履歴で確かめられます。指定の日時を大きく過ぎているときは、いま始めても依頼の目的を果たせるか、先に確かめてください。タスクの「次にすること」と補足を読んで進めてください。"}
+	req := request.Request{Source: "あらかじめ決めた条件", TaskID: t.ID, Text: "タスクの着手条件がそろったので、サーバーがこの依頼を送りました。タスクの「次にすること」と補足を読んで進めてください。待っていた条件は履歴で確かめられます。指定の日時を大きく過ぎているときは、いま始めても依頼の目的を果たせるか、先に確かめてください。"}
 	to, err := s.targetReady(t)
 	if err == nil {
 		if to.Place != "" && to.Place != s.Place {
@@ -1350,7 +1350,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, repoPath stri
 	textual := map[string]bool{".md": true, ".txt": true, ".json": true, ".jsonl": true, ".csv": true, ".tsv": true, ".yaml": true, ".yml": true, ".toml": true, ".log": true, ".py": true, ".go": true, ".sh": true}
 	if textual[ext] && r.URL.Query().Get("raw") == "" {
 		if info.Size() > 4<<20 {
-			s.fail(w, http.StatusRequestEntityTooLarge, clean+" は大きすぎるので、ここでは表示しません。")
+			s.fail(w, http.StatusRequestEntityTooLarge, clean+" は4 MiBを超えるため、この画面で本文を表示できません。")
 			return
 		}
 		content, err := os.ReadFile(full)
@@ -1617,6 +1617,10 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if saved.TaskID == "" {
+		http.Redirect(w, r, "/requests/"+saved.ID, http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks/"+saved.TaskID+"?flash="+url.QueryEscape("依頼を受け付けました。"+saved.TaskID+" は進行中です。"), http.StatusSeeOther)
 }
 
@@ -1698,6 +1702,8 @@ func (s *Server) requestDetail(w http.ResponseWriter, r *http.Request) {
 	s.fail(w, http.StatusNotFound, "その依頼は見つかりません")
 }
 
+const invalidJSONMessage = "JSONを読み取れませんでした。形式とデータの大きさを確かめてください"
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -1713,7 +1719,7 @@ func (s *Server) apiAsk(w http.ResponseWriter, r *http.Request) {
 		Resume                       string `json:"resume"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	if in.Source == "" {
@@ -1733,7 +1739,7 @@ func (s *Server) apiAsk(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if in.Text != "" || in.Task != "" || in.Area != "" || in.StatusPolicy != "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "依頼を再開するときは、文章、タスク、領域、状態を指定しないでください"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "依頼を再開するときは元の依頼のIDを指定し、文章、タスク、領域、状態の指定は外してください"})
 			return
 		}
 		saved, created, err = s.resume(in.Resume, in.ID, in.Source)
@@ -1804,7 +1810,7 @@ func (s *Server) apiCreate(w http.ResponseWriter, r *http.Request) {
 		Area, Title, Status, Parent, Slug, Actor string
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	sess, known := s.session(r)
@@ -1839,7 +1845,7 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		Rechecked, Text string
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	id := r.PathValue("id")
@@ -1896,7 +1902,7 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		err, changed = s.Store.Log(id, note), true
 	default:
-		err = errors.New("status、field、log、recheck、rechecked のどれかを指定してください")
+		err = errors.New("更新する内容に合わせて、status、claim、field、log、recheck、rechecked のいずれかを指定してください")
 	}
 	if errors.Is(err, task.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -1938,7 +1944,7 @@ func (s *Server) apiWaitingWarnings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiProjectNote(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Project, Log, Actor string }
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	text := strings.TrimSpace(in.Log)

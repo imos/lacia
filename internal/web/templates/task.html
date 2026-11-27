@@ -12,7 +12,7 @@
   {{if .Task.Due}}<span>期限 {{.Task.Due}}</span>{{end}}
   {{if .Task.Priority}}<span>優先度 {{.Task.Priority}}</span>{{end}}
   {{if .Task.ReadySince}}<span class="resume">{{.Task.ReadySince}} に、着手できるようになりました</span>{{end}}
-  {{if .Task.StoppedAt}}<span class="resume">短い間に書き込みが続いたため、{{.Task.StoppedAt}} から30分間、その呼び出し元からこのタスクへの書き込みを止めました</span>{{end}}
+  {{if .Task.StoppedAt}}<span class="resume">短い間に書き込みを繰り返した呼び出し元は、{{.Task.StoppedAt}} から30分間、このタスクに書き込めません</span>{{end}}
 </p>
 {{template "task-list-conditions" .Conditions}}
 {{if and .Task.ReadySince .CanAsk}}<form class="actions" method="post" action="/tasks/{{.Task.ID}}/start"><button class="primary">着手を頼む</button> <span class="hint">着手の依頼を受け付けて、タスクを進行中にします。</span></form>{{end}}
@@ -22,7 +22,7 @@
 </form>
 {{with .Conditions.WaitingWarning}}<p class="notice" role="status">{{.}}</p>{{end}}
 {{if not .Task.Status.Closed}}<details class="schedule"{{if .Conditions.MissingCondition}} open{{end}}><summary>着手の条件と、着手を自動で頼む設定</summary>
-{{if or (eq .Task.Status "doing") .Conditions.MissingCondition}}<p class="hint">「待機にする」を押す前に、日時、ほかのタスク、次の定期実行のどれかを、下の該当する欄で指定します。戻る条件がないと、待機にはできません。外部の変化を繰り返し確かめる登録は、それだけで待機になります。判断や操作をお願いする場合は、「確認待ちにする」を選ぶと要対応に出ます。</p>{{end}}
+{{if or (eq .Task.Status "doing") .Conditions.MissingCondition}}<p class="hint">「待機にする」を押す前に、待つ日時、ほかのタスク、定期タスクの次の実行のうち、少なくとも1つを指定してください。外部の変化を繰り返し確かめる場合は、確認を登録すると「待機」になります。判断や操作をお願いするときは「確認待ちにする」を選んでください。ホームの「要対応」に表示します。</p>{{end}}
 <form method="post" action="/tasks/{{.Task.ID}}/schedule">
   <input type="date" name="date" required aria-label="日付"> <input type="time" name="time" aria-label="時刻（省くと、その日の0時）">
   <label><input type="checkbox" name="hide" value="1"{{if .Task.ResumeOn}} checked{{end}}> 指定した日時まで「待機」にする</label>
@@ -36,7 +36,8 @@
   <label>最初の確認 <input type="date" name="date" aria-label="最初の確認の日付"> <input type="time" name="time" aria-label="最初の確認の時刻"></label>
   <button>登録する</button>
 </form>
-<p class="hint">プルリクエストやIssueの変化のように、外部の変化を待つときに使います。登録すると待機になり、決めた間隔で、別の会話が読み取りだけで確かめます。変化があったときと、期限が来たとき、確認が2回続けてできなかったときに「要対応」へ出ます。最初の確認を省くと、いまから1回分の間隔のあとになります。やめるときは、状態を変えます。日時やほかのタスクを待つ指定とは、一緒に使えません。</p>
+<p class="hint">プルリクエストやIssueなど、外部の変化を待つときに使います。登録するとタスクは「待機」になり、別の会話が指定した間隔で対象を読みます。「最初の確認」を省くと、登録からその間隔が過ぎたときに初めて確かめます。</p>
+<p class="hint">判断や操作が必要な変化があったとき、期限が来たとき、2回続けて確かめられなかったときは、ホームの「要対応」に表示します。確認をやめるときは、タスクを「待機」以外の状態にしてください。日時やほかのタスクを待つ指定とは一緒に使えません。</p>
 <form method="post" action="/tasks/{{.Task.ID}}/after">
   <label>待つタスクのID <input name="after" value="{{range $j, $b := .Task.After}}{{if $j}}, {{end}}{{$b}}{{end}}" placeholder="X58, X61" size="18"></label>
   <button>指定する</button>
@@ -47,7 +48,7 @@
   <datalist id="after-run-routines">{{range .RoutineJobs}}<option value="{{.Name}}">{{.Title}}</option>{{end}}</datalist>
   <button>指定する</button>
 </form>
-<p class="hint">指定したあとに予定された回の実行が終わるまで待ちます。失敗や一部だけ実行できた回は、条件がそろったときに「要対応」へ出します。欄を空にして指定すると、条件を外せます。</p>
+<p class="hint">登録後に予定されている回の実行が終わるまで待ちます。その回が失敗したり、一部しか実行できなかったりしたときは、ほかの着手条件もそろった時点で、このタスクを「要対応」に表示します。待つ指定を外すには、欄を空にして「指定する」を押してください。</p>
 <form method="post" action="/tasks/{{.Task.ID}}/on-ready">
   <label><input type="checkbox" name="start" value="1"{{if .Task.OnReady}} checked{{end}}> 条件がそろったら、自動で着手を頼む</label>
   <label>宛先 <input name="to" value="{{.Task.ReadyTarget}}" placeholder="既定の会話" size="18"></label>
@@ -60,7 +61,7 @@
 
 {{if .Waits}}<section class="waits">
   <h2>いま待っているもの</h2>
-  <ul>{{range .Waits}}<li>{{.Target}} の終了を待っています（待ちのID <code>{{.ID}}</code>）。{{.SeenLabel}}{{if not .SeenAt.IsZero}}（{{clock .SeenAt}} に確認）{{end}}。期限は {{clock .By}} です。{{if .Then}}<br><span class="hint">終わったらすること: {{.Then}}</span>{{end}}</li>{{end}}</ul>
+  <ul>{{range .Waits}}<li>{{.Target}} の終了を待っています（待ちのID <code>{{.ID}}</code>）。{{.SeenLabel}}{{if not .SeenAt.IsZero}}（{{clock .SeenAt}} 時点）{{end}}。期限は {{clock .By}} です。{{if .Then}}<br><span class="hint">終わったらすること<br>{{.Then}}</span>{{end}}</li>{{end}}</ul>
 </section>{{end}}
 {{if .Handovers}}<section class="waits">
   <h2>申し送り</h2>

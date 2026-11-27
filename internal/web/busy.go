@@ -64,7 +64,7 @@ func (s *Server) apiRestart(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	if err := s.RestartWhenIdle(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "再起動を予約できませんでした: " + err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "再起動を予約できませんでした。" + err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"scheduled": true})

@@ -111,7 +111,7 @@ func rolloverSessions(sessions []windowSession, night string, ready func() bool)
 func logRollover(kind, night string, changed bool, err error) {
 	switch {
 	case err != nil:
-		slog.Error("window session rollover", "kind", kind, "night", night, "error", err)
+		slog.Error("window session rollover", "detail", "窓口で使う会話を新しくできませんでした。", "kind", kind, "night", night, "error", err)
 	case changed:
 		slog.Info("window session rolled over", "kind", kind, "night", night)
 	}

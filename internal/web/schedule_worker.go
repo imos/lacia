@@ -20,7 +20,7 @@ func (s *Server) scheduleWorker(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	decode := func(v any) bool {
 		if json.NewDecoder(r.Body).Decode(v) != nil {
-			http.Error(w, "入力を読めませんでした", http.StatusBadRequest)
+			http.Error(w, "端末から届いた内容を読み取れませんでした。JSONの形式を確かめてください", http.StatusBadRequest)
 			return false
 		}
 		return true

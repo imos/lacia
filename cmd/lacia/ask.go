@@ -57,7 +57,11 @@ func runAsk(args []string) error {
 	if err := apiCall("POST", "/api/requests", map[string]string{"id": *id, "text": text, "task": *taskID, "area": *area, "source": *source, "status_policy": policy, "resume": *resume}, &saved); err != nil {
 		return fmt.Errorf("%w\n届いたかどうか分からないときは、--id %s を付けて同じ内容を送り直してください。同じIDの依頼は1件として受け付けます", err, *id)
 	}
-	fmt.Fprintf(os.Stderr, "依頼 %s を受け付けました。タスクは %s です。\n", saved.ID, saved.TaskID)
+	receipt := fmt.Sprintf("依頼 %s を受け付けました。", saved.ID)
+	if saved.TaskID != "" {
+		receipt += fmt.Sprintf("タスクは %s です。", saved.TaskID)
+	}
+	fmt.Fprintln(os.Stderr, receipt)
 	if !*wait {
 		return nil
 	}

@@ -46,6 +46,16 @@ func TestCalendarConnection(t *testing.T) {
 		t.Fatalf("settings page: %d", code)
 	}
 
+	for _, check := range []struct{ account, message string }{
+		{"unknown@example.test", "このアカウントは連携の対象にありません"},
+		{owner, "クライアントIDとクライアントシークレットを入力してください"},
+	} {
+		rec := post(h, "/settings/calendar/connect", "", url.Values{"account": {check.account}})
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), check.message) {
+			t.Errorf("invalid calendar connection for %s: %d %s", check.account, rec.Code, rec.Body)
+		}
+	}
+
 	start := func(account string) url.Values {
 		rec := post(h, "/settings/calendar/connect", "", url.Values{"account": {account}, "client_id": {"cid"}, "client_secret": {"s3cret"}})
 		if rec.Code != http.StatusSeeOther {

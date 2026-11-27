@@ -25,7 +25,7 @@
     {{if $e.Reason}}<p class="next">{{$e.Reason}}</p>{{end}}
   </li>{{end}}{{end}}
   </ol>
-  {{if .Plan.Missing}}<p class="hint">順序に書かれている {{range $i, $id := .Plan.Missing}}{{if $i}}、{{end}}{{$id}}{{end}} は、このプロジェクトのタスクではありません。タスクの冒頭に <code>project: {{.Plan.Slug}}</code> があるかを確かめてください。</p>{{end}}
+  {{if .Plan.Missing}}<p class="hint">取りかかる順に挙がっている {{range $i, $id := .Plan.Missing}}{{if $i}}、{{end}}{{$id}}{{end}} は、このプロジェクトのタスクではありません。タスクの冒頭に <code>project: {{.Plan.Slug}}</code> があるかを確かめてください。</p>{{end}}
 </section>
 
 {{if .Plan.Closed}}<details class="notes"><summary>完了したタスクと取りやめたタスク（{{.Plan.Closed}}件）</summary><ul class="rows">

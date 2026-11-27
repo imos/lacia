@@ -57,7 +57,7 @@ func (m *mirrorPoll) observe(ctx context.Context, now time.Time, revision string
 		if ctx.Err() != nil {
 			return
 		}
-		slog.Warn("task mirror", "error", err)
+		slog.Warn("task mirror", "detail", "サーバーの記録を手元に同期できませんでした。", "error", err)
 		m.fail(now)
 		return
 	}
@@ -79,13 +79,13 @@ func (m *mirrorPoll) observe(ctx context.Context, now time.Time, revision string
 	if err := notify.SaveState(m.statePath, m.state); err != nil {
 		m.state.Sync = previous
 		m.healthy = false
-		slog.Warn("task mirror state", "error", err)
+		slog.Warn("task mirror state", "detail", "手元の記録の同期状況を保存できませんでした。", "error", err)
 		return
 	}
 	if result.Backup != "" {
 		if err := agent.AcknowledgeMirrorRecovery(m.dir, result.Backup); err != nil {
 			m.healthy = false
-			slog.Warn("task mirror recovery receipt", "error", err)
+			slog.Warn("task mirror recovery receipt", "detail", "手元の記録を復旧しましたが、復旧が済んだことを記録できませんでした。", "error", err)
 			return
 		}
 	}
@@ -142,7 +142,7 @@ func (m *mirrorPoll) fail(now time.Time) {
 	}
 	if err := notify.SaveState(m.statePath, m.state); err != nil {
 		m.state.Sync = previous
-		slog.Warn("task mirror state", "error", err)
+		slog.Warn("task mirror state", "detail", "手元の記録の同期状況を保存できませんでした。", "error", err)
 	}
 }
 

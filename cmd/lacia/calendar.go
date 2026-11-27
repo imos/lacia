@@ -15,7 +15,7 @@ func runCalendar(args []string) error {
 		return fmt.Errorf("lacia calendar list を指定してください")
 	}
 	fs := commandFlags("calendar list")
-	period := fs.String("period", "", "today（既定）、tomorrow、week")
+	period := fs.String("period", "", "予定を読む期間です。きょうは today（既定）、あしたは tomorrow、きょうから7日間は week を指定します")
 	from := fs.String("from", "", "開始日（YYYY-MM-DD）")
 	until := fs.String("until", "", "終了日（YYYY-MM-DD、その日の予定は含みません）")
 	asJSON := fs.Bool("json", false, "取得状況と表示用の予定をJSONで出します")
@@ -39,21 +39,21 @@ func runCalendar(args []string) error {
 	}
 	fmt.Printf("%s から %s の前日まで（%s）\n", result.Start, result.Until, result.Timezone)
 	if result.Status != "ok" {
-		fmt.Println("この期間の予定をすべては確認できていません。")
+		fmt.Println("この期間には、予定を確かめられていない範囲があります。")
 	} else if len(result.Events) == 0 {
 		fmt.Println("この期間の予定は0件です。")
 	}
 	for _, src := range result.Sources {
 		status := "取得済み"
 		if src.Status != "ok" || src.Stale || !src.Covered {
-			status = "一部または未確認"
+			status = "未確認の範囲があります"
 		}
 		fmt.Printf("%s（%s）", src.Label, status)
 		if src.SucceededAt != nil {
 			fmt.Printf(" 最後に取得できた時刻 %s", src.SucceededAt.Format("2006-01-02 15:04 MST"))
 		}
 		if src.AttemptedAt != nil {
-			fmt.Printf(" 最後に試みた時刻 %s", src.AttemptedAt.Format("2006-01-02 15:04 MST"))
+			fmt.Printf(" 最後に取得を試みた時刻 %s", src.AttemptedAt.Format("2006-01-02 15:04 MST"))
 		}
 		fmt.Println()
 	}

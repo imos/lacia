@@ -8,14 +8,16 @@ import AppKit
 // allows. brand.png itself stays as it is for the menu bar and the web.
 let source = URL(fileURLWithPath: CommandLine.arguments[1])
 let destination = URL(fileURLWithPath: CommandLine.arguments[2])
-guard let image = NSImage(contentsOf: source),
-      let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1024,
+guard let image = NSImage(contentsOf: source) else {
+    fatalError("アイコンの元画像を読み込めませんでした。入力したファイルを確かめてください。")
+}
+guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1024,
                                     pixelsHigh: 1024, bitsPerSample: 8,
                                     samplesPerPixel: 4, hasAlpha: true,
                                     isPlanar: false, colorSpaceName: .deviceRGB,
                                     bytesPerRow: 0, bitsPerPixel: 0),
       let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-    fatalError("cannot load the artwork or create the canvas")
+    fatalError("アイコンを描く領域を用意できませんでした。")
 }
 let outline = NSRect(x: 100, y: 100, width: 824, height: 824)
 NSGraphicsContext.saveGraphicsState()
@@ -28,6 +30,6 @@ context.imageInterpolation = .high
 image.draw(in: outline, from: .zero, operation: .sourceOver, fraction: 1)
 NSGraphicsContext.restoreGraphicsState()
 guard let png = bitmap.representation(using: .png, properties: [:]) else {
-    fatalError("cannot encode the icon")
+    fatalError("アイコンを PNG 形式に変換できませんでした。")
 }
 try png.write(to: destination)

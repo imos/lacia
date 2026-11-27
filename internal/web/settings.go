@@ -108,6 +108,10 @@ func (s *Server) calendarConnect(w http.ResponseWriter, r *http.Request) {
 	for _, entry := range calendar.Scope {
 		known = known || entry.Account == account
 	}
+	if !known {
+		s.fail(w, http.StatusBadRequest, "このアカウントは連携の対象にありません。「予定の連携」を開いて、一覧からアカウントを選んでください。")
+		return
+	}
 	clientID, clientSecret := strings.TrimSpace(r.FormValue("client_id")), strings.TrimSpace(r.FormValue("client_secret"))
 	if clientID == "" && clientSecret == "" {
 		// The client from the settings comes first, so that a grant can be
@@ -118,7 +122,7 @@ func (s *Server) calendarConnect(w http.ResponseWriter, r *http.Request) {
 			clientID, clientSecret = cred.ClientID, cred.ClientSecret
 		}
 	}
-	if !known || clientID == "" || clientSecret == "" {
+	if clientID == "" || clientSecret == "" {
 		s.fail(w, http.StatusBadRequest, "クライアントIDとクライアントシークレットを入力してください。")
 		return
 	}
@@ -155,7 +159,7 @@ func (s *Server) calendarCallback(w http.ResponseWriter, r *http.Request) {
 		back("許可の手続きが見つからないか、有効期限が切れています。「予定の連携」からもう1度やり直してください。")
 		return
 	case q.Get("error") != "":
-		back("Googleでの許可が完了しませんでした（" + q.Get("error") + "）。")
+		back("Googleでの許可が完了しませんでした（" + q.Get("error") + "）。連携を続ける場合は、「予定の連携」からもう1度手続きしてください。")
 		return
 	}
 	cred, access, err := c.Client.Exchange(r.Context(), grant.clientID, grant.clientSecret, c.redirect(), q.Get("code"), grant.verifier)

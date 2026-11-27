@@ -51,7 +51,7 @@ func (r scheduleConversations) run(ctx context.Context, execution schedule.Execu
 	}
 	name, command, err := r.logins.ExecutionCommand(execution.Job.Profile, kind, execution.Job.Side)
 	if err != nil {
-		slog.Warn("scheduled login unavailable", "id", execution.ID, "error", err)
+		slog.Warn("scheduled login unavailable", "detail", "この予約で使う会話のログインを選べませんでした。予約と、この端末のログイン設定を確かめてください。", "id", execution.ID, "error", err)
 		return "", err
 	}
 	conversation := "main"
@@ -105,7 +105,7 @@ func (r scheduleConversations) codex(ctx context.Context, dir string, command, e
 		}
 		threadID = strings.TrimSpace(string(data))
 		if threadID != "" && !scheduleThreadID.MatchString(threadID) {
-			return "", errors.New("予約の会話IDを読めません")
+			return "", errors.New("保存してある予約の会話IDを読み取れませんでした。正しい形式のIDか確かめてください")
 		}
 	}
 	out, err := os.CreateTemp(dir, "reply-*")

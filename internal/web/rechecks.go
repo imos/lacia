@@ -65,17 +65,17 @@ func (s *Server) askRecheck(round task.RecheckRound) error {
 // nothing of how the task came to wait.
 func recheckPrompt(t task.Task, asked string) string {
 	id, owner := t.ID, task.OwnerName
-	return fmt.Sprintf(`外部待ちのタスク %[1]s の、決めてあった確認の回（%[2]s）です。このタスクは、外部の変化を繰り返し確かめながら待っています。確認は%[3]sで、期限は %[4]s です。次の回の日時は、サーバーがすでに入れてあります。この回でしていただくのは、読み取りの確認と、結果の記録だけです。
+	return fmt.Sprintf(`タスク %[1]s で、外部の変化を確かめる時刻（%[2]s）になりました。確認は%[3]sで、期限は %[4]s です。次の確認日時はサーバーが登録しています。今回は、対象を読み取って結果を記録してください。
 
-1. lacia task show %[1]s で本文を読み、補足（notes.md）があれば読みます。「次にすること」に、何を確かめるのかと、何が起きたら%[5]sにお知らせするのかが書いてあります。
-2. 書いてある対象を、読み取りだけで確かめます。外部への送信、投稿、書き込み、設定の変更はしません。タスクの状態と条件は、下のコマンドのほかでは変えません。
-3. 結果を、次のどれか1つで残します。文章には、何を見て、どうだったのかを1〜2文で書きます。
-   - 変化がなかったとき: lacia task rechecked %[1]s same "（見たものと結果）"
-   - %[5]sの判断や操作が要る変化があったとき: 先に lacia task write %[1]s task.md で「次にすること」へ、見ていただくものへのリンクと、決めていただきたいことを書きます。そのあと lacia task rechecked %[1]s changed "（何が変わったか）" を実行します。タスクは確認待ちになり、繰り返しの確認は止まります。
-   - 対象を読めなかったとき（認証切れ、通信の失敗など）: lacia task rechecked %[1]s unknown "（確かめられなかった範囲と理由）"。読めなかった回を、変化なしとは扱いません。
-4. 次の回を別の日時にしたほうがよいと分かったときだけ、lacia task field %[1]s resume_on "日時" で変えます。たとえば、相手が返事をする日を書いていたときです。期限より後にはできません。
+1. lacia task show %[1]s で本文を読んでください。補足（notes.md）があれば、そちらも読みます。「次にすること」に、何を確かめて、どんな変化を%[5]sにお知らせするかが書いてあります。
+2. 指定された対象は、読み取りだけで確かめてください。外部への送信、投稿、書き込み、設定の変更はしません。タスクの状態や条件を変えるときは、次に挙げるコマンドだけを使います。
+3. 何を確かめてどうだったかを1〜2文で書き、次のうち1つの方法で記録してください。
+   - 変化がなければ、lacia task rechecked %[1]s same "見たものと結果" を実行します。
+   - %[5]sの判断や操作が要る変化があれば、先にタスクの「次にすること」に、見ていただくものへのリンクと、お願いしたいことを書いてください。書き直した本文を lacia task write %[1]s task.md ファイル名 で保存してから、lacia task rechecked %[1]s changed "変わったこと" を実行します。タスクは「確認待ち」になり、繰り返しの確認は終わります。
+   - 認証切れや通信の失敗などで対象を読めなかったときは、lacia task rechecked %[1]s unknown "確かめられなかった範囲と理由" を実行します。
+4. 相手が返事をする日が分かったときなど、次の確認日時を変えたほうがよい場合だけ、lacia task field %[1]s resume_on "日時" で変更してください。指定できるのは期限までの日時です。
 
-結果を残さずに終えると、その回は「確かめられなかった」と数えます。%[6]d回続くと、サーバーがタスクを確認待ちへ出します。返事では、残した結果を1文で伝えてください。`,
+結果を記録しなかった回も、確かめられなかった回に数えます。%[6]d回続くと、サーバーがタスクを「確認待ち」にします。返事では、記録した結果を1文で伝えてください。`,
 		id, asked, task.EveryLabel(t.RecheckEvery), t.RecheckUntil, owner, task.MaxRecheckMisses)
 }
 
@@ -94,7 +94,7 @@ func (s *Server) setRecheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.changed()
-	http.Redirect(w, r, "/tasks/"+t.ID+"?flash="+url.QueryEscape(t.RecheckLabel()+"。最初の確認は "+t.ResumeOn+" です。"), http.StatusSeeOther)
+	http.Redirect(w, r, "/tasks/"+t.ID+"?flash="+url.QueryEscape(task.EveryLabel(t.RecheckEvery)+"の確認を "+t.RecheckUntil+" まで続けます。最初の確認は "+t.ResumeOn+" です。"), http.StatusSeeOther)
 }
 
 // recheckChoice is one interval offered on the task's page. The command

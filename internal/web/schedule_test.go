@@ -61,7 +61,7 @@ func TestSchedulePage(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status %d", status)
 	}
-	for _, want := range []string{"GitHubの確認", "11月22日 09:03", "実行した回の記録だけで数えます", "続けて失敗した回数</th><td>1回", "続けて実行されなかった回数</th><td>0回",
+	for _, want := range []string{"GitHubの確認", "11月22日 09:03", "実際に動いた回だけを数えます", "続けて失敗した回数</th><td>1回", "続けて実行されなかった回数</th><td>0回",
 		"予定の35分後に依頼を受け付けました。", "失敗しました", "実行されませんでした", "接続できませんでした", "未確認の変更に&lt;b&gt;2件&lt;/b&gt;あります。", `href="/routines/github?month=2026-10"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page lacks %q", want)

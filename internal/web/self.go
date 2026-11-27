@@ -30,7 +30,7 @@ type selfData struct {
 // each night changed.
 func (s *Server) selfPage(w http.ResponseWriter, r *http.Request) {
 	if s.Self == nil {
-		s.fail(w, http.StatusNotFound, "自分についての記録の設定は、このサーバーにはありません。")
+		s.fail(w, http.StatusNotFound, "このサーバーでは、自分についての記録を使う設定になっていません。")
 		return
 	}
 	improvements := s.Self.Improvements()
@@ -38,8 +38,12 @@ func (s *Server) selfPage(w http.ResponseWriter, r *http.Request) {
 	if len(improvements) > 10 {
 		improvements = improvements[:10]
 	}
+	at := ""
+	if s.Self.Ready() {
+		at = s.Self.At
+	}
 	s.render(w, http.StatusOK, "self", "レイシアのこと", selfData{Document: selfDisplayDocument(s.Self.Document()), Improvements: improvements, Notes: s.Self.Notes(),
-		Nights: s.Self.History(14), At: s.Self.At, Flash: r.URL.Query().Get("flash")})
+		Nights: s.Self.History(14), At: at, Flash: r.URL.Query().Get("flash")})
 }
 
 // selfDraft shows the text of a night whose result was not used.
@@ -62,14 +66,14 @@ func (s *Server) selfDraft(w http.ResponseWriter, r *http.Request) {
 // speak as the user.
 func (s *Server) selfComment(w http.ResponseWriter, r *http.Request) {
 	if s.Self == nil {
-		s.fail(w, http.StatusNotFound, "自分についての記録の設定は、このサーバーにはありません。")
+		s.fail(w, http.StatusNotFound, "このサーバーでは、自分についての記録を使う設定になっていません。")
 		return
 	}
 	if !s.throughSite(r) {
 		s.fail(w, http.StatusForbidden, task.OwnerName+"の言葉として保存するには、公開用のアドレスから「レイシアのこと」のページを開いてください。")
 		return
 	}
-	flash := "受け取りました。次に夜の書き直しをするときに読みます。"
+	flash := "受け取りました。次に自分についての記録を書き直すときに読みます。"
 	if _, err := s.Self.AddNote(self.Note{From: task.OwnerName, Text: r.FormValue("text")}); err != nil {
 		flash = err.Error()
 	}
@@ -79,7 +83,7 @@ func (s *Server) selfComment(w http.ResponseWriter, r *http.Request) {
 // apiSelf returns the document, the notes and the latest nights.
 func (s *Server) apiSelf(w http.ResponseWriter, _ *http.Request) {
 	if s.Self == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "このサーバーでは、自分についての記録を使う設定になっていません"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"document": s.Self.Document(), "notes": s.Self.Notes(), "nights": s.Self.History(5)})
@@ -94,13 +98,13 @@ func (s *Server) apiSelfTidy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "その日の整理結果はありません"})
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "その日のやり取りを整理した記録は見つかりませんでした"})
 }
 
 // apiSelfImprovements lists the candidates for mending the mechanism.
 func (s *Server) apiSelfImprovements(w http.ResponseWriter, _ *http.Request) {
 	if s.Self == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "このサーバーでは、自分についての記録を使う設定になっていません"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"improvements": s.Self.Improvements()})
@@ -109,12 +113,12 @@ func (s *Server) apiSelfImprovements(w http.ResponseWriter, _ *http.Request) {
 // apiDecideSelfImprovement records whether a candidate became a task.
 func (s *Server) apiDecideSelfImprovement(w http.ResponseWriter, r *http.Request) {
 	if s.Self == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "このサーバーでは、自分についての記録を使う設定になっていません"})
 		return
 	}
 	var in struct{ Outcome, Task, Note string }
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	if in.Task = strings.TrimSpace(in.Task); in.Outcome == self.ImproveTask && in.Task != "" {
@@ -136,12 +140,12 @@ func (s *Server) apiDecideSelfImprovement(w http.ResponseWriter, r *http.Request
 // apiSelfNote is for Lacia herself, through `lacia notice`.
 func (s *Server) apiSelfNote(w http.ResponseWriter, r *http.Request) {
 	if s.Self == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "このサーバーでは、自分についての記録を使う設定になっていません"})
 		return
 	}
 	var in struct{ Text, Task string }
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	if in.Task = strings.TrimSpace(in.Task); in.Task != "" {
@@ -177,7 +181,7 @@ func (s *Server) apiSelfSleep(w http.ResponseWriter, r *http.Request) {
 // yet. The nightly rewrite would do the same; this is for not waiting.
 func (s *Server) apiSelfDates(w http.ResponseWriter, _ *http.Request) {
 	if s.Self == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "このサーバーでは、自分についての記録を使う設定になっていません"})
 		return
 	}
 	changed, err := s.Self.Date()
@@ -206,7 +210,7 @@ func (s *Server) apiSetSelfCore(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct{ Core string }
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	changed, err := s.Self.SetCore(in.Core)

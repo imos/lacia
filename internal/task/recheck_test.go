@@ -99,13 +99,18 @@ func TestRegisteringARecheckLeavesTheTaskWaiting(t *testing.T) {
 	if got.Status != Waiting || got.Owner != "" || got.RecheckEvery != "1d" || got.RecheckUntil != "2027-01-15" || got.ResumeOn != "2026-11-13 09:00" || !got.HasReadyConditions() {
 		t.Fatalf("registered: %+v", got)
 	}
-	if label, state := got.RecheckLabel(), got.RecheckState(); label != "毎日 09:00 に確認（2027-01-15 まで）" || state != "初回の確認を待っています。次回は 11/13 09:00" {
+	if label, state := got.RecheckLabel(), got.RecheckState(); label != "毎日 09:00 に確認（2027-01-15 まで）" || state != "初回の確認を待っています。次の確認は 11/13 09:00 です。" {
 		t.Fatalf("label %q, state %q", label, state)
+	}
+	withoutTime := got
+	withoutTime.ResumeOn = ""
+	if label := withoutTime.RecheckLabel(); label != "毎日確認（2027-01-15 まで）" {
+		t.Fatalf("daily check without a time: %q", label)
 	}
 	if got.ReadyLabel(false).String() != got.RecheckLabel() || got.MissingWaitingCondition(false) {
 		t.Fatalf("the lists do not show the rounds: %q", got.ReadyLabel(false).String())
 	}
-	if log := historyOf(t, s, got); !strings.Contains(log, "毎日に確かめながら待ちます") || !strings.Contains(log, "状態を「進行中」から「外部待ち」に変えました") {
+	if log := historyOf(t, s, got); !strings.Contains(log, "確認は毎日、期限は") || !strings.Contains(log, "状態を「進行中」から「外部待ち」に変えました") {
 		t.Fatalf("history: %s", log)
 	}
 	if raw, err := os.ReadFile(filepath.Join(s.Root(), got.Dir, HistoryFile)); err != nil || !strings.Contains(string(raw), `"type":"recheck"`) || !strings.Contains(string(raw), `"action":"registered"`) {
@@ -147,7 +152,7 @@ func TestTheServerWritesTheNextRoundBeforeItAsks(t *testing.T) {
 	if got.Status != Waiting || got.ResumeOn != "2026-11-14 09:00" || got.RecheckAsked != "2026-11-13 09:00" || got.RecheckMissed != 0 {
 		t.Fatalf("after asking: %+v", got)
 	}
-	if state := got.RecheckState(); state != "11/13 09:00 の回の結果を待っています。次回は 11/14 09:00" {
+	if state := got.RecheckState(); state != "11/13 09:00 の回の結果を待っています。次の確認は 11/14 09:00 です。" {
 		t.Fatalf("state while asked: %q", state)
 	}
 	// Asked once for one round.
@@ -160,7 +165,7 @@ func TestTheServerWritesTheNextRoundBeforeItAsks(t *testing.T) {
 	if err != nil || !changed || got.Status != Waiting || got.RecheckAsked != "" || got.RecheckLast != "2026-11-13 09:02" || got.ResumeOn != "2026-11-14 09:00" {
 		t.Fatalf("same: %+v changed=%v err=%v", got, changed, err)
 	}
-	if state := got.RecheckState(); state != "最終確認 11/13 09:02、変化なし。次回は 11/14 09:00" {
+	if state := got.RecheckState(); state != "11/13 09:02 に確かめたときは、変化がありませんでした。次の確認は 11/14 09:00 です。" {
 		t.Fatalf("state after a look: %q", state)
 	}
 	if warnings := StateWarnings(got, nil, StateContext{Now: at(13, 10, 0)}); len(warnings) != 0 {
@@ -277,7 +282,7 @@ func TestTheDeadlineAsksTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state := last.RecheckState(); state != "最終確認 11/14 09:00、変化なし。次は 11/14 12:00 の期限で、要対応に出ます" {
+	if state := last.RecheckState(); state != "11/14 09:00 に確かめたときは、変化がありませんでした。11/14 12:00 に期限を迎え、「要対応」に出ます。" {
 		t.Fatalf("state before the deadline: %q", state)
 	}
 	setNow(at(14, 12, 0))

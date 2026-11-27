@@ -4,8 +4,8 @@
 <h1>{{.Title}} 受付 {{.Receipt.Sequence}}</h1>
 <p>{{dateTime .Receipt.AcceptedAt}}に届きました。{{if $.Data.ActionsEnabled}} <span class="tag">{{.OutcomeLabel}}</span>{{else}}{{if .Receipt.Reviewed}}確認済みです。{{else}}未確認です。{{end}}{{end}}</p>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
-{{if .RoutineTaskStatus}}<p class="hint">受付は、この回の分析の結果です。いま何をすべきかは、<a href="{{routineURL .Name}}#task">定期タスクのタスク</a>（{{.RoutineTaskStatus}}）に書いてあります。{{if not $.Data.ActionsEnabled}}受付を確認済みにしても、タスクの状態は変わりません。{{end}}</p>{{end}}
-{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">この定期タスクの実行で見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の定期タスクのタスク</a>に集めています。いま何をすべきかは、そちらに書いてあります。</p>{{end}}
+{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">この回で見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の「タスク」欄</a>に集めています。次にすることは、そちらで確かめてください。</p>
+{{else if .RoutineTaskStatus}}<p class="hint">この受付では、今回の実行結果を読めます。次にすることは、<a href="{{routineURL .Name}}#task">この定期タスクの「タスク」欄</a>（{{.RoutineTaskStatus}}）に書いてあります。{{if not $.Data.ActionsEnabled}}受付を確認済みにしても、タスクの状態は変わりません。{{end}}</p>{{end}}
 {{with .Receipt}}
 {{if .Summary}}<p class="receipt-summary">{{.Summary}}</p>{{end}}
 {{if .Reference}}<p><a href="{{.Reference}}">結果を開く</a></p>{{end}}

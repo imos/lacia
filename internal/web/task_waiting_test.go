@@ -208,8 +208,8 @@ func TestTaskListsShowWaitingConditionsAndWatchProgress(t *testing.T) {
 		!strings.Contains(later, `<a href="/tasks/T1001">T1001</a>、<a href="/tasks/T1002">T1002</a>終了後要対応`) ||
 		!strings.Contains(later, `class="tag resume">再開条件が未登録</span>`) ||
 		!strings.Contains(later, `href="/tasks/T1002">T1002</a>終了後要対応`) ||
-		!strings.Contains(later, "local-codex への申し送り。宛先の会話に届くのを待っています。") ||
-		!strings.Contains(later, "score-1。開始を待っています。確認の期限は 2026-11-19 06:00") {
+		!strings.Contains(later, "local-codex への申し送りです。宛先の会話に届くのを待っています。") ||
+		!strings.Contains(later, "score-1 の終了を待っています。開始を待っています。確認の期限は 2026-11-19 06:00") {
 		t.Fatalf("waiting tasks are missing their conditions: %s", later)
 	}
 	if strings.Contains(homeTaskSection(body, "ongoing"), "親のタスク") {
@@ -218,7 +218,7 @@ func TestTaskListsShowWaitingConditionsAndWatchProgress(t *testing.T) {
 	as(t, h, caller.Caller{}, "POST", "/api/waits/"+id, `{"seen":"running"}`)
 	_, body, _ = get(t, h, "/")
 	if ongoing := homeTaskSection(body, "ongoing"); !strings.Contains(ongoing, "親のタスク") ||
-		!strings.Contains(ongoing, "score-1。実行中です") ||
+		!strings.Contains(ongoing, "score-1 の終了を待っています。実行中です") ||
 		!strings.Contains(ongoing, "次の確認日時 2026-11-19 04:00以降再開") {
 		t.Fatalf("running job or next check missing: %s", ongoing)
 	}
@@ -324,7 +324,7 @@ func TestTaskListSuppliesStructuredConditionAndKeepsTaskBody(t *testing.T) {
 	}
 	addHandover := func(item task.Task, state string) handover.Handover {
 		t.Helper()
-		h, _, err := s.Handovers.Add(handover.Handover{TaskID: item.ID, Next: "local-codex", Then: "後で確認します。"})
+		h, _, err := s.Handovers.Add(handover.Handover{TaskID: item.ID, Next: "local-codex", Then: "あとで確かめます。"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,7 +410,7 @@ func TestTaskListRequestsFinishedAlert(t *testing.T) {
 	}
 	for _, item := range []task.Task{finished, running, queued, owned, keep} {
 		_, detail, _ := get(t, h, "/tasks/"+item.ID)
-		got := strings.Contains(detail, "受け付けた依頼は終了しました。タスクの状態確認が必要です。")
+		got := strings.Contains(detail, "受け付けた依頼は終わりました。タスクの状態を確かめてください。")
 		if got != (item.ID == finished.ID) {
 			t.Errorf("wrong alert for %s: %t", item.Title, got)
 		}

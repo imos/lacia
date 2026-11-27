@@ -48,38 +48,42 @@ func (j Job) ReportInstruction(runID string, collected bool) string {
 		id = j.Name
 	}
 	collected = collected && j.ID != "" && j.Output == "matters"
-	text := fmt.Sprintf("\n\nこの回の定期タスクIDは %s、実行IDは %s です。結果を lacia run report %s %s <JSONファイル> で保存してください。\n", id, runID, id, runID)
+	text := fmt.Sprintf("\n\nこの定期タスクのIDは %s で、この回の実行IDは %s です。結果を lacia run report %s %s <JSONファイル> で保存してください。\n", id, runID, id, runID)
 	if j.ExplicitMatters {
 		text += `結果はJSONで書きます。予定した範囲を確認できたら check_status を complete にし、確認結果や件数は summary に書きます。要約だけなら実行履歴に残ります。
 `
 		if collected {
-			text += `本人にお願いする用件や、実行のあとも残る用件は、matters の各項目に key、revision、具体的にしていただきたいこと（summary）を書きます。同じ用件の同じ更新には同じ key と revision を使います。サーバーが、matters の用件を定期タスクのタスクへ集めます。通常のタスクは新しく作りません。
+			text += task.OwnerName + `にお願いすることや、この回が終わっても対応が必要な用件は、matters に1件ずつ書きます。matters の各項目には key と revision を入れ、お願いすることを summary に具体的に書きます。同じ用件の同じ更新には同じ key と revision を使います。サーバーが、matters の用件を定期タスクのタスクへ集めます。通常のタスクは新しく作りません。
 handoffs を使うのは、同じ用件をすでに追っている通常のタスクがあるときと、定義の「すること」が通常のタスクを作ると名前を挙げて書いているときだけです。そのときは、通常のタスクへの記録を読み戻してから、handoffs の各項目に key、revision、summary、task_id を書きます。
 `
 		} else {
 			text += `通常のタスクで用件を知らせる手順の場合は、そこへの記録を読み戻してから、handoffs の各項目に key、revision、summary、task_id を書きます。
 `
 		}
-		text += `一部または全部を確認できなければ check_status を partial または unavailable にし、checks に scope と status（verified または unverified）を入れます。未確認には reason を添え、同じ原因だと確かめたときだけ cause_key をそろえます。通常のタスクに記録できなかったことも、確認できなかった範囲と理由に残します。全範囲を読み取れず、別に認証などの操作が必要だと確かめたときは、手順で決まっている方法でその操作を案内します。秘密の値やコマンドの全出力は書きません。返信先へのお知らせは定期タスクの本文に従います。
+		text += `一部だけ確認できたときは check_status を partial にし、どの範囲も確認できなかったときは unavailable にします。
+checks には、確認する範囲ごとに scope と status を書きます。確認できた範囲には verified を指定します。確認できなかった範囲には unverified を指定し、reason に理由を添えます。原因が同じだと確かめたときだけ、同じ cause_key を使います。
+通常のタスクに記録できなかったときも、その範囲と理由を残します。どの範囲も読めず、認証などの操作が必要と分かったときは、手順で決めた方法でその操作を案内します。秘密の値やコマンドの全出力は書きません。返信先へのお知らせは、定期タスクの本文に従います。
 `
 		switch {
 		case collected:
-			text += `通常のタスクへの記録に失敗した確定用件も、matters に書きます。
+			text += `用件があると確かめられたら、通常のタスクに記録できなかった場合も matters に書きます。
 `
 		case j.Output == "matters":
-			text += `本人にお願いする用件が残った場合は、通常のタスクへの記録に失敗した確定用件も含め、matters の各項目に key、revision、具体的にしていただきたいこと（summary）を書きます。同じ用件の同じ更新には同じ key と revision を使います。用件をどこへ保存して知らせるかが本文や手順で決まっていれば、その指定に従います。
+			text += task.OwnerName + `にお願いすることが残ったら、matters に1件ずつ書きます。用件があると確かめられたら、通常のタスクに記録できなかった場合も含めます。matters の各項目には key と revision を入れ、お願いすることを summary に具体的に書きます。同じ用件の同じ更新には同じ key と revision を使います。用件をどこへ保存して知らせるかが本文や手順で決まっていれば、その指定に従います。
 `
 		}
 		if len(j.CheckScopes) == 0 {
-			text += `確認範囲が一つで全部を確認できた回は、{"version":1,"check_status":"complete","summary":"確認しました。新しい用件は0件です。"} と書けば、サーバーが定期タスク全体を確認した範囲として補います。
+			text += `確認する範囲が1つだけで、その範囲をすべて確認できた回は、{"version":1,"check_status":"complete","summary":"確認しました。新しい用件は0件です。"} と書けば、サーバーが定期タスク全体を checks に補います。
 `
 		}
 	} else if j.CheckResult {
-		text += `結果は version: 1、check_status: complete（予定した全範囲を確認）、partial（一部を確認できない）、unavailable（全範囲を確認できない）を持つJSONです。checksには予定した各範囲のscopeとstatus（verifiedかunverified）を入れ、読めなかった範囲にはreasonを添えます。同じ原因と確かめたときだけcause_keyをそろえます。確認する範囲は、手順で予定した範囲を保ってください。新着がなければnothing: true、新着があればmattersとsummaryを保存します。確認できなかったことを正常な0件にしません。scopeと理由には秘密の値やコマンドの全出力を入れません。正常な0件の例は {"version":1,"check_status":"complete","nothing":true,"checks":[{"scope":"service/status","status":"verified"}]} です。接続できない例は {"version":1,"check_status":"unavailable","nothing":true,"summary":"接続できず確認できませんでした。","checks":[{"scope":"service/status","status":"unverified","reason":"connection_failed"}]} です。
+		text += `結果は JSON で書き、version には 1 を指定します。check_status は、予定したすべての範囲を確認できたら complete、一部だけなら partial、どの範囲も確認できなければ unavailable にします。
+checks には、手順で予定した範囲をすべて含めます。各範囲を scope に書き、status には確認できたら verified、できなければ unverified を指定します。読めなかった理由は reason に添えます。同じ原因だと確かめたときだけ同じ cause_key を使います。scope や理由に秘密の値やコマンドの全出力は書きません。
+新着がなければ nothing: true を、新着があれば matters と summary を保存します。新着が0件だと言えるのは、予定した範囲をすべて確認できたときです。全範囲を確認して新着がなかった場合の例は {"version":1,"check_status":"complete","nothing":true,"checks":[{"scope":"service/status","status":"verified"}]} です。接続できない例は {"version":1,"check_status":"unavailable","nothing":true,"summary":"接続できず確認できませんでした。","checks":[{"scope":"service/status","status":"unverified","reason":"connection_failed"}]} です。
 `
 	}
 	if len(j.CheckScopes) > 0 {
-		text += "この回の確認範囲は受付時に固定しています。checksには、次のscopeを過不足なく1回ずつ入れてください。確認できない範囲も削らず、unverifiedと理由を残します。範囲: " + strings.Join(j.CheckScopes, ", ") + "。\n"
+		text += "この回で確かめる範囲は、受付のときに決めてあります。checks の scope には次の範囲だけを1回ずつ書いてください。確認できなかった範囲も含め、unverified と理由を添えます。対象は " + strings.Join(j.CheckScopes, "、") + " です。\n"
 	}
 	return text
 }
@@ -99,13 +103,13 @@ func (j Job) TaskInstruction(root string, collected bool) string {
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir), task.TaskFile)); err != nil {
 		return ""
 	}
-	body, rewrite := "タスクの本文は、受付からは自動で変わりません。", "すべきことが変わったときだけ"
+	body, rewrite := "結果を受付に保存しても、タスクの本文は自動では変わりません。", "次にすることが変わったときだけ"
 	if collected {
-		body, rewrite = "実行結果の matters に書いた用件は、サーバーが本文の「実行から分かった対応」へ集めます。", "それ以外のすべきことが変わったときだけ"
+		body, rewrite = "実行結果の matters に書いた用件は、サーバーが本文の「実行から分かった対応」へ集めます。", "それ以外に、次にすることが変わったときだけ"
 	}
-	return fmt.Sprintf("\n\nこの定期タスクには、いま何をすべきかを書いたタスクの本文があります（%s/task.md）。始める前に `lacia task show %s` で読み、書かれていることを踏まえて進めてください。"+
-		"この回の分析の結果は、これまでどおり受付に保存します。%s"+
-		"%s、`lacia rules tasks` の「定期タスクのタスク」に従って `lacia task write %s task.md <ファイル>` で本文を書き直し、どの受付を受けて直したのかを `lacia task note %s` で履歴に残します。"+
+	return fmt.Sprintf("\n\nこの定期タスクの本文（%s/task.md）には、次にすることが書いてあります。始める前に `lacia task show %s` で本文を読み、書かれていることを踏まえて進めてください。"+
+		"この回の分析結果は受付に保存します。%s"+
+		"%s、`lacia rules tasks` の「定期タスクのタスク」に従って `lacia task write %s task.md <ファイル>` で本文を書き直し、どの回の結果をもとに直したかを `lacia task note %s` で履歴に残します。"+
 		"状態は進行中、待機、確認待ちのどれかです。%sへの知らせ方は、この定期タスクの「伝え方」に従います。\n", dir, j.ID, body, rewrite, j.ID, j.ID, task.OwnerName)
 }
 

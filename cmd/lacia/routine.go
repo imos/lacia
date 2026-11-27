@@ -13,7 +13,7 @@ import (
 
 func runRoutine(args []string) error {
 	if len(args) != 4 || args[0] != "report" {
-		return errors.New("使い方: lacia run report <定期タスクID> <実行ID> <JSONファイルまたは->")
+		return errors.New("使い方: lacia run report <定期タスクID> <実行ID> <JSONファイル|->")
 	}
 	if apiBase() == "" {
 		return errors.New(apiAddressHelp)
@@ -33,7 +33,7 @@ func runRoutine(args []string) error {
 	decoder := json.NewDecoder(io.LimitReader(f, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&report); err != nil || decoder.Decode(new(any)) != io.EOF {
-		return errors.New("定期タスクの結果のJSONを読めませんでした")
+		return errors.New("定期タスクの実行結果を読めませんでした。決められた項目を使い、1つの JSON オブジェクトで渡してください")
 	}
 	return apiCall(http.MethodPost, "/api/routines/"+url.PathEscape(args[1])+"/runs/"+url.PathEscape(args[2]), report, nil)
 }

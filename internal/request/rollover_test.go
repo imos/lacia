@@ -2,6 +2,7 @@ package request
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -12,7 +13,14 @@ func TestMainReservationWaitsForRequestsAndKeepsSideIndependent(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
+	var workers sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		workers.Wait()
+	})
+	startWorker := func(side bool, runner Runner) {
+		workers.Go(func() { q.Work(ctx, side, runner, nil) })
+	}
 	add := func(r Request) Request {
 		t.Helper()
 		saved, _, err := q.Add(r)
@@ -45,7 +53,7 @@ func TestMainReservationWaitsForRequestsAndKeepsSideIndependent(t *testing.T) {
 			}
 		}
 	}
-	go q.Work(ctx, false, func(ctx context.Context, _ string) (string, string, error) {
+	startWorker(false, func(ctx context.Context, _ string) (string, string, error) {
 		if Current(ctx).ID == first.ID {
 			close(firstRun)
 			select {
@@ -56,7 +64,7 @@ func TestMainReservationWaitsForRequestsAndKeepsSideIndependent(t *testing.T) {
 			close(secondRun)
 		}
 		return "返事", "", nil
-	}, nil)
+	})
 	wait(firstRun, "the first request")
 	q.WhenMainIdle(noReservation)
 	close(allowFirst)
@@ -66,18 +74,18 @@ func TestMainReservationWaitsForRequestsAndKeepsSideIndependent(t *testing.T) {
 
 	sideRun, allowSide := make(chan struct{}), make(chan struct{})
 	add(Request{Text: "別の会話への依頼", Side: true})
-	go q.Work(ctx, true, func(ctx context.Context, _ string) (string, string, error) {
+	startWorker(true, func(ctx context.Context, _ string) (string, string, error) {
 		close(sideRun)
 		select {
 		case <-allowSide:
 		case <-ctx.Done():
 		}
 		return "返事", "", nil
-	}, nil)
+	})
 	wait(sideRun, "a running side request")
 
 	reserved, release, released := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	go func() {
+	workers.Go(func() {
 		defer close(released)
 		for ctx.Err() == nil {
 			q.WhenMainIdle(func() {
@@ -94,7 +102,7 @@ func TestMainReservationWaitsForRequestsAndKeepsSideIndependent(t *testing.T) {
 			case <-time.After(time.Millisecond):
 			}
 		}
-	}()
+	})
 	wait(reserved, "an idle main lane alongside a running side request")
 	second := add(Request{Text: "切り替えの間に届いた窓口への依頼"})
 	if got, ok := q.Get(second.ID); !ok || got.Status != Queued {

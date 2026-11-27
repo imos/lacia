@@ -55,14 +55,14 @@ func runServe(args []string) error {
 	rescan := fs.Duration("rescan", 10*time.Second, "ファイルの変更を取り込む間隔")
 	calendarOverrides := fs.String("calendar-overrides", "", "予定の表示を上書きする JSON ファイル。記録のリポジトリーからの相対パスで指定します。既定の場所は "+calendarOverridesDefault+" です。ファイルがあれば、その設定を使います")
 	calendarPath := fs.String("calendar", "", "予定のスナップショットのパス（省くと記録のリポジトリーから探します）")
-	calendarDirect := fs.Bool("calendar-direct", true, "サーバーが直接取得します。false で従来の予定ファイルを再び読みます")
+	calendarDirect := fs.Bool("calendar-direct", true, "サーバーが Google Calendar から予定を読み取ります。false を指定すると、これまでの予定ファイルを読みます")
 	site := fs.String("site", "", "ブラウザーからこの Web サーバーに接続するための URL（予定の連携などで使います）")
 	googleClient := fs.String("google-client", "", "Google Calendar を直接読むための OAuth クライアント設定。Google Cloud の「認証情報」でダウンロードした JSON ファイルを指定します。公開用のアドレスがなくても、認証後に手元のアドレスへ戻って連携できます")
 	calendars := fs.String("calendars", "", "表示するカレンダーの一覧。JSON ファイルに account、calendar_id、label を指定します")
-	calendarHolidays := fs.String("calendar-holidays", "jp", "日本の祝日を表示する jp、または表示しない off")
+	calendarHolidays := fs.String("calendar-holidays", "jp", "日本の祝日を表示するときは jp、表示しないときは off を指定します")
 	calendarWrite := fs.Bool("calendar-write", false, "予定の連携で、読み取りに加えて、予定の作成や変更の許可も求めます")
 	codexCommand := fs.String("codex", "", "Codex を起動するコマンド（例: codex-work）。指定すると依頼を受け付けます")
-	user := fs.String("user", "", "わたしがオーナーさんをお呼びするときの名前（例: 田中さん）。省略すると、LACIA_USER、記録の .lacia/config.json の user の順に探します")
+	user := fs.String("user", "", "わたしに呼んでほしい名前です（例: 田中さん）。省くと、LACIA_USER、記録の .lacia/config.json の user の順に探します")
 	claudeCommand := fs.String("claude", "", "Claude Code を起動するコマンド（例: claude）。指定すると依頼を受け付けます")
 	defaultKind := fs.String("default-kind", "", "宛先を省いたときに起動する会話の種類（codex か claude）")
 	claudePermission := fs.String("claude-permission", "", "Claude Code の権限の設定。既定の acceptEdits では、追加の許可がなくてもファイルを編集でき、シェルでは lacia コマンドが使えます")
@@ -84,11 +84,11 @@ func runServe(args []string) error {
 	selfClaude := fs.String("self-claude", "", "夜の整理と書き直しに使う Claude Code の実行ファイル（例: claude）。引数は付けられません")
 	selfModel := fs.String("self-model", "fable", "自分についての記録を書き直すモデル")
 	selfExchanges := fs.Bool("self-exchanges", true, "夜の整理と書き直しに、最近の依頼と返事や記録のリポジトリーを使います。false にすると、書き直しは書き留めなどをもとに行います")
-	people := fs.String("people", "", "オーナーさんのほかにわたしが話す方々の呼び名（例: ご家族）。伝言や引き継ぎの文面に使います。省略すると「ほかの方」です")
+	people := fs.String("people", "", "記録の持ち主のほかに、わたしが話す方たちの呼び名です（例: ご家族）。伝言や引き継ぎの文面に使います。省くと「ほかの方」と書きます")
 	selfTidyPrompt := fs.String("self-tidy-prompt", "", "夜の整理の指示文。指定すると、実行ファイルに入っている指示文の代わりに使います")
 	selfTidy := fs.Bool("self-tidy", true, "夜の書き直しの前に、その日の話題を保存し、memory/ に残す候補を窓口に知らせます（--self-exchanges が必要です）。--discord-log があれば、その日のログにも書きます")
 	selfImprove := fs.Bool("self-improve", false, "夜の書き直しで、「わたしのこと」の項目のうち仕組みで直せそうなものを候補に挙げ、窓口に知らせます。タスクを持つプロファイルで有効にします")
-	routineExplicitMatters := fs.Bool("routine-explicit-matters", false, "定期タスクでは、本人への用件が明示された回だけ受付を作ります")
+	routineExplicitMatters := fs.Bool("routine-explicit-matters", false, "定期タスクでは、ご本人への用件が書かれた回だけ、受付を作ります")
 	nowPath := fs.String("now", "memory/now.md", "ふだんと違う状況を書いた文書（記録のリポジトリーからの相対パス）。読めた内容を予約の依頼に添えます")
 	instructionsPath := fs.String("instructions", "", "会話への指示の文書。指定すると、実行ファイルに入っている指示の代わりに使います")
 	windowRollover := fs.String("window-rollover", "", "空いている窓口会話を新しくする時間帯（記録のタイムゾーンで HH:MM-HH:MM）。省略すると切り替えません")
@@ -223,13 +223,13 @@ func runServe(args []string) error {
 				if rel, err := filepath.Rel(dir, snapshotInput); err == nil {
 					if seed, err := exec.Command("git", "-C", dir, "show", "HEAD:"+filepath.ToSlash(rel)).Output(); err == nil {
 						if err := snapshotState.Publish(seed); err != nil {
-							slog.Warn("calendar seed", "error", err)
+							slog.Warn("calendar seed", "detail", "記録に保存してあった予定を、サーバーの最初の予定一覧に取り込めませんでした。", "error", err)
 						}
 					}
 				}
 			}
 			if err := snapshotState.Import(snapshotInput); err != nil {
-				slog.Warn("calendar snapshot import", "error", err)
+				slog.Warn("calendar snapshot import", "detail", "ファイルからサーバーに予定一覧を取り込めませんでした。", "error", err)
 			}
 		}
 		server.CalendarPath = snapshotState.Path
@@ -501,7 +501,7 @@ func runServe(args []string) error {
 					deliver(r)
 				}
 				if err := bot.Run(ctx); err != nil {
-					slog.Error("discord stopped", "error", err)
+					slog.Error("discord stopped", "detail", "Discord から依頼を受け付ける処理が止まりました。", "error", err)
 					stop()
 				}
 			}()
@@ -516,7 +516,7 @@ func runServe(args []string) error {
 						return errors.New("--self-claude には Claude Code の実行ファイルだけを指定してください。引数は付けられません")
 					}
 					// The executable can be installed after configuring the server.
-					slog.Warn("self: the nightly rewrite is off; the command is missing", "command", command)
+					slog.Warn("self: the nightly rewrite is off; the command is missing", "detail", "夜の書き直しに使うコマンドが見つかりません。--self-claude に指定した実行ファイルを確かめてください。", "command", command)
 					keeper.At = ""
 				} else {
 					executable, err = filepath.Abs(executable)
@@ -541,7 +541,7 @@ func runServe(args []string) error {
 				}
 				text := "自分についての記録（`" + *selfPath + "`）が新しくなりました。読み直して、これまでのやり取りを自分がどう受け止めてきたかを確かめてください。作業の許可については、これまでどおり決まりに従ってください。読み終えたら、「報告はありません。」とだけ答えてください。"
 				if _, _, err := queue.Add(request.Request{ID: "self-" + night.At.UTC().Format("20060102-150405"), Kind: request.System, Source: "夜の書き直し", Text: text}); err != nil {
-					slog.Error("self notice", "error", err)
+					slog.Error("self notice", "detail", "「わたしのこと」を書き直したことを窓口に知らせられませんでした。", "error", err)
 				}
 			}
 			if *noticeLog != "" {
@@ -552,7 +552,7 @@ func runServe(args []string) error {
 				}
 				keeper.Noted = func(n self.Note) {
 					if _, err := notices.Add(daylog.Notice(n.At, n.From, n.Task, n.Text)); err != nil {
-						slog.Error("notice log", "error", err)
+						slog.Error("notice log", "detail", "書き留めを日ごとのログに保存できませんでした。", "error", err)
 					}
 				}
 			}
@@ -703,9 +703,9 @@ func runServe(args []string) error {
 				if err := dispatch.Skip(id, job, time.Now()); err != nil {
 					return err
 				}
-				slog.Warn("schedule skipped; previous run unfinished", "job", job.Name, "id", id)
+				slog.Warn("schedule skipped; previous run unfinished", "detail", "前の回がまだ終わっていないため、今回の実行は見送りました。", "job", job.Name, "id", id)
 				if err := runs.Skip(job, time.Now()); err != nil {
-					slog.Error("schedule run log", "job", job.Name, "error", err)
+					slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "job", job.Name, "error", err)
 				}
 				return nil
 			}
@@ -719,13 +719,13 @@ func runServe(args []string) error {
 			// The log is a record of what ran; failing to write it must
 			// not stop the job itself.
 			if err := runs.Begin(job, id, time.Now()); err != nil {
-				slog.Error("schedule run log", "job", job.Name, "error", err)
+				slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "job", job.Name, "error", err)
 			}
 			return nil
 		}}
 		settle := func(now time.Time) {
 			if err := dispatch.SkipStopped(now); err != nil {
-				slog.Error("schedule stop", "error", err)
+				slog.Error("schedule stop", "detail", "停止した予約の状況を実行記録に反映できませんでした。", "error", err)
 			}
 			for _, execution := range dispatch.List("") {
 				if execution.Device != schedule.LocalDevice {
@@ -736,7 +736,7 @@ func runServe(args []string) error {
 					continue
 				}
 				if err := dispatch.SyncLocal(execution.ID, r.Status, schedule.Result{Settled: r.Status != request.Queued && r.Status != request.Running, Failed: r.Status != request.Done, Reply: r.Reply, Error: r.Error, Started: r.Started, Finished: r.Finished}); err != nil {
-					slog.Error("schedule local result", "id", execution.ID, "error", err)
+					slog.Error("schedule local result", "detail", "このサーバーで動く定期タスクの実行状況を記録できませんでした。", "id", execution.ID, "error", err)
 				}
 			}
 			// Import the durable outbox before settling its shared run log.
@@ -757,7 +757,7 @@ func runServe(args []string) error {
 					label = execution.Job.Name
 				}
 				if err := queue.RecordExternal(request.Request{ID: execution.ID, Kind: request.System, Source: "予約「" + label + "」", Side: execution.Job.Side, Agent: execution.Kind, ReplyTo: execution.Job.ReplyTo, Text: execution.Prompt, Status: status, Reply: execution.Result.Reply, Error: execution.Result.Error, Created: execution.Queued, Started: execution.Started, Finished: execution.Result.Finished}); err != nil {
-					slog.Error("schedule result import", "id", execution.ID, "error", err)
+					slog.Error("schedule result import", "detail", "別の端末で実行した定期タスクの結果を取り込めませんでした。", "id", execution.ID, "error", err)
 				}
 			}
 			err := runs.Settle(func(id string) (schedule.Result, bool) {
@@ -772,18 +772,18 @@ func runServe(args []string) error {
 				}, ok
 			}, now)
 			if err != nil {
-				slog.Error("schedule run log", "error", err)
+				slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "error", err)
 			}
 			jobs := routing.Check(schedule.LoadIn(dir, store.Location()))
 			if err := routineActions.applyBaseline(); err != nil {
-				slog.Error("routine action baseline", "error", err)
+				slog.Error("routine action baseline", "detail", "定期タスクで対応する用件の移行を終えられませんでした。", "error", err)
 			}
 			if err := routineActions.syncTroubles(jobs, dispatch.Devices(), now); err != nil {
-				slog.Error("routine action health", "error", err)
+				slog.Error("routine action health", "detail", "定期タスクの実行を妨げる問題を、対応するタスクの記録に反映できませんでした。", "error", err)
 			}
 			if !routineActions.enabled() {
 				if err := syncRoutineDeliveries(reviews, jobs, queue.Get); err != nil {
-					slog.Error("routine delivery receipt", "error", err)
+					slog.Error("routine delivery receipt", "detail", "定期タスクの用件が届いたかどうかを、受付に記録できませんでした。", "error", err)
 				}
 			}
 		}
@@ -798,7 +798,7 @@ func runServe(args []string) error {
 		jobs, _ := server.Schedules()
 		if !routineActions.enabled() {
 			if err := syncExistingRoutineProblems(reviews, jobs); err != nil {
-				slog.Error("routine failure receipt", "error", err)
+				slog.Error("routine failure receipt", "detail", "定期タスクの実行履歴に残っていた問題を、受付に記録できませんでした。", "error", err)
 			}
 		}
 		unlessStopped := func(run request.Runner) request.Runner {
@@ -855,7 +855,7 @@ func runServe(args []string) error {
 						continue
 					}
 					if err := schedules.Tick(now); err != nil {
-						slog.Error("schedule", "error", err)
+						slog.Error("schedule", "detail", "定期タスクを予定どおりに実行する処理で問題が起きました。", "error", err)
 					}
 				}
 			}
@@ -909,7 +909,7 @@ func runServe(args []string) error {
 				case <-ticker.C:
 					if !calendarIsDirect() {
 						if err := snapshotState.Import(snapshotInput); err != nil {
-							slog.Warn("calendar snapshot import", "error", err)
+							slog.Warn("calendar snapshot import", "detail", "ファイルからサーバーに予定一覧を取り込めませんでした。", "error", err)
 						}
 					}
 				}
@@ -947,7 +947,7 @@ func runServe(args []string) error {
 				return
 			case now := <-ticker.C:
 				if err := store.Reload(); err != nil {
-					slog.Error("reload", "error", err)
+					slog.Error("reload", "detail", "記録のリポジトリーからタスクを読み直せませんでした。", "error", err)
 				}
 				// Files kept outside Git go away some time after their task closed.
 				if time.Since(expired) > time.Hour {
@@ -1017,7 +1017,7 @@ func runServe(args []string) error {
 	if rollWindow != nil {
 		go rollWindow()
 	}
-	slog.Info("serving", "addr", *addr, "root", dir, "tasks", len(store.List()), "version", server.Version)
+	slog.Info("serving", "detail", "Web サーバーを起動しました。", "addr", *addr, "root", dir, "tasks", len(store.List()), "version", server.Version)
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -1033,7 +1033,7 @@ const calendarOverridesDefault = ".lacia/calendar-overrides.json"
 // in AGENTS.md. The instructions leave to the rules what the rules of the
 // binary say about these matters, and such a repository may say nothing of
 // them.
-const ownRulesNote = "この記録は、決まりを `AGENTS.md` に自分で持っています。実行ファイルの決まりは、この指示に重ねていません。目的に合わせること、わたしのこと、ブラウザーで公開ページを読むこと、別のプロファイルとのやり取りについて `AGENTS.md` に決まりがないときは、`lacia rules` の同じ名前の節と、`lacia rules peers` を読んで従ってください。`AGENTS.md` と食い違うときは、`AGENTS.md` に従います。\n"
+const ownRulesNote = "この会話では、記録の `AGENTS.md` を決まりの本文として使います。「目的に合わせる」「わたしのこと」「ブラウザーで公開ページを読む」について、そこに決まりがなければ、`lacia rules` の該当する節を読んでください。別のプロファイルとのやり取りについても、決まりがなければ `lacia rules peers` を読んでください。内容が食い違うときは `AGENTS.md` に従ってください。\n"
 
 // windowInstructions fits the instructions of a conversation the server
 // starts to the repository it works in. The text marks where the owner's
@@ -1136,13 +1136,13 @@ func guardCalendar(repo, path string) {
 	}
 	fixed, changed, err := calendar.Guard(previous, current)
 	if err != nil {
-		slog.Warn("calendar guard", "error", err)
+		slog.Warn("calendar guard", "detail", "保存してあった予定と新しい一覧を照合できませんでした。", "error", err)
 		return
 	}
 	if changed {
-		slog.Warn("calendar guard kept the previous events")
+		slog.Warn("calendar guard kept the previous events", "detail", "今回の一覧に以前の予定を残して保存します。")
 		if err := os.WriteFile(path, fixed, 0o644); err != nil {
-			slog.Error("calendar guard", "error", err)
+			slog.Error("calendar guard", "detail", "以前の予定を残した一覧を保存できませんでした。", "error", err)
 		}
 	}
 }

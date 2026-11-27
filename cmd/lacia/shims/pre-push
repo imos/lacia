@@ -1,4 +1,4 @@
 #!/bin/sh
 # Git hook: a worker started by lacia codex-login never pushes.
-printf "%s\n" "worker_push_denied" >&2
+printf "%s\n" "この作業用の会話からは Git にプッシュできません。" "worker_push_denied" >&2
 exit 1

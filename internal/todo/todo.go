@@ -90,17 +90,17 @@ func render(store *task.Store, now time.Time, waits map[string]wait.TaskWaits, a
 					line += "（[待っていた実行の結果](" + t.ReadyRunRef + ")）"
 				}
 				for _, item := range watched {
-					line += "\n  " + item.Target() + "。" + item.SeenLabel() + "。確認の期限は " + task.FormatWhenIn(item.By, now.Location()) + " です。"
+					line += "\n  待っているのは " + item.Target() + " です。" + item.SeenLabel() + "。確認の期限は " + task.FormatWhenIn(item.By, now.Location()) + " です。"
 				}
 				for _, item := range handovers[t.ID] {
-					line += "\n  " + item.Next + " への申し送り。" + item.ConditionText(now)
+					line += "\n  " + item.Next + " への申し送りです。" + item.ConditionText(now)
 				}
 				liveCondition := queued || running || len(watched) > 0 || len(handovers[t.ID]) > 0
 				if t.MissingWaitingCondition(liveCondition) {
 					line += "（再開条件が未登録）"
 				}
 				if t.Status == task.Doing && t.Owner == "" && t.OwnerSession == "" && activity[t.ID] == request.Done && !t.HasReadyConditions() && !liveCondition {
-					line += "（受け付けた依頼は終了しました。タスクの状態確認が必要です。）"
+					line += "（受け付けた依頼は終わりました。タスクの状態を確かめてください。）"
 				}
 				if next := oneLine(t.Next()); next != "" {
 					line += "\n  " + next

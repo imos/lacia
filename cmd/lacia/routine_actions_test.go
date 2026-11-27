@@ -126,6 +126,17 @@ func TestRoutineActionRecordWithoutTaskSupport(t *testing.T) {
 	}
 }
 
+func TestRoutineMatterWithoutSummaryUsesConfiguredName(t *testing.T) {
+	previous := task.OwnerName
+	t.Cleanup(func() { task.OwnerName = previous })
+	task.OwnerName = "佐藤さん"
+	run := schedule.Run{Outcome: schedule.RunDone, Matters: []routine.Matter{{Key: "mail/1", Revision: "a"}}}
+	got := runActions(run, "").Actions
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "佐藤さんに、") {
+		t.Fatalf("fallback for matter without a summary: %+v", got)
+	}
+}
+
 func TestRoutineActionInstructionNamesTheRoutineTask(t *testing.T) {
 	a := newRoutineActionRuntime(t, true)
 	job := schedule.Job{ID: "S1013", Name: "S1013", Output: "matters"}
@@ -138,15 +149,15 @@ func TestRoutineActionInstructionNamesTheRoutineTask(t *testing.T) {
 	a.testMode(t, "tasks")
 	// The routine has no task.md, and the text must still say where matters go.
 	got := a.instruction(job)
-	for _, want := range []string{"結果JSONの matters に書いてください", "この定期タスクのタスク（S1013 の task.md の「実行から分かった対応」）へ集めます", "通常のタスクは新しく作りません",
-		"同じ用件をすでに追っている通常のタスクがあるときと、この定期タスクの「すること」が通常のタスクを作ると名前を挙げて書いているときだけ", "resolved"} {
+	for _, want := range []string{"結果の JSON の matters に書いてください", "S1013 の task.md の「実行から分かった対応」にまとめます", "通常のタスクを新しく作るのは",
+		"この定期タスクの「すること」で、どのタスクを作るか指定されているときだけ", "同じ用件をすでに追っている通常のタスクへ引き継ぐとき", "handoffs", "resolved"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}
 	}
 	job.MattersTask = "S1014"
 	got = a.instruction(job)
-	if !strings.Contains(got, "定期タスク S1014 のタスク（S1014 の task.md") || strings.Contains(got, "lacia task show S1014") {
+	if !strings.Contains(got, "定期タスク S1014 が用件の引き継ぎ先です") || strings.Contains(got, "lacia task show S1014") {
 		t.Errorf("another routine without a task yet: %s", got)
 	}
 	if _, err := a.tasks.MergeRoutineActions("S1014", task.RoutineObservation{At: time.Now(), Shared: true, Actions: []task.RoutineAction{{Key: "matter:x", Revision: "1", Text: "確かめます。", Owner: true}}}); err != nil {
@@ -156,7 +167,7 @@ func TestRoutineActionInstructionNamesTheRoutineTask(t *testing.T) {
 		t.Errorf("another routine with a task: %s", got)
 	}
 	weekly := schedule.Job{ID: "S1008", Name: "S1008", Output: "task"}
-	if got := a.instruction(weekly); a.collects(weekly) || strings.Contains(got, "通常のタスクは新しく作りません") || !strings.Contains(got, "既存のタスクへつなぎます") {
+	if got := a.instruction(weekly); a.collects(weekly) || strings.Contains(got, "通常のタスクを新しく作るのは") || !strings.Contains(got, "同じ用件をすでに追っているタスクがあれば、そちらへ引き継いでください") {
 		t.Errorf("a routine whose output is a task: %s", got)
 	}
 	if got := newRoutineActionRuntime(t, false); got.instruction(job) != "" {

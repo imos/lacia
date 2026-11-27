@@ -14,7 +14,7 @@
 </tbody></table>
 {{end}}
 <h2>いまの様子</h2>
-<p class="hint">成功時刻と回数は、実行の記録を新しい月から3か月分までさかのぼって調べます。失敗が続いた回数は、実行した回の記録だけで数えます。</p>
+<p class="hint">最後に成功した時刻と、失敗や未実行が続いた回数は、記録がある月のうち新しい3か月分までをもとに表示します。連続した失敗の回数には、実際に動いた回だけを数えます。</p>
 <table class="tasks">
 <tbody>
 <tr><th>記録にある最後の成功時刻</th><td>{{if .Health.LastSuccess.IsZero}}調べた範囲に成功の記録はありません{{else}}{{clock .Health.LastSuccess}}{{end}}</td></tr>
@@ -25,7 +25,7 @@
 </tbody>
 </table>
 <h2>実行の記録</h2>
-{{if .Every}}<p class="hint">一定の間隔で実行する予約では、従来形式の正常結果は、その日の最初の回と結果が変わった回を記録します。タスクが実行の終了を待っている回、確認範囲を明示した結果、失敗は毎回記録します。実行を見送った回も記録し、続けて見送った分はまとめることがあります。</p>{{end}}
+{{if .Every}}<p class="hint">一定の間隔で動く予約が従来の形式で正常な結果を返した場合は、その日の最初の回と、結果が変わった回を記録します。タスクが終了を待っている回、確かめた範囲を結果に記した回、失敗した回は毎回記録します。実行を見送った回も記録に残し、続けて見送った分はまとめることがあります。</p>{{end}}
 {{if .Months}}<p class="hint">月：{{range .Months}}{{if eq . $.Data.Month}}<strong>{{.}}</strong>{{else}}<a href="/routines/{{$.Data.Name}}?month={{.}}">{{.}}</a>{{end}} {{end}}</p>{{end}}
 <table class="tasks">
 <thead><tr><th>予定時刻</th><th>結果</th><th>実行先と実行ID</th><th>終えた時刻</th><th>ひとこと</th></tr></thead>

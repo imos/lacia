@@ -25,16 +25,16 @@ func (s *Server) apiAddHandover(w http.ResponseWriter, r *http.Request) {
 		OwnerAction string `json:"owner_action"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, 400, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	t, err := s.Store.Get(in.Task)
 	if err != nil {
-		writeJSON(w, 404, map[string]string{"error": "タスクは見つかりません"})
+		writeJSON(w, 404, map[string]string{"error": "指定したタスクが見つかりません。タスクのIDを確かめてください"})
 		return
 	}
 	if t.Status.Closed() {
-		writeJSON(w, 409, map[string]string{"error": "このタスクは、もう閉じています"})
+		writeJSON(w, 409, map[string]string{"error": "このタスクはすでに閉じているので、申し送りを作れません"})
 		return
 	}
 	sess, known := s.session(r)
@@ -74,7 +74,7 @@ func (s *Server) apiHandovers(w http.ResponseWriter, r *http.Request) {
 	id, all := r.URL.Query().Get("task"), r.URL.Query().Get("all") != ""
 	place := r.URL.Query().Get("place")
 	if place != "" && !s.workerAllowed(r, place) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録端末の認証が必要です"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録した端末の認証が必要です"})
 		return
 	}
 	if v, ok := s.Store.Resolve(id); ok {
@@ -115,7 +115,7 @@ func (s *Server) apiUpdateHandover(w http.ResponseWriter, r *http.Request) {
 		Ack, Cancel bool
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	id := r.PathValue("id")
@@ -134,7 +134,7 @@ func (s *Server) apiUpdateHandover(w http.ResponseWriter, r *http.Request) {
 		}
 		to, _ := caller.ParseDestination(existing.Next)
 		if to.Place != "" && in.Place == to.Place && to.Place != s.Place && !s.workerAllowed(r, to.Place) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録端末の認証が必要です"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録した端末の認証が必要です"})
 			return
 		}
 		if existing.Stale(now) && (to.Place == "" || to.Place == in.Place && to.Place != s.Place) {
@@ -300,7 +300,7 @@ func (s *Server) handoverReportAllowed(w http.ResponseWriter, r *http.Request, i
 	if err == nil && (to.Place == "" || to.Place != s.Place && s.workerAllowed(r, to.Place)) {
 		return true
 	}
-	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録端末の認証が必要です"})
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録した端末の認証が必要です"})
 	return false
 }
 
@@ -399,7 +399,7 @@ func (s *Server) expireHandover(item handover.Handover, now time.Time) error {
 			return false
 		}
 		h.State = handover.Skipped
-		h.Skipped = "申し送りから24時間のあいだ、続きを始められませんでした。"
+		h.Skipped = "申し送りを受け付けてから24時間以内に、続きを始められませんでした。"
 		if h.Told.IsZero() {
 			h.Told = now
 		}

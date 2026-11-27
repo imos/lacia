@@ -50,10 +50,13 @@ func TestARecheckIsRegisteredAskedAndRecordedThroughTheAPI(t *testing.T) {
 	}
 	label := "毎日 " + first.Format("15:04") + " に確認（2999-01-01 まで）"
 	_, page, _ := get(t, handler, "/tasks/"+id)
-	for _, want := range []string{label, "初回の確認を待っています", `action="/tasks/T1001/recheck"`} {
+	for _, want := range []string{label, got.RecheckState(), `action="/tasks/T1001/recheck"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the task page lacks %q", want)
 		}
+	}
+	if strings.Contains(page, "。。") {
+		t.Error("the recheck message has a doubled period")
 	}
 	if strings.Contains(page, "再開条件が未登録") || strings.Contains(page, task.WaitingConditionWarning) {
 		t.Error("the page says the task waits with no condition")
@@ -61,7 +64,7 @@ func TestARecheckIsRegisteredAskedAndRecordedThroughTheAPI(t *testing.T) {
 	if _, home, _ := get(t, handler, "/"); !strings.Contains(home, label) {
 		t.Error("the home page lacks the rounds")
 	}
-	if list := todo.Render(store, time.Now()); !strings.Contains(list, label) || !strings.Contains(list, "初回の確認を待っています") {
+	if list := todo.Render(store, time.Now()); !strings.Contains(list, label) || !strings.Contains(list, got.RecheckState()) {
 		t.Errorf("TODO.md lacks the rounds:\n%s", list)
 	}
 
@@ -81,7 +84,7 @@ func TestARecheckIsRegisteredAskedAndRecordedThroughTheAPI(t *testing.T) {
 		t.Fatalf("the look is not a side request of the system: %+v", look)
 	}
 	prompt := request.Prompt(look)
-	for _, want := range []string{"対象のタスク: T1001", "決めてあった確認の回（" + when + "）", "読み取りの確認と、結果の記録だけ", "外部への送信、投稿、書き込み、設定の変更はしません",
+	for _, want := range []string{"対象のタスク: T1001", "確かめる時刻（" + when + "）", "対象を読み取って結果を記録してください", "外部への送信、投稿、書き込み、設定の変更はしません",
 		"lacia task rechecked T1001 same", "lacia task rechecked T1001 changed", "lacia task rechecked T1001 unknown", "lacia task field T1001 resume_on", "確認は毎日で、期限は 2999-01-01 です"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the look is not told %q:\n%s", want, prompt)
@@ -105,7 +108,7 @@ func TestARecheckIsRegisteredAskedAndRecordedThroughTheAPI(t *testing.T) {
 	if reply["changed"] != true || got.Status != task.Waiting || got.RecheckAsked != "" || got.RecheckLast == "" {
 		t.Fatalf("same: %v %+v", reply, got)
 	}
-	if _, page, _ = get(t, handler, "/tasks/"+id); !strings.Contains(page, "最終確認 ") || !strings.Contains(page, "変化なし") {
+	if _, page, _ = get(t, handler, "/tasks/"+id); !strings.Contains(page, got.RecheckState()) || !strings.Contains(page, first.AddDate(0, 0, 1).Format("01/02 15:04")) {
 		t.Error("the page does not show the last look")
 	}
 	if code, body := api(`{"rechecked":"maybe","text":"分かりません。"}`); code != http.StatusBadRequest || !strings.Contains(body, "same（変化なし）") {

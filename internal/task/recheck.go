@@ -118,16 +118,18 @@ func (t Task) RecheckLabel() string {
 		return ""
 	}
 	label := EveryLabel(t.RecheckEvery)
+	timing := label + "に"
 	if label == "毎日" {
+		timing = label
 		if next, err := ParseWhenIn(t.ResumeOn, t.location()); err == nil {
-			label += " " + next.Format("15:04") + " "
+			timing += " " + next.Format("15:04") + " に"
 		}
 	}
-	return label + "に確認（" + t.RecheckUntil + " まで）"
+	return timing + "確認（" + t.RecheckUntil + " まで）"
 }
 
 // RecheckState says what the looks have found so far and when the next one
-// comes, such as "最終確認 11/28 09:02、変化なし。次回は 11/29 09:00".
+// comes. Each part is a sentence so that the same text can stand alone.
 func (t Task) RecheckState() string {
 	if !t.Rechecks() {
 		return ""
@@ -136,11 +138,11 @@ func (t Task) RecheckState() string {
 	var parts []string
 	switch {
 	case t.RecheckMissed > 0 && t.RecheckLast != "":
-		parts = append(parts, "前回は確かめられませんでした（最後に確かめられたのは "+shortWhen(t.RecheckLast, loc)+"）")
+		parts = append(parts, "前回は確かめられませんでした。最後に確かめられたのは "+shortWhen(t.RecheckLast, loc)+" です")
 	case t.RecheckMissed > 0:
 		parts = append(parts, "前回は確かめられませんでした")
 	case t.RecheckLast != "":
-		parts = append(parts, "最終確認 "+shortWhen(t.RecheckLast, loc)+"、変化なし")
+		parts = append(parts, shortWhen(t.RecheckLast, loc)+" に確かめたときは、変化がありませんでした")
 	case t.RecheckAsked == "":
 		parts = append(parts, "初回の確認を待っています")
 	}
@@ -151,11 +153,11 @@ func (t Task) RecheckState() string {
 	case t.ResumeOn == "":
 	case t.ResumeOn == t.RecheckUntil:
 		// The round after the last one is the deadline itself.
-		parts = append(parts, "次は "+shortWhen(t.ResumeOn, loc)+" の期限で、要対応に出ます")
+		parts = append(parts, shortWhen(t.ResumeOn, loc)+" に期限を迎え、「要対応」に出ます")
 	default:
-		parts = append(parts, "次回は "+shortWhen(t.ResumeOn, loc))
+		parts = append(parts, "次の確認は "+shortWhen(t.ResumeOn, loc)+" です")
 	}
-	return strings.Join(parts, "。")
+	return strings.Join(parts, "。") + "。"
 }
 
 // recheckHelp is the line of waitingConditionHelp about this way to wait.
@@ -245,7 +247,7 @@ func (s *Store) SetRecheck(ref, every, until, next, actor string) (Task, bool, e
 		doc.Set("ready_since", "")
 		doc.Set("ready_run_ref", "")
 		e := Event{Type: EventRecheck, Action: RecheckRegistered, By: actor,
-			Text: fmt.Sprintf("外部の変化を、%sに確かめながら待ちます。期限は %s で、最初の確認は %s です。", EveryLabel(every), limit, when)}
+			Text: fmt.Sprintf("外部の変化を確かめながら待ちます。確認は%s、期限は %s です。最初の確認は %s です。", EveryLabel(every), limit, when)}
 		if old != Waiting {
 			doc.Set("status", string(Waiting))
 			doc.Set("stopped_at", "")

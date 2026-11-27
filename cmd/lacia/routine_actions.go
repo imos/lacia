@@ -49,20 +49,20 @@ func (a routineActionRuntime) instruction(job schedule.Job) string {
 	if !a.enabled() || !a.tasks.KeepsTasks() {
 		return ""
 	}
+	const receipt = "\n\nサーバーが実行結果とその根拠を受付に保存します。受付に確認済みの印を付ける必要はありません。"
+	const resolved = "以前の用件が解決したら、結果の JSON の resolved に、その用件を matters に書いたときの key を指定できます。"
 	if !a.collects(job) {
-		return "\n\n受付には実行結果とその根拠を保存します。対応が続く用件はこの定期タスクの task.md に集め、受付に確認済みの印を付ける運用は使いません。結果の確認で解決した用件は、結果JSONの resolved に元の matters の key を書けます。別のタスクで同じ用件をすでに追っている場合は、既存のタスクへつなぎます。"
+		return receipt + "対応が続く用件は、この定期タスクの task.md で追ってください。同じ用件をすでに追っているタスクがあれば、そちらへ引き継いでください。" + resolved
 	}
-	where := fmt.Sprintf("サーバーが、この定期タスクのタスク（%s の task.md の「実行から分かった対応」）へ集めます。", job.ID)
+	where := fmt.Sprintf("サーバーが %s の task.md の「実行から分かった対応」にまとめます。", job.ID)
 	if target := job.MattersTask; target != "" {
-		where = fmt.Sprintf("サーバーが、定期タスク %s のタスク（%s の task.md の「実行から分かった対応」）へ集めます。この定期タスクの定義が、用件を集める先に %s を指定しているためです。%s の回が書いた用件と同じ用件には、同じ key を使います。", target, target, target, target)
+		where = fmt.Sprintf("この定期タスクでは、定期タスク %s が用件の引き継ぎ先です。サーバーがその task.md の「実行から分かった対応」にまとめます。引き継ぎ先の定期タスクが取り上げた用件と同じなら、同じ key を使ってください。", target)
 		if _, err := a.tasks.Get(target); err == nil {
 			where += fmt.Sprintf("いま追っている用件は `lacia task show %s` で読めます。", target)
 		}
 	}
-	return "\n\n受付には実行結果とその根拠を保存します。実行のあとも残る用件は、結果JSONの matters に書いてください。" + where +
-		"受付に確認済みの印を付ける運用は使いません。通常のタスクは新しく作りません。" +
-		"通常のタスクへつなぐのは、同じ用件をすでに追っている通常のタスクがあるときと、この定期タスクの「すること」が通常のタスクを作ると名前を挙げて書いているときだけです。そのときは、結果JSONの handoffs に書きます。" +
-		"結果の確認で解決した用件は、結果JSONの resolved に元の matters の key を書けます。"
+	return receipt + "\n実行のあとも対応が必要な用件は、結果の JSON の matters に書いてください。" + where +
+		"\n通常のタスクを新しく作るのは、この定期タスクの「すること」で、どのタスクを作るか指定されているときだけです。そのタスクへ引き継ぐときや、同じ用件をすでに追っている通常のタスクへ引き継ぐときは、引き継ぎ先を結果の JSON の handoffs に書いてください。" + resolved
 }
 
 // mattersTask names the routine whose task collects the matters of id, when
@@ -165,9 +165,9 @@ func runActions(run schedule.Run, ref string) task.RoutineObservation {
 			if check.Status != "unverified" {
 				continue
 			}
-			text := "確認できなかった範囲を再確認します（" + check.Scope + "）。"
+			text := "前回確かめられなかった「" + check.Scope + "」を、もう1度確かめます。"
 			if reason := strings.TrimSpace(check.Reason); reason != "" {
-				text += " 前回の理由は「" + reason + "」です。"
+				text += "前回の理由は「" + reason + "」です。"
 			}
 			cause := check.CauseKey
 			if cause == "" {
@@ -183,7 +183,7 @@ func runActions(run schedule.Run, ref string) task.RoutineObservation {
 			const generic = "失敗した回の原因と、再開に必要な操作を確かめます。"
 			text := generic
 			if reason != "" {
-				text += " 前回の結果は「" + reason + "」です。"
+				text += "前回の結果は「" + reason + "」です。"
 			}
 			observation.Actions = append(observation.Actions, task.RoutineAction{
 				Key: "run:execution", Revision: run.FailureKind, Text: shortAction(text), Reference: ref, Technical: true,
@@ -192,14 +192,14 @@ func runActions(run schedule.Run, ref string) task.RoutineObservation {
 	}
 	if run.Outcome == schedule.RunMissed {
 		observation.Actions = append(observation.Actions, task.RoutineAction{
-			Key: "run:missed", Revision: "missed", Text: "実行されなかった回の理由と、次に動ける条件を確かめます。", Reference: ref, Technical: true,
+			Key: "run:missed", Revision: "missed", Text: "定期タスクが実行されなかった理由と、次に実行できる条件を確かめます。", Reference: ref, Technical: true,
 			Count: max(run.Count, 1),
 		})
 	}
 	for _, matter := range run.Matters {
 		text := shortAction(matter.Summary)
 		if text == "" {
-			text = "オーナーさんに、受付に記録された用件への対応を判断していただきます。"
+			text = task.OwnerName + "に、受付に記録した用件を見て、どう対応するか決めていただきます。"
 		}
 		reference := matter.Reference
 		if reference == "" {
@@ -311,7 +311,7 @@ func (a routineActionRuntime) escalate(t task.Task) error {
 		if !item.Technical || item.Owner || item.Count < 2 {
 			continue
 		}
-		text := fmt.Sprintf("定期タスク %s で同じ問題が続いています。%s\n\n%s\n\nまず定期タスクの task.md と実行記録を読み、わたしが調査します。必要な操作と担当、次に確かめる条件をこの定期タスクの本文に書きます。オーナーさんの操作が必要と確かめたときは、同じ本文を確認待ちにします。", t.ID, t.Title, item.Text)
+		text := fmt.Sprintf("定期タスク「%s」（%s）で、同じ問題が続いています。\n\n%s\n\nこの定期タスクの task.md と実行の記録を読んで、原因を調べてください。本文には、だれが何をするのかと、どんな条件で次に確かめるのかを書いてください。%sの操作が必要だと分かったら、その操作を書き、この定期タスクを「確認待ち」にしてください。", t.Title, t.ID, item.Text, task.OwnerName)
 		if _, _, err := a.queue.Add(request.Request{ID: routineEscalationID(t.ID, item), Kind: request.System, Source: "定期タスクの対応", Text: text}); err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func (a routineActionRuntime) syncTroubles(jobs []schedule.Job, devices map[stri
 			key := "health:" + trouble.Key
 			active[id][key] = true
 			t, err := a.tasks.MergeRoutineActions(id, task.RoutineObservation{At: now, Check: true, Actions: []task.RoutineAction{{
-				Key: key, Revision: trouble.Text, Text: "設定または実行環境を確かめます。 " + shortAction(trouble.Text),
+				Key: key, Revision: trouble.Text, Text: "設定や実行環境を確かめます。" + shortAction(trouble.Text),
 				Reference: schedule.RoutineURL(id), Technical: true,
 			}}})
 			if err == nil {
@@ -362,7 +362,7 @@ func (a routineActionRuntime) syncTroubles(jobs []schedule.Job, devices map[stri
 			!strings.HasPrefix(item.Next(), task.OwnerName+"に、対象の端末で認証を済ませていただきます。") {
 			continue
 		}
-		_, _, err := a.tasks.SetStatus(item.ID, task.Closing, "定期タスクの実行結果", "端末の認証待ちが解けたことを確認しました。")
+		_, _, err := a.tasks.SetStatus(item.ID, task.Closing, "定期タスクの実行結果", "端末の認証を待つ必要がなくなりました。")
 		result = errors.Join(result, err)
 	}
 	for _, job := range jobs {
@@ -391,7 +391,7 @@ func (a routineActionRuntime) askTrouble(requestID, id string, trouble schedule.
 	if a.queue == nil {
 		return nil
 	}
-	text := fmt.Sprintf("タスク %s で、定期実行を妨げる問題があります。%s\n\nタスクの本文で現状と実行の記録を確かめ、対処を引き受けます。", id, trouble.Text)
+	text := fmt.Sprintf("タスク %s の定期実行で問題が起きています。%s\n\nタスクの本文で現状と実行の記録を確かめて、対応をお願いします。", id, trouble.Text)
 	_, _, err := a.queue.Add(request.Request{ID: requestID, Kind: request.System, Source: "定期タスクの対応", Text: text})
 	return err
 }

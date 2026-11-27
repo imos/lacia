@@ -47,6 +47,9 @@ var staticFiles embed.FS
 type Server struct {
 	Store   *task.Store
 	Version string // commit the binary was built from
+	// RestartWhenIdle keeps a request to stop once the work is done. Nil
+	// when nothing would watch for it.
+	RestartWhenIdle func() error
 	// PublishedRevision is the last revision available from the task Git remote.
 	PublishedRevision func(context.Context) string
 	// Label is the display name of this profile, used where a text says
@@ -86,8 +89,13 @@ type Server struct {
 	// Schedules returns the scheduled jobs and when each last ran.
 	Schedules func() ([]schedule.Job, map[string]string)
 	// Routines preserves the acceptance and review history.
-	Routines   *routine.Store
-	routineKey []byte
+	Routines *routine.Store
+	// RoutineActions displays owner actions from routine tasks. While disabled,
+	// the legacy receipt review interface remains available.
+	RoutineActions bool
+	// RoutineActionsEnabled optionally reads the rollout state at request time.
+	RoutineActionsEnabled func() bool
+	routineKey            []byte
 	// Runs knows the scheduled runs in progress.
 	Runs             *schedule.RunLog
 	ScheduleDispatch *schedule.Dispatch
@@ -146,6 +154,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	if s.Now == nil {
 		s.Now = time.Now
 	}
+	s.Store.SetLiveCondition(s.liveCondition)
 	css, err := staticFiles.ReadFile("static/app.css")
 	if err != nil {
 		return nil, err
@@ -155,10 +164,12 @@ func (s *Server) Handler() (http.Handler, error) {
 	funcs := template.FuncMap{
 		"appCSS":        func() string { return cssURL },
 		"areaLabel":     s.Store.AreaLabel,
+		"rechecks":      recheckChoices,
 		"label":         s.label,
 		"peerLabel":     s.peerLabel,
 		"people":        s.people,
 		"markdown":      func(text string) template.HTML { return renderMarkdown(text, "") },
+		"selfMarkdown":  selfMarkdown,
 		"brief":         func(text string) string { return summary(text, 90) },
 		"clock":         func(t time.Time) string { return t.In(s.Store.Location()).Format("1月2日 15:04") },
 		"dateTime":      func(t time.Time) string { return task.FormatWhenIn(t, s.Store.Location()) },
@@ -185,7 +196,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	}
 	s.pages = map[string]*template.Template{}
 	for _, name := range []string{"home", "tasks", "task", "file", "error", "requests", "schedule", "routines", "routine", "routine-receipt", "settings", "projects", "project", "peer", "self", "who"} {
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFiles, "templates/layout.html", "templates/task-conditions.html", "templates/"+name+".html")
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFiles, "templates/layout.html", "templates/task-conditions.html", "templates/task-parts.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -219,6 +230,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /tasks/{id}/after", s.setAfter)
 	mux.HandleFunc("POST /tasks/{id}/after-run", s.setAfterRun)
 	mux.HandleFunc("POST /tasks/{id}/on-ready", s.setOnReady)
+	mux.HandleFunc("POST /tasks/{id}/recheck", s.setRecheck)
 	mux.HandleFunc("POST /tasks/{id}/upload", s.upload)
 	mux.HandleFunc("POST /tasks/{id}/stored", s.changeStored)
 	mux.HandleFunc("PUT /api/tasks/{id}/files", s.apiPutFile)
@@ -231,6 +243,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /tasks/{id}/log", s.taskLog)
 	mux.HandleFunc("GET /projects/{area}/{slug}/log", s.projectLog)
 	mux.HandleFunc("GET /files/{path...}", s.repoFile)
+	mux.HandleFunc("GET /design/{$}", s.designDocument)
+	mux.HandleFunc("GET /design/{name}", s.designDocument)
 	mux.HandleFunc("GET /requests", s.requests)
 	mux.HandleFunc("GET /requests/{id}", s.requestDetail)
 	mux.HandleFunc("POST /requests/{id}/resume", s.resumeRequest)
@@ -245,6 +259,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /routines", s.routines)
 	mux.HandleFunc("GET /routines/{id}", s.routine)
 	mux.HandleFunc("GET /routines/{id}/receipts/{sequence}", s.routineReceipt)
+	mux.HandleFunc("POST /routines/{id}/status", s.setRoutineStatus)
+	mux.HandleFunc("GET /routines/{id}/files/{path...}", s.routineFile)
 	mux.HandleFunc("POST /routines/{id}/receipts/{sequence}/complete", s.completeRoutine)
 	mux.HandleFunc("POST /routines/{id}/complete", s.completeRoutine)
 	mux.HandleFunc("GET /schedules", redirectLegacySchedule)
@@ -252,6 +268,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /who", s.who)
 	mux.HandleFunc("GET /api/sessions", s.apiSessions)
 	mux.HandleFunc("GET /api/busy", s.apiBusy)
+	mux.HandleFunc("POST /api/restart", s.apiRestart)
 	// Calendars may be set after the routes are built, so decide per request.
 	withCalendars := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +337,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/self/tidy/{day}", s.apiSelfTidy)
 	mux.HandleFunc("POST /api/self/notes", s.apiSelfNote)
 	mux.HandleFunc("POST /api/self/sleep", s.apiSelfSleep)
+	mux.HandleFunc("POST /api/self/dates", s.apiSelfDates)
+	mux.HandleFunc("GET /api/self/improvements", s.apiSelfImprovements)
+	mux.HandleFunc("POST /api/self/improvements/{id}", s.apiDecideSelfImprovement)
 	mux.HandleFunc("GET /api/self/core", s.apiSelfCore)
 	mux.HandleFunc("PUT /api/self/core", s.apiSetSelfCore)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
@@ -387,6 +407,13 @@ type page struct {
 	Data     any
 }
 
+func (s *Server) routineActions() bool {
+	if s.RoutineActionsEnabled != nil {
+		return s.RoutineActionsEnabled()
+	}
+	return s.RoutineActions
+}
+
 func (s *Server) render(w http.ResponseWriter, status int, name, title string, data any) {
 	p := page{Title: title, Version: s.Version, HasPeer: s.Peer != nil, HasSelf: s.Self != nil, Tasks: s.Store.KeepsTasks(), Problems: s.Store.Problems(), Data: data}
 	if s.Notice != nil {
@@ -407,6 +434,8 @@ func (s *Server) fail(w http.ResponseWriter, status int, message string) {
 // Row is one task in a list.
 type Row struct {
 	RoutineReceiptURL string
+	RoutineIssues     []string
+	RoutineTaskNext   string // the first paragraph of a routine's task in review
 	task.Task
 	Next               string
 	Routine            bool
@@ -445,6 +474,15 @@ func (r Row) WaitingWarning() string {
 		return task.WaitingConditionWarning
 	}
 	return ""
+}
+
+// liveCondition reports what the server itself watches for a task: a job
+// or a file it waits for, or a handover another conversation has yet to
+// take. With one, a task may wait without a date or a dependency. A request
+// in the queue is not one: it is often the very conversation that is about
+// to leave the task waiting.
+func (s *Server) liveCondition(id string) bool {
+	return len(s.Waits.OpenByTask()[id]) > 0 || len(s.Handovers.ConditionsByTask()[id]) > 0
 }
 
 type taskListContext struct {
@@ -544,8 +582,7 @@ type projectBlock struct {
 }
 
 type homeData struct {
-	Troubles       []schedule.Trouble // scheduled jobs and devices that need a look
-	Projects       []projectBlock     // active projects, each with its next task
+	Projects       []projectBlock // active projects, each with its next task
 	CanAsk         bool
 	Latest         []request.Request
 	Calendar       template.HTML
@@ -556,7 +593,7 @@ type homeData struct {
 	Flash          string
 	Undo           string // a task just closed from its row, which can be taken back
 	// Tasks is false in a repository that keeps no tasks: the page then
-	// shows the results of the routines and their troubles, not tasks.
+	// shows recurring work that needs attention.
 	Tasks bool
 }
 
@@ -614,7 +651,6 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 			s.section("ready", "着手待ち", "まだ始めていないタスクです。進行中のプロジェクトで次に着手するタスクは「プロジェクト」の欄に表示します。", ready, list),
 			s.section("later", "待機", "日時やほかのタスクなど、次に進むための条件を待っています。", later, list),
 		},
-		Troubles: s.troubles(),
 		Projects: blocks,
 		Recent:   closed,
 		Areas:    s.Store.Areas(),
@@ -626,17 +662,27 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if t, err := s.Store.Get(r.URL.Query().Get("undo")); err == nil && t.Status == task.Done {
 		data.Undo = t.ID
 	}
+	routineActions := s.routineActions()
 	if !s.Store.KeepsTasks() {
 		// Tasks closed before the repository stopped keeping them stay on
 		// the list of all tasks, not here.
 		data.Tasks, data.Projects, data.Recent = false, nil, nil
-		data.Sections = []Section{s.section("review", "要対応", "定期タスクの結果のうち、まだ確認していないものです。", nil, list)}
+		data.Sections = nil
+		if !routineActions {
+			data.Sections = []Section{s.section("review", "要対応", "定期タスクの未確認の結果や、実行を妨げている問題です。", nil, list)}
+		}
 	}
-	if err := s.addRoutineReview(&data.Sections[0]); err != nil {
-		s.fail(w, http.StatusInternalServerError, "定期タスクの結果を読めませんでした。")
-		return
+	if routineActions {
+		if data.Tasks {
+			s.addRoutineTaskReviews(&data.Sections[0])
+		}
+	} else {
+		if err := s.addRoutineReview(&data.Sections[0], s.troubles()); err != nil {
+			s.fail(w, http.StatusInternalServerError, "定期タスクの結果を読めませんでした。")
+			return
+		}
+		data.RecentRoutines = s.recentRoutineReviews()
 	}
-	data.RecentRoutines = s.recentRoutineReviews()
 	if s.Requests != nil {
 		data.CanAsk = true
 		// Show what the user asked and anything Lacia has to tell; notices
@@ -763,7 +809,16 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.Store.Get(ref)
 	if err != nil {
+		if job, ok := s.oldRoutineID(ref); ok {
+			http.Redirect(w, r, schedule.RoutineURL(job.Name)+routineQuery(r)+"#task", http.StatusFound)
+			return
+		}
 		s.fail(w, http.StatusNotFound, ref+" というタスクは見つかりませんでした。")
+		return
+	}
+	// A routine's task is shown on the routine's page, above its receipts.
+	if t.Routine {
+		http.Redirect(w, r, schedule.RoutineURL(t.ID)+routineQuery(r)+"#task", http.StatusFound)
 		return
 	}
 	if ref != t.ID {
@@ -839,6 +894,8 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request) {
 	}
 	data.ArtifactInfo = artifactInfos(s.Store.Root(), t, artifactPaths, lines, s.Store.Location())
 	data.StoredInfo = artifactInfos(s.Store.Root(), t, storedPaths, lines, s.Store.Location())
+	setMaterialURLs(data.ArtifactInfo, "/tasks/"+t.ID)
+	setMaterialURLs(data.StoredInfo, "/tasks/"+t.ID)
 	if !t.Status.Closed() {
 		data.Warnings = append(task.CheckFormat(t, s.Store.Files(t), s.Store.Format()), task.LintFormat(t.Body, s.Store.Format())...)
 		data.Warnings = append(data.Warnings, s.Store.FileWarnings(t)...)
@@ -1171,6 +1228,10 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskFile(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Store.Get(r.PathValue("id"))
 	if err != nil {
+		if job, ok := s.oldRoutineID(r.PathValue("id")); ok {
+			http.Redirect(w, r, schedule.RoutineURL(job.Name)+"/files/"+escapePath(r.PathValue("path"))+routineQuery(r), http.StatusFound)
+			return
+		}
 		s.fail(w, http.StatusNotFound, "タスクが見つかりませんでした。")
 		return
 	}
@@ -1182,6 +1243,10 @@ func (s *Server) taskFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskLog(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Store.Get(r.PathValue("id"))
 	if err != nil {
+		if job, ok := s.oldRoutineID(r.PathValue("id")); ok {
+			http.Redirect(w, r, "/tasks/"+job.Name+"/log"+routineQuery(r), http.StatusFound)
+			return
+		}
 		s.fail(w, http.StatusNotFound, "タスクが見つかりませんでした。")
 		return
 	}
@@ -1215,10 +1280,23 @@ func (s *Server) showHistory(w http.ResponseWriter, r *http.Request, dir string,
 
 func (s *Server) repoFile(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.PathValue("path")
+	if parts := strings.SplitN(repoPath, "/", 5); len(parts) == 5 && parts[0] == "areas" && parts[2] == "routines" {
+		if job, ok := s.oldRoutineID(parts[3]); ok && job.Area == parts[1] && job.Path != "" {
+			file := path.Join(path.Dir(job.Path), parts[4])
+			if strings.HasPrefix(file, path.Dir(job.Path)+"/") {
+				http.Redirect(w, r, "/files/"+escapePath(file)+routineQuery(r), http.StatusTemporaryRedirect)
+				return
+			}
+		}
+	}
 	if s.Store.Format() >= task.AreaRoutineFormat {
 		if legacy, ok := strings.CutPrefix(repoPath, "routines/"); ok {
 			id, file, _ := strings.Cut(legacy, "/")
 			if file == "routine.md" && task.ValidRoutineID(id) {
+				if job, ok := s.oldRoutineID(id); ok {
+					http.Redirect(w, r, "/files/"+escapePath(job.Path)+routineQuery(r), http.StatusTemporaryRedirect)
+					return
+				}
 				root := s.Store.Root()
 				if dir, err := task.RoutineDir(root, id); err == nil {
 					if rel, err := filepath.Rel(root, filepath.Join(dir, file)); err == nil {
@@ -1755,6 +1833,10 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Status, Note, Field, Value, Log, Actor string
 		Claim                                  bool
+		// Recheck registers how often and until when a waiting task is
+		// looked at; Rechecked and Text record what one look found.
+		Recheck         *struct{ Every, Until, Next string }
+		Rechecked, Text string
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
@@ -1787,6 +1869,10 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		if set, changed, err = s.Store.SetStatus(id, task.Status(in.Status), actor, in.Note); err == nil && changed {
 			s.statusChanged(set)
 		}
+	case in.Recheck != nil:
+		_, changed, err = s.Store.SetRecheck(id, in.Recheck.Every, in.Recheck.Until, in.Recheck.Next, actor)
+	case in.Rechecked != "":
+		_, changed, err = s.Store.Rechecked(id, in.Rechecked, in.Text, actor)
 	case in.Field != "":
 		if in.Field == "after_run" {
 			in.Value, err = schedule.ResolveWait(s.Store.Root(), in.Value)
@@ -1810,7 +1896,7 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		err, changed = s.Store.Log(id, note), true
 	default:
-		err = errors.New("status、field、log のどれかを指定してください")
+		err = errors.New("status、field、log、recheck、rechecked のどれかを指定してください")
 	}
 	if errors.Is(err, task.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -1967,8 +2053,12 @@ func (s *Server) troubles() []schedule.Trouble {
 	return schedule.Troubles(s.Store.Root(), jobs, devices)
 }
 
-// apiScheduleTroubles returns the same list for notification clients.
+// apiScheduleTroubles reports operational alerts to older notification clients.
 func (s *Server) apiScheduleTroubles(w http.ResponseWriter, _ *http.Request) {
+	if s.routineActions() {
+		writeJSON(w, http.StatusOK, []schedule.Trouble{})
+		return
+	}
 	troubles := s.troubles()
 	if troubles == nil {
 		troubles = []schedule.Trouble{}

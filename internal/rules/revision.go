@@ -26,7 +26,10 @@ type Revision map[string]string
 // ReadSessionRules renders the same documents as rules, including repository
 // replacements and additions.
 func ReadSessionRules(root, owner string) (SessionRules, error) {
-	s := SessionRules{Behavior: strings.TrimSpace(chat.Behavior), Revision: Revision{}}
+	if owner == "" {
+		owner = DefaultOwner
+	}
+	s := SessionRules{Behavior: chat.BehaviorFor(owner), Revision: Revision{}}
 	add := func(name, text string) {
 		s.Revision[name] = fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
 	}

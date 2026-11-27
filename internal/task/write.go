@@ -44,17 +44,42 @@ func (s *Store) WriteDoc(ref, name, content, actor string) (Task, error) {
 	case len(content) > MaxDocSize:
 		return Task{}, fmt.Errorf("%s に書く中身が %s を超えています。長い内容は artifacts/ に置いてください", name, HumanSize(MaxDocSize))
 	}
-	sum := sha256.Sum256([]byte(content))
-	entry := Event{Type: EventFile, By: actor, Action: "wrote", Path: name, Bytes: ptr(int64(len(content))), SHA256: hex.EncodeToString(sum[:])[:16],
+	entry := Event{Type: EventFile, By: actor, Action: "wrote", Path: name, Bytes: ptr(int64(len(content))), SHA256: docHash(content),
 		Text: fmt.Sprintf("%s を書き換えました（%s）。", name, HumanSize(int64(len(content))))}
+
+	_, found := s.Resolve(ref)
+	if !found {
+		// A routine gets its task with the first task.md written for it.
+		id := strings.ToUpper(strings.TrimSpace(ref))
+		if _, _, routine := s.routineDirOf(id); routine {
+			if name == NotesFile {
+				return Task{}, fmt.Errorf("%s には、まだタスクの本文（task.md）がありません。先に lacia task write %s task.md で本文を書いてください", id, id)
+			}
+			if strings.HasPrefix(content, "---\n") {
+				return Task{}, fmt.Errorf("%w。task.md は冒頭の項目（--- で囲まれた部分）を除き、本文だけを渡してください。冒頭の項目は、サーバーが補います", ErrShape)
+			}
+			return s.createRoutineTask(id, content, actor)
+		}
+	}
 
 	if name == TaskFile {
 		if strings.HasPrefix(content, "---\n") {
 			return Task{}, fmt.Errorf("%w。task.md は冒頭の項目（--- で囲まれた部分）を除き、本文だけを渡してください。状態は lacia task set、題名などは lacia task field で変えられます", ErrShape)
 		}
+		routine := false
+		if current, err := s.Get(ref); err == nil {
+			routine = current.Routine
+		}
 		t, _, err := s.update(ref, func(doc *Doc, _ time.Time) (Event, error) {
 			doc.Body = content
-			t, err := fromDoc(*doc)
+			if routine {
+				state, err := readRoutineActions(*doc)
+				if err != nil {
+					return Event{}, err
+				}
+				doc.Body = withRoutineActionBlock(content, state)
+			}
+			t, err := parseTask(*doc, routine)
 			if err != nil {
 				return Event{}, err
 			}
@@ -85,6 +110,12 @@ func (s *Store) WriteDoc(ref, name, content, actor string) (Task, error) {
 		return Task{}, err
 	}
 	return s.annotated(current), nil
+}
+
+// docHash is the short hash a history entry keeps of a written document.
+func docHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 func shapeError(problems []Warning) error {

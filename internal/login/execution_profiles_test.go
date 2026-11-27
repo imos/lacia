@@ -45,3 +45,33 @@ func TestLoadExecutionProfilesValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandDirsUseOnlyAbsoluteConfiguredLaunchers(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	tools := filepath.Join(root, "tools")
+	other := filepath.Join(root, "other")
+	list := &List{
+		Default: "work",
+		Logins: map[string]Entry{
+			"work": {
+				Codex:  []string{filepath.Join(work, "codex")},
+				Claude: []string{filepath.Join(tools, "claude")},
+			},
+			"another": {
+				Codex:  []string{filepath.Join(other, "codex")},
+				Claude: []string{filepath.Join(work, "claude")},
+			},
+			"relative": {
+				Codex:  []string{"codex", "--cwd", filepath.Join(root, "argument")},
+				Claude: []string{"bin/claude"},
+			},
+		},
+	}
+	if got, want := list.CommandDirs(), []string{work, tools, other}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CommandDirs = %q, want %q", got, want)
+	}
+	if got := (&List{}).CommandDirs(); len(got) != 0 {
+		t.Fatalf("CommandDirs without a configuration = %q", got)
+	}
+}

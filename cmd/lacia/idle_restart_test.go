@@ -5,13 +5,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestRestartWaitsForActiveWorkAndClosesHTTPAdmission(t *testing.T) {
 	dir := t.TempDir()
-	if err := runIdleRestart([]string{"--when-idle", "--state", dir}); err != nil {
+	if err := requestIdleRestart(filepath.Join(dir, restartRequestFile)); err != nil {
 		t.Fatal(err)
 	}
 	r := &idleRestart{path: filepath.Join(dir, restartRequestFile)}
@@ -54,7 +55,7 @@ func TestRestartWaitsForNightlyRun(t *testing.T) {
 	r := &idleRestart{path: filepath.Join(dir, restartRequestFile)}
 	idle := func() bool { return false }
 	r.runNightly(func() {
-		if err := runIdleRestart([]string{"--when-idle", "--state", dir}); err != nil {
+		if err := requestIdleRestart(filepath.Join(dir, restartRequestFile)); err != nil {
 			t.Fatal(err)
 		}
 		if ok, err := r.stopIfIdle(time.Now(), idle); ok || err != nil {
@@ -64,5 +65,43 @@ func TestRestartWaitsForNightlyRun(t *testing.T) {
 	r.runNightly(func() { t.Error("started a nightly run during restart") })
 	if ok, err := r.stopIfIdle(time.Now(), idle); !ok || err != nil {
 		t.Fatalf("server did not stop after nightly run: %v %v", ok, err)
+	}
+}
+
+// The command asks the running server, which keeps the request in its own
+// state directory. A server from before the route says so, instead of
+// leaving a request nobody watches for.
+func TestRestartCommandAsksTheRunningServer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, restartRequestFile)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/restart", func(w http.ResponseWriter, _ *http.Request) {
+		if err := requestIdleRestart(path); err != nil {
+			t.Error(err)
+		}
+		w.Write([]byte(`{"scheduled":true}`))
+	})
+	current := httptest.NewServer(mux)
+	defer current.Close()
+	t.Setenv("LACIA_API", current.URL)
+	for range 2 {
+		// Asking twice keeps the one request.
+		if err := runIdleRestart([]string{"--when-idle"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the server did not keep the request: %v", err)
+	}
+	if err := runIdleRestart([]string{"--when-idle", "--state", dir}); err == nil {
+		t.Error("accepted a state directory from the caller")
+	}
+
+	old := httptest.NewServer(http.NotFoundHandler())
+	defer old.Close()
+	t.Setenv("LACIA_API", old.URL)
+	err := runIdleRestart([]string{"--when-idle"})
+	if err == nil || !strings.Contains(err.Error(), "対応していない版") {
+		t.Fatalf("an older server = %v", err)
 	}
 }

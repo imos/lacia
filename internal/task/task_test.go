@@ -407,3 +407,16 @@ func readTestHistory(t *testing.T, dir string) ([]byte, error) {
 	lines, err := ReadHistory(dir, 1, 0)
 	return []byte(strings.Join(lines, "\n")), err
 }
+
+func TestBundledRoutineIDs(t *testing.T) {
+	for _, id := range []string{"S0001", "S0002", "S0999", "S1001", "S1016", "S1"} {
+		if !ValidRoutineID(id) || !validAfterRun(id) {
+			t.Errorf("valid ID %q was rejected", id)
+		}
+	}
+	for _, id := range []string{"S0000", "S00001", "S001", "S01", "S0"} {
+		if ValidRoutineID(id) || validAfterRun(id) {
+			t.Errorf("noncanonical ID %q was accepted", id)
+		}
+	}
+}

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/routine"
 	"github.com/imos/lacia/internal/schedule"
@@ -31,4 +34,22 @@ func syncRoutineDeliveries(store *routine.Store, jobs []schedule.Job, get func(s
 		}
 	}
 	return nil
+}
+
+// syncExistingRoutineProblems opens a receipt for a current failure recorded
+// before the server started using the review queue for failed runs.
+func syncExistingRoutineProblems(store *routine.Store, jobs []schedule.Job) error {
+	var failures []error
+	for _, job := range jobs {
+		if job.ID == "" || !job.Enabled || job.Err != "" {
+			continue
+		}
+		health := schedule.HealthOf(store.Root, job.ID)
+		if run := health.LatestExecution; run.HasProblem() {
+			if _, _, err := store.Accept(job.ID, run.ProblemReport(health.LastSuccessAt)); err != nil {
+				failures = append(failures, fmt.Errorf("%s: %w", job.ID, err))
+			}
+		}
+	}
+	return errors.Join(failures...)
 }

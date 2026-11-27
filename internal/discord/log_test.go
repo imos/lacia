@@ -21,7 +21,7 @@ func jstTime(s string) time.Time {
 }
 
 func TestSentAt(t *testing.T) {
-	// The example from Discord's documentation.
+	// A synthetic ID with the timestamp from Discord's example.
 	if got := SentAt("175928843960320001").UTC().Format(time.RFC3339); got != "2016-04-30T11:18:25Z" {
 		t.Errorf("SentAt = %s", got)
 	}

@@ -19,9 +19,14 @@ type RoutineNotice struct {
 	Title       string `json:"title"`
 	Count       int    `json:"count"`
 	ReceiptPage bool   `json:"receipt_page,omitempty"`
+	Action      bool   `json:"action,omitempty"`
+	Summary     string `json:"summary,omitempty"`
 }
 
 func (r RoutineNotice) ID() string {
+	if r.Action {
+		return fmt.Sprintf("routine-action-%s-%d", r.RoutineID, r.Sequence)
+	}
 	return fmt.Sprintf("routine-%s-%d", r.RoutineID, r.Sequence)
 }
 
@@ -36,13 +41,22 @@ func planRoutines(results []RoutineNotice, state *State, now time.Time, siteURL 
 			continue
 		}
 		target := "/routines/" + url.PathEscape(result.RoutineID)
+		title := "定期タスクに新しい結果があります"
+		body := fmt.Sprintf("%s %s（%d件）", result.RoutineID, result.Title, result.Count)
 		if result.ReceiptPage {
 			target = routine.ReceiptURL(result.RoutineID, result.Sequence)
 		}
+		if result.Action {
+			target += "#task"
+			title = "定期タスクにお願いがあります"
+			if result.Summary != "" {
+				body += "\n" + result.Summary
+			}
+		}
 		state.Outbox = append(state.Outbox, Notice{
 			ID: result.ID(), Kind: KindTask, TaskKey: routinePrefix + result.ID(),
-			Title: "定期タスクに新しい結果があります",
-			Body:  fmt.Sprintf("%s %s（%d件）", result.RoutineID, result.Title, result.Count),
+			Title: title,
+			Body:  body,
 			URL:   strings.TrimRight(siteURL, "/") + target,
 			Fire:  at, Expires: at + 86400,
 		})

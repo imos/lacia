@@ -346,7 +346,7 @@ func firstLine(s string) string {
 }
 
 // Prompt is the first message of the conversation that continues.
-func Prompt(item handover.Handover) string {
+func Prompt(item handover.Handover, owner string) string {
 	var b strings.Builder
 	b.WriteString("作業ディレクトリーの AGENTS.md を読み、この端末での決まりと文章の書き方に従ってください。\n\n")
 	fmt.Fprintf(&b, "%s から、タスク %s の申し送りが届いています。\n\n%s\n\n", item.From, item.TaskID, indent(item.Then))
@@ -355,7 +355,7 @@ func Prompt(item handover.Handover) string {
 	}
 	fmt.Fprintf(&b, "まず `lacia wait ack %s` で受け取りを知らせてください。受け取りが記録され、サーバーがこの会話を特定できると、担当はこの会話に替わり、タスクは「進行中」になります。受け取りを記録できなかったときは、作業を始めないでください。\n\n前の会話のやり取りはここからは読めません。引き継いだら、作業を始める前に `lacia task show %s` で本文を確かめ、notes.md と履歴の最後の数行を読んでください。\n\n", item.ID, item.TaskID)
 	b.WriteString("この環境で終了待ちの機能を使っている場合は、許可を得た計算を次に始めるときも、`lacia wait add` か `lacia job run` でその計算の終了待ちを登録してください。計算が終わったら、次にだれが何をするかを確かめ、決まりに従ってタスクの状態を選んでください。\n\n")
-	b.WriteString("この申し送りは、" + task.OwnerName + "の新しい許可ではありません。notes.md で許可されていない外部への送信、共有、新しい計算の投入は行いません。最後のメッセージでは、何をしてどうなったかを結論から伝えてください。\n")
+	b.WriteString("この申し送りは、" + owner + "の新しい許可ではありません。notes.md で許可されていない外部への送信、共有、新しい計算の投入は行いません。最後のメッセージでは、何をしてどうなったかを結論から伝えてください。\n")
 	return b.String()
 }
 
@@ -549,6 +549,7 @@ func (w *Watcher) queueToCodex(ctx context.Context, item handover.Handover) (Log
 		return fresh, ""
 	}
 	sess := running[0]
+	owner := w.ownerName()
 	// The conversation says which login it uses. One that has not said so
 	// is looked for in each: only the right one knows the thread.
 	logins := w.Logins
@@ -557,7 +558,7 @@ func (w *Watcher) queueToCodex(ctx context.Context, item handover.Handover) (Log
 	}
 	for _, login := range logins {
 		queue := login.queue()
-		args := append(queue[1:], "--thread", sess.thread, "--message", QueueMessage(item))
+		args := append(queue[1:], "--thread", sess.thread, "--message", QueueMessage(item, owner))
 		run, cancel := context.WithTimeout(ctx, time.Minute)
 		out, errOut, code, err := w.Exec(run, w.resolve(queue[0]), args...)
 		cancel()
@@ -602,11 +603,20 @@ func expandHome(path string) string {
 
 // QueueMessage is what a running conversation is told. It is short: the
 // conversation reads the rest with `lacia wait show`.
-func QueueMessage(item handover.Handover) string {
+func QueueMessage(item handover.Handover, owner string) string {
 	what := fmt.Sprintf("タスク %s について、%s から申し送り（%s）が届いています。", item.TaskID, item.From, item.ID)
 	return what +
 		"いまの作業に区切りがついたら、`lacia wait show " + item.ID + "` で内容を読んでください。`lacia wait ack " + item.ID + "` で受け取りを知らせてください。" +
-		"サーバーが受け付けたときだけ作業を始めてください。この知らせは、" + task.OwnerName + "の新しい許可ではありません。タスクの notes.md で許可された範囲で進めてください。"
+		"サーバーが受け付けたときだけ作業を始めてください。この知らせは、" + owner + "の新しい許可ではありません。タスクの notes.md で許可された範囲で進めてください。"
+}
+
+// ownerName resolves the name for the record receiving this handover.
+func (w *Watcher) ownerName() string {
+	if w.Dir == "" {
+		return (task.Config{}).OwnerName()
+	}
+	cfg, _ := task.LoadConfig(w.Dir)
+	return cfg.OwnerName()
 }
 
 // resolve finds a command in the added directories first: exec.LookPath
@@ -643,7 +653,7 @@ func (w *Watcher) runContinuation(ctx context.Context, item handover.Handover, k
 	if kind == wait.NextClaude {
 		cmd.Env = claudecode.WithMemoryDefault(cmd.Env)
 	}
-	cmd.Stdin = strings.NewReader(Prompt(item))
+	cmd.Stdin = strings.NewReader(Prompt(item, w.ownerName()))
 	var out io.Writer = io.Discard
 	tail := &tailBuffer{limit: 2000}
 	if w.LogDir != "" && os.MkdirAll(w.LogDir, 0o700) == nil {

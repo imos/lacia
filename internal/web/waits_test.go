@@ -305,9 +305,7 @@ func TestARequestToTheOtherSideIsDeliveredAndTakenOnce(t *testing.T) {
 
 	// A delayed request leaves its details in the waiting task’s history.
 	store, s, h, now = setupWaits(t)
-	if _, _, err := store.SetStatus("T1001", task.Waiting, "", ""); err != nil {
-		t.Fatal(err)
-	}
+	waitWithoutCondition(t, store, "T1001")
 	out = as(t, h, macCodex, "POST", "/api/handovers", `{"task":"T1001","then":"図を確かめてください。"}`)
 	item, _ = out["handover"].(map[string]any)
 	id, _ = item["id"].(string)

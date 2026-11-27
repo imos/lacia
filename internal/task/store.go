@@ -27,6 +27,9 @@ type Store struct {
 	prefix   string            // letter of newly allocated IDs
 	noTasks  bool              // the repository keeps no tasks (Config.Tasks)
 	now      func() time.Time
+	// live reports a condition the server keeps outside task.md, such as a
+	// watched job or a handover nobody has taken yet (SetLiveCondition).
+	live func(id string) bool
 
 	mu       sync.RWMutex
 	tasks    map[string]*Task
@@ -195,24 +198,28 @@ func LoadConfig(root string) (Config, error) {
 	return cfg, nil
 }
 
-// RequireCurrentFormat keeps the legacy layout available for migration
-// without letting normal runtime commands write to it.
+// RequireCurrentFormat keeps older layouts available for migration and
+// diagnosis while requiring the current layout for normal operation.
 func (c Config) RequireCurrentFormat() error {
-	if c.Format == 0 {
-		return fmt.Errorf("この記録は形式0です。使い始める前に lacia migrate --dry-run で変更内容を確かめ、lacia migrate で形式1へ移してください")
+	switch c.Format {
+	case 0:
+		return fmt.Errorf("この記録は形式0です。lacia migrate --dry-run で変更内容を確かめ、lacia migrate を1回ずつ実行して形式1、形式2の順に移してください")
+	case 1:
+		return fmt.Errorf("この記録は形式1です。lacia migrate --dry-run で変更内容を確かめ、lacia migrate で形式2へ移してください")
 	}
 	return nil
 }
 
-// Open loads every task under root. Areas given here override the
-// repository's own settings.
+// Open reads the modern task layout shared by formats 1 and 2. Normal
+// runtime entry points require the latest format before opening a store.
+// Areas given here override the repository's own settings.
 func Open(root string, areas ...string) (*Store, error) {
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		return nil, err
 	}
-	if err := cfg.RequireCurrentFormat(); err != nil {
-		return nil, err
+	if cfg.Format == 0 {
+		return nil, cfg.RequireCurrentFormat()
 	}
 	if len(areas) == 0 {
 		areas = cfg.Areas
@@ -240,6 +247,15 @@ func (s *Store) HandoffArea() string {
 		return s.handoff
 	}
 	return s.areas[0]
+}
+
+// SetLiveCondition tells the store how to ask for conditions that are not
+// in task.md. A task with one may wait without a date or a dependency.
+func (s *Store) SetLiveCondition(f func(id string) bool) { s.live = f }
+
+func (s *Store) hasLiveCondition(ref string) bool {
+	id, ok := s.Resolve(ref)
+	return ok && s.live != nil && s.live(id)
 }
 
 // Root returns the repository root.
@@ -282,6 +298,13 @@ func (s *Store) Reload() error {
 		if err != nil {
 			return err
 		}
+		if s.format >= AreaRoutineFormat {
+			routines, err := filepath.Glob(filepath.Join(s.root, filepath.FromSlash(RoutineBase(s.format, area)), "*", "task.md"))
+			if err != nil {
+				return err
+			}
+			paths = append(paths, routines...)
+		}
 		for _, path := range paths {
 			rel, _ := filepath.Rel(s.root, path)
 			t, err := s.read(area, filepath.ToSlash(filepath.Dir(rel)))
@@ -319,9 +342,13 @@ func (s *Store) read(area, dir string) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	t, err := fromDoc(doc)
+	routine := routineTaskDir(dir)
+	t, err := parseTask(doc, routine)
 	if err != nil {
 		return nil, err
+	}
+	if routine {
+		t.Title = routineTitle(s.root, dir, t.ID)
 	}
 	name := filepath.Base(dir)
 	if name != t.ID && !strings.HasPrefix(name, t.ID+"-") {
@@ -359,6 +386,11 @@ func (s *Store) Resolve(ref string) (string, bool) {
 func (s *Store) Get(ref string) (Task, error) {
 	id, ok := s.Resolve(ref)
 	if !ok {
+		if routine := strings.ToUpper(strings.TrimSpace(ref)); ValidRoutineID(routine) {
+			if _, _, found := s.routineDirOf(routine); found {
+				return Task{}, fmt.Errorf("%w: %s（定期タスク %s には、まだタスクの本文がありません。lacia task write %s task.md <ファイル> で作れます）", ErrNotFound, ref, routine, routine)
+			}
+		}
 		return Task{}, fmt.Errorf("%w: %s", ErrNotFound, ref)
 	}
 	s.mu.RLock()
@@ -387,6 +419,10 @@ func (s *Store) List() []Task {
 	defer s.mu.RUnlock()
 	out := make([]Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
+		// A routine's task never closes; it is opened from the routine.
+		if t.Routine {
+			continue
+		}
 		out = append(out, s.annotated(t))
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -448,6 +484,8 @@ func (s *Store) Create(n NewTask) (Task, error) {
 		return Task{}, errors.New("題名を1行で指定してください")
 	case !n.Status.Valid():
 		return Task{}, fmt.Errorf("%q という状態はありません", n.Status)
+	case n.Status == Waiting:
+		return Task{}, fmt.Errorf("%w。タスクは外部待ち（waiting）の状態では作れません。作ったあとで、いつ、何がそろえば戻るのかを登録してから、lacia task set <ID> waiting を実行してください", ErrWaitingNeedsCondition)
 	case n.Slug != "" && !slugPattern.MatchString(n.Slug):
 		return Task{}, fmt.Errorf("slug %q には英小文字、数字、ハイフンだけを使えます", n.Slug)
 	}
@@ -455,6 +493,9 @@ func (s *Store) Create(n NewTask) (Task, error) {
 	defer s.mu.Unlock()
 	if n.Parent != "" && s.tasks[n.Parent] == nil {
 		return Task{}, fmt.Errorf("親のタスク %s がありません", n.Parent)
+	}
+	if n.Parent != "" && s.tasks[n.Parent].Routine {
+		return Task{}, fmt.Errorf("%s は定期タスクです。親には通常のタスクを指定してください", n.Parent)
 	}
 	next := FirstNumber
 	for id := range s.tasks {
@@ -518,10 +559,39 @@ func (s *Store) SetStatus(ref string, status Status, actor, note string) (Task, 
 	if !status.Valid() {
 		return Task{}, false, fmt.Errorf("%q という状態はありません。%s のどれかを指定してください", status, StatusNames)
 	}
+	current, err := s.Get(ref)
+	if err == nil && current.Routine && !status.RoutineStatus() {
+		return Task{}, false, ErrRoutineStatus
+	}
+	// Asked before the lock is taken: the answer comes from the server.
+	live := status == Waiting && s.hasLiveCondition(ref)
 	return s.update(ref, func(doc *Doc, now time.Time) (Event, error) {
 		old := Status(doc.Get("status"))
+		if current.Routine && (doc.Get(routineActionsField) != "" || status == Review && old != status) {
+			state, err := readRoutineActions(*doc)
+			if err != nil {
+				return Event{}, err
+			}
+			managed := state.ManagedReview
+			state.ManagedReview = false
+			if status == Review && old != status {
+				state.Notice++
+			}
+			if managed || status == Review && old != status {
+				if err := saveRoutineActionState(doc, state); err != nil {
+					return Event{}, err
+				}
+				if old == status {
+					return Event{Type: EventNote, By: actor, Text: "定期タスクの状態を担当が確認しました。"}, nil
+				}
+			}
+		}
 		if old == status {
 			return Event{}, nil
+		}
+		// The task of a routine waits for the next run of its routine.
+		if status == Waiting && !current.Routine && !docHasReadyConditions(doc) && !live {
+			return Event{}, WaitingNeedsCondition(doc.Get("id"))
 		}
 		doc.Set("status", string(status))
 		doc.Set("ready_since", "")
@@ -590,12 +660,21 @@ func (s *Store) Claim(ref string, owner Owner, actor, note string) (Task, bool, 
 // removes an optional field.
 func (s *Store) SetField(ref, key, value, actor string) (Task, bool, error) {
 	value = strings.TrimSpace(value)
+	if t, err := s.Get(ref); err == nil && t.Routine {
+		return Task{}, false, ErrRoutineField
+	}
 	switch key {
 	case "title":
 		if value == "" {
 			return Task{}, false, errors.New("題名は空にできません")
 		}
-	case "due", "parent", "priority", "project":
+	case "parent":
+		if value != "" {
+			if parent, err := s.Get(value); err == nil && parent.Routine {
+				return Task{}, false, fmt.Errorf("%s は定期タスクです。親には通常のタスクを指定してください", value)
+			}
+		}
+	case "due", "priority", "project":
 	case "after":
 		ids := ParseIDs(value)
 		for _, id := range ids {
@@ -606,11 +685,13 @@ func (s *Store) SetField(ref, key, value, actor string) (Task, bool, error) {
 				return Task{}, false, fmt.Errorf("%s というタスクはありません", id)
 			} else if self, _ := s.Resolve(ref); resolved == self {
 				return Task{}, false, errors.New("after にこのタスク自身のIDは指定できません")
+			} else if dep, _ := s.Get(resolved); dep.Routine {
+				return Task{}, false, fmt.Errorf("%s は定期タスクで、完了しません。定期タスクの次の実行を待つときは after_run を使ってください", id)
 			}
 		}
 		value = strings.Join(ids, ", ")
 	case "after_run":
-		if value != "" && !afterRunPattern.MatchString(value) {
+		if value != "" && !validAfterRun(value) {
 			return Task{}, false, errors.New("after_run には定期タスクのID（例 S1001）か従来の名前を指定してください")
 		}
 	case "resume_on", "review_at":
@@ -628,6 +709,7 @@ func (s *Store) SetField(ref, key, value, actor string) (Task, bool, error) {
 	default:
 		return Task{}, false, fmt.Errorf("項目 %q はここでは変えられません。title, due, parent, priority, project, after, after_run, resume_on, review_at, on_ready のどれかを指定してください", key)
 	}
+	live := value == "" && contains(conditionKeys, key) && s.hasLiveCondition(ref)
 	return s.update(ref, func(doc *Doc, at time.Time) (Event, error) {
 		if doc.Get(key) == value {
 			if key != "after_run" {
@@ -639,7 +721,24 @@ func (s *Store) SetField(ref, key, value, actor string) (Task, bool, error) {
 				return Event{}, nil
 			}
 		}
+		if doc.Get("recheck_every") != "" && Status(doc.Get("status")) == Waiting {
+			id := doc.Get("id")
+			switch {
+			case key == "resume_on" && value == "":
+				return Event{}, fmt.Errorf("%s は、外部の変化を繰り返し確かめながら待っています。次の確認の日時は消せません。確認をやめるときは、lacia task set %s doing や lacia task set %s review で状態を変えてください", id, id, id)
+			case key == "resume_on":
+				next, _ := parseWhenIn(value, s.Location())
+				if limit, err := parseWhenIn(doc.Get("recheck_until"), s.Location()); err == nil && next.After(limit) {
+					return Event{}, fmt.Errorf("次の確認の日時 %s が、期限（%s）より後になります。期限を変えるときは、lacia task recheck %s --every %s --until 日時 で登録し直してください", value, doc.Get("recheck_until"), id, doc.Get("recheck_every"))
+				}
+			case value != "" && (key == "after" || key == "after_run" || key == "review_at" || key == "on_ready"):
+				return Event{}, recheckConflict(id, key)
+			}
+		}
 		doc.Set(key, value)
+		if value == "" && contains(conditionKeys, key) && Status(doc.Get("status")) == Waiting && !docHasReadyConditions(doc) && !live {
+			return Event{}, lastConditionError(doc.Get("id"), key)
+		}
 		switch key {
 		case "after_run":
 			doc.Set("after_run_since", "")
@@ -683,6 +782,11 @@ func (s *Store) WakeWithRuns(now time.Time, find func(name string, since time.Ti
 	var woken []Task
 	for _, t := range s.List() {
 		if t.Status.Closed() || !t.HasReadyConditions() || len(t.Blockers) > 0 {
+			continue
+		}
+		// The next round of a task that is looked at again and again is
+		// not a date to wake it: Recheck moves it on.
+		if t.Status == Waiting && t.Rechecks() {
 			continue
 		}
 		ready := true
@@ -745,7 +849,7 @@ func (s *Store) WakeWithRuns(now time.Time, find func(name string, since time.Ti
 					why = append(why, fmt.Sprintf("実行の結果は「%s」です", run.Outcome))
 				}
 			}
-			for _, key := range []string{"after", "after_run", "after_run_since", "resume_on", "review_at", "on_ready"} {
+			for _, key := range append([]string{"after", "after_run", "after_run_since", "resume_on", "review_at", "on_ready"}, recheckKeys...) {
 				doc.Set(key, "")
 			}
 			doc.Set("ready_run_ref", run.Reference)
@@ -897,6 +1001,9 @@ func (s *Store) Log(ref string, e Event) error {
 func (s *Store) Refresh(ref string) error {
 	id, ok := s.Resolve(ref)
 	if !ok {
+		if s.loadRoutineTask(ref) {
+			return nil
+		}
 		return fmt.Errorf("%w: %s", ErrNotFound, ref)
 	}
 	s.mu.Lock()
@@ -933,8 +1040,14 @@ func (s *Store) update(ref string, change func(*Doc, time.Time) (Event, error)) 
 		return Task{}, false, err
 	}
 	changed := entry.Type != ""
+	// Whatever moves a task out of waiting ends its rounds: they belong
+	// to the wait, and the next round would bring the task back.
+	if changed && before == Waiting && Status(doc.Get("status")) != Waiting && doc.Get("recheck_every") != "" {
+		clearRecheck(&doc)
+		entry.After += "外部待ちを離れたので、繰り返しの確認を止めました。"
+	}
 	if changed {
-		if _, err := fromDoc(doc); err != nil {
+		if _, err := parseTask(doc, current.Routine); err != nil {
 			return Task{}, false, err
 		}
 		if err := writeAtomic(path, doc.String()); err != nil {

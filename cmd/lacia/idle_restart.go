@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,33 +17,50 @@ const restartRequestFile = "restart-when-idle"
 func runIdleRestart(args []string) error {
 	fs := commandFlags("restart")
 	whenIdle := fs.Bool("when-idle", false, "処理が終わったときに、サーバーを終了して監督プロセスに再起動を任せます")
-	state := fs.String("state", "", "対象サーバーが使っている状態ディレクトリー")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if !*whenIdle || *state == "" || fs.NArg() != 0 {
-		return errors.New("lacia restart --when-idle --state DIR の形で指定してください")
+	if !*whenIdle || fs.NArg() != 0 {
+		return errors.New("lacia restart --when-idle の形で指定してください")
 	}
-	path := filepath.Join(*state, restartRequestFile)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err == nil {
-		closeErr := file.Close()
-		if closeErr != nil {
-			return closeErr
-		}
-	} else {
-		if !errors.Is(err, os.ErrExist) {
-			return err
-		}
-		info, statErr := os.Lstat(path)
-		if statErr != nil {
-			return statErr
-		}
-		if !info.Mode().IsRegular() {
-			return errors.New("再起動の予約を普通のファイルに保存できません")
-		}
+	if err := askIdleRestart(); err != nil {
+		return err
 	}
 	fmt.Println("処理が終わったときの再起動を予約しました。")
+	return nil
+}
+
+// askIdleRestart asks the running server to keep the request. A server
+// from before this route answers that it does not know it, and that is
+// said plainly: a request it never watches for would wait for ever.
+func askIdleRestart() error {
+	if apiBase() == "" {
+		return errors.New(apiAddressHelp)
+	}
+	err := apiCall(http.MethodPost, "/api/restart", nil, nil)
+	var status *apiStatusError
+	if errors.As(err, &status) && (status.code == http.StatusNotFound || status.code == http.StatusMethodNotAllowed) {
+		return errors.New("稼働中のサーバーは、コマンドからの再起動の予約に対応していない版です。処理が空いているときに、監督プロセスの手順でサーバーを起動し直して、新しい版へ切り替えてください。")
+	}
+	return err
+}
+
+// requestIdleRestart leaves the request where the server looks for it.
+func requestIdleRestart(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		return file.Close()
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("再起動の予約を普通のファイルに保存できません")
+	}
 	return nil
 }
 

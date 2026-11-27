@@ -14,6 +14,10 @@ import (
 // conversation.
 const tidySource = "夜の整理"
 
+// improveSource marks the notice that hands the conversation the items of
+// her own document that a change of the mechanism might mend.
+const improveSource = "仕組みの候補"
+
 // wireTidy turns on the nightly tidying of memory/: the day's topic and the
 // candidates go into that day's log (kept under logPath in the repository),
 // and the candidates reach the conversation as a notice. The notice has no

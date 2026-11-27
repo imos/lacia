@@ -83,6 +83,9 @@ func render(store *task.Store, now time.Time, waits map[string]wait.TaskWaits, a
 				if t.HasReadyConditions() {
 					line += "（" + t.ReadyLabel(sec.status == task.Doing).String() + "）"
 				}
+				if t.Rechecks() && t.Status == task.Waiting {
+					line += "（" + t.RecheckState() + "）"
+				}
 				if t.ReadyRunRef != "" {
 					line += "（[待っていた実行の結果](" + t.ReadyRunRef + ")）"
 				}

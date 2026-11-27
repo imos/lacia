@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imos/lacia"
 	"github.com/imos/lacia/internal/mdlink"
 	"github.com/imos/lacia/internal/project"
 	"github.com/imos/lacia/internal/schedule"
@@ -22,11 +23,11 @@ import (
 )
 
 // Known are the top-level names lacia reads and writes in a repository of
-// format 1, and the ones the template adds.
+// format 1 or 2, including names from the legacy schedule layout.
 var Known = []string{".lacia", "AGENTS.md", "CLAUDE.md", "README.md", "TODO.md", "rules", "memory", "schedules", "routines", "log", "areas", "archive", "local"}
 
 // template are the top-level names the template adds to Known.
-var template = []string{"LACIA_VERSION", "Makefile", "tools"}
+var template = []string{"LACIA_SOURCE", "LACIA_VERSION", "Makefile", "tools"}
 
 // taskEntries are what a task directory of format 1 may hold.
 var taskEntries = map[string]bool{"task.md": true, "notes.md": true, task.HistoryFile: true, task.ArtifactsDir: true, task.FilesDir: true}
@@ -72,6 +73,7 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 	if cfg.Format >= task.AreaRoutineFormat {
 		checkAreaRoutines(&r, root, cfg)
 	}
+	jobs := schedule.Load(root)
 	if cfg.Format == 0 {
 		_, problems, err := task.ReadLegacyTasks(root, cfg.Areas)
 		if err != nil {
@@ -80,7 +82,6 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 		for _, p := range problems {
 			r.errorf("%s を読めません: %s", p.Path, p.Err)
 		}
-		r.notef("この記録は形式0です。使い始める前に lacia migrate --dry-run で変更内容を確かめ、lacia migrate で形式1へ移してください。")
 	} else {
 		store, err := task.Open(root)
 		if err != nil {
@@ -101,10 +102,13 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 				checkTask(&r, root, t)
 			}
 			checkProjects(&r, root, cfg)
-			checkDocuments(&r, root, cfg)
+			checkDocuments(&r, root, cfg, jobs)
 		}
 	}
-	for _, job := range schedule.Load(root) {
+	if err := cfg.RequireCurrentFormat(); err != nil {
+		r.notef("%v", err)
+	}
+	for _, job := range jobs {
 		if job.Err != "" {
 			r.errorf("予約 %s の定義を読めません: %s", job.Name, job.Err)
 		}
@@ -147,7 +151,7 @@ func checkTaskSetting(r *Report, root string, cfg task.Config) {
 	}
 }
 
-// checkLayout looks at the top of a repository of format 1.
+// checkLayout looks at the top of a repository of format 1 or 2.
 func checkLayout(r *Report, root string, cfg task.Config) {
 	known := map[string]bool{}
 	for _, name := range append(append([]string{}, Known...), template...) {
@@ -160,7 +164,7 @@ func checkLayout(r *Report, root string, cfg task.Config) {
 			r.errorf("領域の名前 %s は、lacia が使う最上位の名前と同じです。別の名前にしてください。", area)
 		}
 		if isDir(filepath.Join(root, area)) {
-			r.errorf("最上位に、領域と同じ名前のディレクトリー %s があります。形式1では、領域は areas/%s に置きます。", area, area)
+			r.errorf("最上位に、領域と同じ名前のディレクトリー %s があります。領域は areas/%s に置いてください。", area, area)
 		}
 		if !isDir(filepath.Join(root, "areas", area)) {
 			r.errorf("設定の領域 %s のディレクトリー areas/%s がありません。", area, area)
@@ -188,7 +192,7 @@ func checkLayout(r *Report, root string, cfg task.Config) {
 
 func checkAreaRoutines(r *Report, root string, cfg task.Config) {
 	if exists(root, "routines") {
-		r.errorf("最上位の routines/ が残っています。形式2の定期タスクは領域の下に置いてください。")
+		r.errorf("最上位の routines/ が残っています。形式2の定期タスクは areas/<領域>/routines/<ID>/ に置いてください。")
 	}
 	allowed := map[string]bool{
 		"routine.md": true, "task.md": true, "notes.md": true, "procedure.md": true, "runs": true,
@@ -352,6 +356,15 @@ func checkLinks(r *Report, root string) {
 				continue
 			}
 			for _, l := range mdlink.Find(line) {
+				if dest, err := url.Parse(l.Dest); err == nil && dest.Host == "" && !dest.IsAbs() {
+					name, isDesign := strings.CutPrefix(dest.Path, lacia.DesignRoot)
+					if isDesign {
+						if !lacia.DesignDocumentExists(name) {
+							broken = append(broken, fmt.Sprintf("%s:%d %s", rel, n+1, l.Dest))
+						}
+						continue
+					}
+				}
 				target, _, ok := mdlink.Resolve(rel, l.Dest)
 				if !ok || exists(root, target) {
 					continue

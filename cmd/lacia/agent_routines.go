@@ -20,6 +20,9 @@ func ackRoutineNotices(ctx context.Context, client *http.Client, base string, re
 			continue
 		}
 		path := fmt.Sprintf("%s/api/routine-notices/%s/%d", base, url.PathEscape(result.RoutineID), result.Sequence)
+		if result.Action {
+			path += "?action=1"
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, nil)
 		if err != nil {
 			continue

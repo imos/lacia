@@ -125,9 +125,16 @@ func TestTaskListsShowAndSortByStatusTime(t *testing.T) {
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, task.JST)
 	makeTask := func(status task.Status, hours time.Duration, known bool) task.Task {
 		t.Helper()
-		item, err := store.Create(task.NewTask{Area: "work", Title: "表示の確認", Status: status})
+		created := status
+		if status == task.Waiting {
+			created = task.Todo
+		}
+		item, err := store.Create(task.NewTask{Area: "work", Title: "表示の確認", Status: created})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if status == task.Waiting {
+			waitWithoutCondition(t, store, item.ID)
 		}
 		log := filepath.Join(root, item.Dir, task.HistoryFile)
 		if err := os.Remove(log); err != nil {

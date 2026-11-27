@@ -15,7 +15,7 @@ func TestWakeAfterRoutineTogetherWithOtherConditions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := s.Create(NewTask{Area: "work", Title: "定期タスクを待つ", Status: Waiting})
+	item, err := oldWaiting(s, "定期タスクを待つ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestWakeAfterFailedRoutineAsksForReview(t *testing.T) {
 	s := newStore(t)
 	for _, outcome := range []string{"失敗", "一部未確認"} {
 		t.Run(outcome, func(t *testing.T) {
-			item, err := s.Create(NewTask{Area: "work", Title: "定期タスクを待つ", Status: Waiting})
+			item, err := oldWaiting(s, "定期タスクを待つ")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +111,7 @@ func TestWakeAfterFailedRoutineAsksForReview(t *testing.T) {
 
 func TestRoutineWaitRequiresRegistrationAndRechecksItBeforeWake(t *testing.T) {
 	s := newStore(t)
-	item, err := s.Create(NewTask{Area: "work", Title: "登録前の定期タスクを待つ", Status: Waiting})
+	item, err := oldWaiting(s, "登録前の定期タスクを待つ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +147,10 @@ func TestRoutineWaitRequiresRegistrationAndRechecksItBeforeWake(t *testing.T) {
 	pending, err = s.Get(item.ID)
 	if len(woken) != 0 || err != nil || pending.AfterRun != "S1002" {
 		t.Fatalf("wake consumed a changed condition: %+v, %+v, %v", woken, pending, err)
+	}
+	// The last condition of a waiting task cannot go; the task stops waiting first.
+	if _, _, err := s.SetStatus(item.ID, Doing, "", ""); err != nil {
+		t.Fatal(err)
 	}
 	if _, _, err := s.SetField(item.ID, "after_run", "", ""); err != nil {
 		t.Fatal(err)

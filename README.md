@@ -93,8 +93,8 @@ go build -o "$HOME/bin/lacia.new" ./cmd/lacia && mv "$HOME/bin/lacia.new" "$HOME
 | `lacia schedules`、`lacia todo` | 予約の定義を確かめ、`TODO.md` を作り直します |
 | `lacia project note` | プロジェクトの履歴に書きます |
 | `lacia doctor` | 記録の形を点検します。直さずに、誤りとお知らせを出します |
-| `lacia migrate` | 記録を形式0から形式1へ移します。`--undo` で戻せます |
-| `lacia notice`、`lacia self` | `notice` で心が動いたことを書き留め、`self` でいまの記録と、次の書き直しに使う書き留めを読みます |
+| `lacia migrate` | 記録を次の形式へ移します。`--undo` で戻せます |
+| `lacia notice`、`lacia self` | `notice` で心が動いたことを書き留め、`self` でいまの記録と、次の書き直しに使う書き留めを読みます。`self improve` で、仕組みで直せそうなことの候補を読み、行き先を残します |
 | `lacia who` | この会話の名前と、いま動いている会話の一覧を表示します |
 | `lacia agent` | サーバーから通知用の情報を読み、登録済みの端末に届く予約と申し送りも受け取ります。macOS の通知アプリも、このコマンドを起動します |
 | `lacia peer`、`lacia handoff` | `peer` で相手のプロファイルに伝言を送り、`handoff` でタスクの側へ用件を引き継ぎます |
@@ -102,7 +102,7 @@ go build -o "$HOME/bin/lacia.new" ./cmd/lacia && mv "$HOME/bin/lacia.new" "$HOME
 | `lacia wait`、`lacia job run`、`lacia tell` | `wait` で計算の終了を待ちます。`job run` はジョブの投入と待ちの登録をまとめて行い、`tell` は別の会話へ依頼を届けます |
 | `lacia shims` | 実行ファイルに埋め込んであるコマンドを書き出します |
 
-タスクを読み書きするには形式1の記録を使います。以前の形式0から移すときは、サーバーを止め、`lacia migrate --dry-run` で計画を確かめてから `lacia migrate` を実行してください。移行後は同じ `lacia` で `lacia doctor` を実行し、そのまま使い始められます。`lacia migrate --undo` で形式0に戻すと、もう1度移行するまで通常のタスク操作はできません。
+新しく記録を使うときは、定期タスクを領域の下に置く形式2を使います。以前の記録を移すときは、[記録の移行手順](docs/design/records.md#形を移すlacia-migrate)に従ってください。
 
 ## 設定
 
@@ -110,12 +110,12 @@ go build -o "$HOME/bin/lacia.new" ./cmd/lacia && mv "$HOME/bin/lacia.new" "$HOME
 
 ## 文書
 
-設計の説明は、[docs/design/](docs/design/README.md) にあります。はじめは、[全体の構成](docs/design/overview.md)から読んでください。
+設計の説明は、[docs/design/](docs/design/README.md) にあります。お使いの版では、`lacia docs` で設計文書の一覧、`lacia docs overview` で全体の構成を読めます。Webでは画面下部の「設計の文書」から開けます。はじめは、[全体の構成](docs/design/overview.md)から読んでください。
 
 | 文書 | 中身 |
 | --- | --- |
 | [全体の構成](docs/design/overview.md) | 部品と、役割の分け方 |
-| [記録のリポジトリー](docs/design/records.md) | タスクのファイルの形と、記録の設定 |
+| [記録のリポジトリー](docs/design/records.md) | タスク、定期タスク、覚え書きの置き場所と、記録の設定 |
 | [決まりと会話の起動](docs/design/rules.md) | `lacia rules`、`lacia init`、`lacia codex`、`lacia claude` |
 | [依頼の受付](docs/design/requests.md) | 依頼が会話へ届くまで |
 | [設定の一覧](docs/design/settings.md) | `lacia serve` の設定と、記録の設定 |

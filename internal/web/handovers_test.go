@@ -181,7 +181,9 @@ func TestHandoverDelayPreservesStatusAndIsRecordedOnce(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := store.SetStatus("T1001", want, "", ""); err != nil {
+			if want == task.Waiting {
+				waitWithoutCondition(t, store, "T1001")
+			} else if _, _, err := store.SetStatus("T1001", want, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			item, _, err := s.Handovers.Add(handover.Handover{TaskID: "T1001", Next: "claude", Then: "結果を集計します。", Created: *now})
@@ -221,9 +223,7 @@ func TestHandoverDelayPreservesStatusAndIsRecordedOnce(t *testing.T) {
 
 func TestHandoverExplicitOwnerActionCanMoveWaitingTaskToReview(t *testing.T) {
 	store, s, h, now := setupWaits(t)
-	if _, _, err := store.SetStatus("T1001", task.Waiting, "", ""); err != nil {
-		t.Fatal(err)
-	}
+	waitWithoutCondition(t, store, "T1001")
 	const action = "Macで仕事用のアカウントにログインしてください。"
 	out := as(t, h, macCodex, "POST", "/api/handovers", `{"task":"T1001","then":"結果を集計します。","owner_action":"`+action+`"}`)
 	id := out["handover"].(map[string]any)["id"].(string)
@@ -259,9 +259,7 @@ func TestHandoverExplicitOwnerActionCanMoveWaitingTaskToReview(t *testing.T) {
 
 func TestExpiredHandoverWithoutOwnerActionStaysWaiting(t *testing.T) {
 	store, s, h, now := setupWaits(t)
-	if _, _, err := store.SetStatus("T1001", task.Waiting, "", ""); err != nil {
-		t.Fatal(err)
-	}
+	waitWithoutCondition(t, store, "T1001")
 	item, _, err := s.Handovers.Add(handover.Handover{TaskID: "T1001", Next: "claude", Then: "結果を集計します。", Created: now.Add(-handover.StartWithin)})
 	if err != nil {
 		t.Fatal(err)

@@ -14,8 +14,19 @@
 </section>
 <section>
 <h2>いまの記録</h2>
-{{if .Document}}<div class="reply">{{markdown .Document}}</div>{{else}}<p>自分についての記録はまだありません。</p>{{end}}
+<p class="hint">項目の先頭の日付は、その項目の中身が最後に変わった日です。</p>
+{{if .Document}}<div class="reply">{{selfMarkdown .Document}}</div>{{else}}<p>自分についての記録はまだありません。</p>{{end}}
 </section>
+{{if .Improvements}}<section>
+<h2>仕組みで直せそうなこと</h2>
+<p class="hint">気をつけつづけるより、仕組みを直したほうがよさそうな項目を、夜の書き直しが候補に挙げます。タスクにするかどうかは、窓口のわたしが確かめて決めます。</p>
+{{range .Improvements}}<div class="exchange">
+  <p class="meta">{{.Day}} {{.ID}} {{if eq .Outcome "task"}}<span class="status req-done">タスクにしました</span> <a href="{{taskURL .Task}}">{{.Task}}</a>{{else if eq .Outcome "skipped"}}<span class="status">見送りました</span>{{else}}<span class="status">行き先を待っています</span>{{end}}</p>
+  <p class="asked">{{.Title}}</p>
+  {{if .Reason}}<p class="hint">{{.Reason}}</p>{{end}}
+  {{if .Note}}<p class="hint">{{.Note}}</p>{{end}}
+</div>{{end}}
+</section>{{end}}
 <section>
 <h2>書き直しに使う書き留め</h2>
 <p class="hint">書き直した文書を採用したら、それに使った書き留めを消します。</p>

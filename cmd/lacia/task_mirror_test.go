@@ -11,12 +11,16 @@ import (
 	"testing"
 
 	"github.com/imos/lacia/internal/task"
-	"github.com/imos/lacia/internal/testrecords"
 )
 
 func taskMirrorFixture(t *testing.T, root string, readOnly bool) string {
 	t.Helper()
-	testrecords.Init(t, root)
+	if err := os.MkdirAll(filepath.Join(root, ".lacia"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Join(root, "areas", "work", "tasks", "2026-11", "T1001")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -70,7 +74,7 @@ func TestTaskLintUsesTheExplicitRootForReviewers(t *testing.T) {
 	t.Setenv("LACIA_API", "")
 	target := t.TempDir()
 	dir := taskMirrorFixture(t, target, false)
-	if err := os.WriteFile(filepath.Join(target, task.ConfigFile), []byte(`{"format":1,"user":"佐藤さん"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(target, task.ConfigFile), []byte(`{"format":2,"user":"佐藤さん"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	body := `---

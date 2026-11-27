@@ -52,6 +52,7 @@ type Run struct {
 	Request     string           `json:"request,omitempty"`
 	ID          string           `json:"id,omitempty"`
 	Reference   string           `json:"reference,omitempty"`
+	Resolved    []string         `json:"resolved,omitempty"`
 	Matters     []routine.Matter `json:"matters,omitempty"`
 	Unverified  []string         `json:"unverified,omitempty"`
 	Checks      []routine.Check  `json:"checks,omitempty"`
@@ -70,7 +71,8 @@ func (r Run) DestinationLabel() string {
 	return r.Target
 }
 
-func (r Run) occurrenceID() string {
+// OccurrenceID identifies this stored occurrence, including legacy runs.
+func (r Run) OccurrenceID() string {
 	if r.ID != "" {
 		return r.ID
 	}
@@ -82,7 +84,7 @@ func (r Run) occurrenceID() string {
 
 // Anchor identifies this occurrence in its monthly run history.
 func (r Run) Anchor() string {
-	digest := sha256.Sum256([]byte(r.occurrenceID()))
+	digest := sha256.Sum256([]byte(r.OccurrenceID()))
 	return fmt.Sprintf("run-%x", digest[:12])
 }
 
@@ -146,6 +148,8 @@ type RunLog struct {
 	Execution   func(string) (Execution, bool)
 	ResolveName func(string) string
 	Review      func(string, Run, routine.Result) error
+	// Observe follows a durable run write, including missed and skipped runs.
+	Observe func(string, Run) error
 	// KeepSuccess retains a repeated success that a registered task may need.
 	KeepSuccess func(name string, at time.Time) bool
 
@@ -229,7 +233,7 @@ func (l *RunLog) Begin(job Job, request string, now time.Time) error {
 		}
 	}
 	if job.Skipped > 0 {
-		err := l.write(l.name(job.Name), Run{ID: "missed-before-" + request, At: first(job, job.Skipped), Finished: now, Outcome: RunMissed, Count: job.Skipped,
+		err := l.writeObserved(l.name(job.Name), Run{ID: "missed-before-" + request, At: first(job, job.Skipped), Finished: now, Outcome: RunMissed, Count: job.Skipped,
 			Summary: "サーバーが動いていなかったあいだの回です。次の回にまとめました。"}, false)
 		if err != nil {
 			return err
@@ -252,7 +256,7 @@ func (l *RunLog) Skip(job Job, now time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	id := requestID(job.OccurrenceName(), job.Slot.Format(slotLayout))
-	return l.write(l.name(job.Name), Run{ID: id, At: first(job, job.Skipped), Finished: now, Outcome: RunMissed, Count: job.Skipped + 1,
+	return l.writeObserved(l.name(job.Name), Run{ID: id, At: first(job, job.Skipped), Finished: now, Outcome: RunMissed, Count: job.Skipped + 1,
 		Summary: "前の回が終わっていなかったので、今回は見送りました。"}, false)
 
 }
@@ -322,10 +326,16 @@ func (l *RunLog) Settle(lookup func(id string) (Result, bool), now time.Time) er
 			} else {
 				report = &normalized
 				run.Reference = report.Reference
+				if !res.Failed && (report.CheckStatus == "" || report.CheckStatus == "complete") {
+					run.Resolved = report.Resolved
+				}
 				run.Unverified = report.Unverified
 				run.Handoffs, report.Matters = settleHandoffs(report.Matters, report.Handoffs, unverifiedHandoffs)
 				run.Matters, run.UnverifiedHandoffs = report.Matters, unverifiedHandoffs
 				run.Checks, run.CheckStatus = report.Checks, report.CheckStatus
+				if run.Outcome == RunFailed && run.Summary == "" {
+					run.Summary = report.Summary
+				}
 				if !res.Failed && ok {
 					run.Summary = report.Summary
 					switch report.CheckStatus {
@@ -357,12 +367,27 @@ func (l *RunLog) Settle(lookup func(id string) (Result, bool), now time.Time) er
 		}
 		name := l.name(p.Name)
 		compress := p.Repeat && !(job.ExplicitMatters && report != nil)
-		err := l.write(name, run, compress)
-		if err == nil && !stopped && report != nil && report.HasFindings(job.ExplicitMatters) && job.ID != "" && job.Output == "matters" && l.Review != nil {
-			if len(run.UnverifiedHandoffs) > 0 {
-				report.Unverified = append(append([]string(nil), report.Unverified...), "引き継ぎ先のタスクを確認できませんでした。")
+		err := l.writeObserved(name, run, compress)
+		if err == nil && !stopped && task.ValidRoutineID(name) && l.Review != nil {
+			var finding *routine.Result
+			if report != nil && report.HasFindings(job.ExplicitMatters) && job.Output == "matters" {
+				finding = report
 			}
-			err = l.Review(name, run, *report)
+			var problem routine.Result
+			if run.HasProblem() {
+				health := HealthOf(l.Root, name)
+				if health.LatestExecution.OccurrenceID() == run.OccurrenceID() {
+					problem = run.ProblemReport(health.LastSuccessAt)
+				}
+			}
+			if problem.ProblemKey != "" {
+				if finding != nil {
+					problem.Matters = finding.Matters
+				}
+				err = l.Review(name, run, problem)
+			} else if finding != nil {
+				err = l.Review(name, run, *finding)
+			}
 		}
 		if err != nil {
 			if firstErr == nil {
@@ -468,6 +493,16 @@ func runsFile(root, name, month string) (string, error) {
 // repeat set, a run with the same outcome as the line before it, on the
 // same day, is left out: a job that runs every few minutes would otherwise
 // fill the log with identical lines.
+func (l *RunLog) writeObserved(name string, run Run, repeat bool) error {
+	if err := l.write(name, run, repeat); err != nil {
+		return err
+	}
+	if l.Observe != nil && task.ValidRoutineID(name) {
+		return l.Observe(name, run)
+	}
+	return nil
+}
+
 func (l *RunLog) write(name string, run Run, repeat bool) error {
 	loc := l.Location
 	if loc == nil {
@@ -595,7 +630,7 @@ func FirstCompletion(root, name string, since, now time.Time, loc *time.Location
 				continue
 			}
 			ref := RoutineURL(name) + "?month=" + month + "#" + run.Anchor()
-			return task.RoutineCompletion{ID: run.occurrenceID(), Reference: ref, Outcome: run.Outcome, Failed: run.Outcome == RunFailed || run.Outcome == RunPartial}, true
+			return task.RoutineCompletion{ID: run.OccurrenceID(), Reference: ref, Outcome: run.Outcome, Failed: run.Outcome == RunFailed || run.Outcome == RunPartial}, true
 		}
 	}
 	return task.RoutineCompletion{}, false

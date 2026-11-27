@@ -90,7 +90,7 @@ func LintDocument(kind, source string) []Warning {
 					keys[key] = true
 				}
 			case "schedule":
-				for _, key := range []string{"title", "check_result", "check_scopes", "every", "daily", "at", "conversation", "to", "reply", "enabled", "task", "done"} {
+				for _, key := range []string{"id", "title", "area", "output", "legacy_name", "check_result", "check_scopes", "matters_task", "every", "daily", "at", "weekdays", "conversation", "profile", "to", "reply", "enabled", "task", "done"} {
 					keys[key] = true
 				}
 			default:

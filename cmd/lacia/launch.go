@@ -47,12 +47,12 @@ const launchOwn = `あなたはレイシアです。記録のリポジトリー�
 // `lacia claude` is told before the first message.
 func launchPrompt(root string, now time.Time) (string, error) {
 	var b strings.Builder
+	cfg, err := task.LoadConfig(root)
+	owner := cfg.OwnerName()
 	if rules.Managed(root) {
-		cfg, err := task.LoadConfig(root)
 		if err != nil {
 			return "", err
 		}
-		owner := cfg.OwnerName()
 		core, err := rules.Load(root, rules.Core, owner)
 		if err != nil {
 			return "", err
@@ -64,8 +64,7 @@ func launchPrompt(root string, now time.Time) (string, error) {
 	}
 	// The same note the server adds to scheduled jobs: today's date and
 	// what is out of the ordinary.
-	b.WriteString(schedule.Situation(root, "memory/now.md", now))
-	return chat.WithBehavior(b.String()), nil
+	return chat.WithBehavior(b.String(), owner) + schedule.Situation(root, "memory/now.md", now), nil
 }
 
 type launchOptions struct {
@@ -184,6 +183,9 @@ func runLaunch(kind, name string, rest []string) error {
 	}
 	root, err := findRoot("")
 	if err != nil {
+		return err
+	}
+	if err := requireCurrentRecords(root); err != nil {
 		return err
 	}
 	list, err := login.LoadList(login.ListPath(os.Getenv))

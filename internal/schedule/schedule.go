@@ -26,6 +26,7 @@ type Job struct {
 	CheckResult bool     // require an explicit structured coverage report
 	CheckScopes []string // expected scopes, captured with each execution
 	LegacyName  string   // old slug; keeps queued request IDs and boundaries stable
+	MattersTask string   // another routine whose task collects this routine's matters
 	WeekdayMask uint8    // zero means every day
 	Path        string   // repository-relative definition path
 	Profile     string   // machine-local execution profile; empty preserves existing behavior
@@ -154,6 +155,31 @@ func loadIn(root string, cfg task.Config, loc *time.Location) []Job {
 		}
 		jobs = append(jobs, job)
 	}
+	for alias, index := range aliases {
+		if current, exists := ids[alias]; exists {
+			err := fmt.Sprintf("legacy_name %q が現行の定期タスクIDと重複しています", alias)
+			jobs[index].Err, jobs[index].Enabled = err, false
+			jobs[current].Err, jobs[current].Enabled = err, false
+		}
+	}
+	// A collecting routine must be a real routine that keeps its own matters:
+	// a chain would leave the matters in a task nobody was pointed to.
+	for i := range jobs {
+		target := jobs[i].MattersTask
+		if target == "" || jobs[i].Err != "" {
+			continue
+		}
+		at, exists := ids[target]
+		switch {
+		case !exists:
+			jobs[i].Err = fmt.Sprintf("matters_task の定期タスク %s が見つかりません", target)
+		case jobs[at].MattersTask != "":
+			jobs[i].Err = fmt.Sprintf("matters_task の定期タスク %s は、さらに別の定期タスク（%s）へ用件を集めています。集める先には、matters_task を書いていない定期タスクを指定してください", target, jobs[at].MattersTask)
+		default:
+			continue
+		}
+		jobs[i].Enabled = false
+	}
 	legacyPaths, _ := filepath.Glob(filepath.Join(root, "schedules", "*.md"))
 	sort.Strings(legacyPaths)
 	for _, path := range legacyPaths {
@@ -252,8 +278,8 @@ func parse(src string, job *Job) error {
 			}
 		}
 	}
-	if job.LegacyName != "" && !namePattern.MatchString(job.LegacyName) {
-		return fmt.Errorf("legacy_name は旧予約の名前で指定してください")
+	if job.LegacyName != "" && !ValidName(job.LegacyName) {
+		return fmt.Errorf("legacy_name には旧予約の名前か旧IDを指定してください")
 	}
 	if job.ID != "" && doc.Get("id") != job.ID {
 		return fmt.Errorf("id はディレクトリー名 %s とそろえてください", job.ID)
@@ -266,6 +292,19 @@ func parse(src string, job *Job) error {
 	case "matters", "task", "none":
 	default:
 		return fmt.Errorf("output は matters、task、none のどれかです")
+	}
+	if value := doc.Get("matters_task"); value != "" {
+		switch {
+		case job.ID == "":
+			return fmt.Errorf("matters_task は固定IDの定期タスクで使えます")
+		case !task.ValidRoutineID(value):
+			return fmt.Errorf("matters_task には S1001 のような定期タスクのIDを指定してください")
+		case value == job.ID:
+			return fmt.Errorf("matters_task に、この定期タスク自身は指定できません。自分のタスクへ集めるときは、項目を省いてください")
+		case job.Output != "matters":
+			return fmt.Errorf("matters_task は output: matters の定期タスクで使えます")
+		}
+		job.MattersTask = value
 	}
 	if value := doc.Get("check_scopes"); value != "" {
 		if !job.CheckResult {

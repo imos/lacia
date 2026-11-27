@@ -102,7 +102,14 @@ func server(t *testing.T) (*task.Store, *wait.Store, *handover.Store, *httptest.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Create(task.NewTask{Area: "work", Title: "計算を待つタスク", Status: task.Waiting}); err != nil {
+	// The tests add the wait straight to its store, so the task is put
+	// aside here the way registering a wait through the API would.
+	item, err := store.Create(task.NewTask{Area: "work", Title: "計算を待つタスク"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testrecords.WaitWithoutCondition(t, store.Root(), item.Dir)
+	if err := store.Refresh(item.ID); err != nil {
 		t.Fatal(err)
 	}
 	waits, err := wait.Open(t.TempDir())
@@ -123,13 +130,15 @@ func server(t *testing.T) (*task.Store, *wait.Store, *handover.Store, *httptest.
 }
 
 func TestTheWatcherReportsTheEndAndStartsTheContinuation(t *testing.T) {
+	t.Setenv("LACIA_USER", "")
 	store, waits, handovers, srv := server(t)
 	id := store.List()[0].ID
-	item, _, err := waits.Add(wait.Wait{TaskID: id, Kind: wait.Job, Context: "cluster-a", Namespace: "ns", Name: "score-1", By: time.Now().Add(time.Hour), Next: wait.NextClaude, Then: "結果を回収して、表を作ります。", From: "local-codex"})
+	item, _, err := waits.Add(wait.Wait{TaskID: id, Kind: wait.Job, Context: "cluster-a", Namespace: "ns", Name: "score-1", By: time.Now().Add(time.Hour), Next: wait.NextClaude, Then: "結果を回収して、表を作ります。{{呼び名}} と オーナーさん", From: "local-codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
+	writeWatcherOwner(t, dir, "設定名さん")
 	k := &kubectl{out: `{"status":{"active":1}}`}
 	w := &Watcher{Kubectl: "kubectl", Base: func() string { return srv.URL }, Client: &http.Client{Timeout: 5 * time.Second}, Host: "mac", Dir: dir, LogDir: filepath.Join(dir, "logs"),
 		Every: time.Nanosecond, Exec: k.exec,
@@ -164,7 +173,7 @@ func TestTheWatcherReportsTheEndAndStartsTheContinuation(t *testing.T) {
 		t.Fatalf("after the continuation: %+v", got)
 	}
 	prompt, _ := os.ReadFile(filepath.Join(dir, "prompt.txt"))
-	for _, want := range []string{"lacia wait ack " + hid, "lacia task show " + id, "結果を回収して、表を作ります。", "正常に終わりました", "local-codex", "オーナーさんの新しい許可ではありません"} {
+	for _, want := range []string{"lacia wait ack " + hid, "lacia task show " + id, "結果を回収して、表を作ります。", "正常に終わりました", "local-codex", "設定名さんの新しい許可ではありません", "{{呼び名}} と オーナーさん"} {
 		if !strings.Contains(string(prompt), want) {
 			t.Errorf("the prompt lacks %q:\n%s", want, prompt)
 		}
@@ -223,8 +232,9 @@ var homes = map[string]string{"work": "/Users/u/.codex-work", "personal": "/User
 // codexes answers for the two Codex installations: each knows only the
 // threads listed for it.
 type codexes struct {
-	threads map[string][]string // installation → thread IDs it holds
-	calls   []string
+	threads  map[string][]string // installation → thread IDs it holds
+	calls    []string
+	messages []string
 }
 
 func (c *codexes) exec(_ context.Context, name string, args ...string) (string, string, int, error) {
@@ -236,6 +246,7 @@ func (c *codexes) exec(_ context.Context, name string, args ...string) (string, 
 	}
 	name, args = args[at-1], args[at:]
 	c.calls = append(c.calls, name+" "+strings.Join(args[:3], " "))
+	c.messages = append(c.messages, args[4])
 	for _, thread := range c.threads[name] {
 		if args[2] == thread {
 			return "Queued message m-1 for thread " + thread + ".", "", 0, nil
@@ -245,6 +256,7 @@ func (c *codexes) exec(_ context.Context, name string, args ...string) (string, 
 }
 
 func TestTheContinuationGoesToTheCodexConversationThatIsRunning(t *testing.T) {
+	t.Setenv("LACIA_USER", "")
 	// Each login starts a script that leaves a file where a new
 	// conversation would start; the arguments Codex would get are ignored.
 	sides := func(dir string) []Login {
@@ -308,6 +320,7 @@ func TestTheContinuationGoesToTheCodexConversationThatIsRunning(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store, waits, handovers, srv := server(t)
 			id, dir := store.List()[0].ID, t.TempDir()
+			writeWatcherOwner(t, dir, "キューの設定名さん")
 			fromKey := c.setup(t, srv, id, dir)
 			item, _, err := waits.Add(wait.Wait{TaskID: id, Kind: wait.Job, Context: "cluster-a", Namespace: "ns", Name: "score-1", By: time.Now().Add(time.Hour), Next: wait.NextCodex, Then: "結果を回収します。", From: "local-claude", FromKey: fromKey})
 			if err != nil {
@@ -322,6 +335,11 @@ func TestTheContinuationGoesToTheCodexConversationThatIsRunning(t *testing.T) {
 			w.Tick(context.Background()) // never delivered twice
 			if strings.Join(cx.calls, "; ") != strings.Join(c.calls, "; ") {
 				t.Fatalf("queue commands = %q", cx.calls)
+			}
+			for _, message := range cx.messages {
+				if !strings.Contains(message, "キューの設定名さんの新しい許可") {
+					t.Fatalf("queue message does not name the configured owner: %q", message)
+				}
 			}
 			deadline := time.Now().Add(10 * time.Second)
 			got, _ := handovers.Get("H" + strings.TrimPrefix(item.ID, "W"))
@@ -347,13 +365,42 @@ func TestTheContinuationGoesToTheCodexConversationThatIsRunning(t *testing.T) {
 	}
 }
 
+func writeWatcherOwner(t *testing.T, dir, owner string) {
+	t.Helper()
+	p := filepath.Join(dir, task.ConfigFile)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(fmt.Sprintf(`{"user": %q}`, owner)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWatcherResolvesOwnerFromItsRecordForEachHandover(t *testing.T) {
+	t.Setenv("LACIA_USER", "")
+	w := Watcher{Dir: t.TempDir()}
+	if got := w.ownerName(); got != task.DefaultOwner {
+		t.Fatalf("unconfigured owner = %q", got)
+	}
+	for _, name := range []string{"最初の設定名さん", "変更後の設定名さん"} {
+		writeWatcherOwner(t, w.Dir, name)
+		if got := w.ownerName(); got != name {
+			t.Fatalf("edited config resolves to %q, want %q", got, name)
+		}
+	}
+	t.Setenv("LACIA_USER", "環境設定さん")
+	if got := w.ownerName(); got != "環境設定さん" {
+		t.Fatalf("environment override = %q", got)
+	}
+}
+
 func TestTheMessageForARunningConversationIsShort(t *testing.T) {
 	long := strings.Repeat("長い依頼の文章です。", 400)
 	for _, item := range []handover.Handover{
 		{ID: "H123456789012345678901234", WaitID: "W12345678", TaskID: "T1066", Then: long, From: "local-claude 2"},
 		{ID: "H123456789012345678901234", TaskID: "T1066", Then: long, From: "local-claude 2"},
 	} {
-		message := QueueMessage(item)
+		message := QueueMessage(item, task.DefaultOwner)
 		// The tool for sending to a thread takes 1,000 bytes at most.
 		if len(message) > 1000 || !strings.Contains(message, "lacia wait show "+item.ID) || !strings.Contains(message, "lacia wait ack "+item.ID) || strings.Contains(message, "長い依頼") {
 			t.Fatalf("%d bytes: %s", len(message), message)

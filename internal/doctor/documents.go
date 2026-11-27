@@ -7,11 +7,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/imos/lacia/internal/schedule"
 	"github.com/imos/lacia/internal/task"
 )
 
 // checkDocuments checks only active record documents, never archives or artifacts.
-func checkDocuments(r *Report, root string, cfg task.Config) {
+func checkDocuments(r *Report, root string, cfg task.Config, jobs []schedule.Job) {
 	check := func(kind, path string) {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -56,7 +57,15 @@ func checkDocuments(r *Report, root string, cfg task.Config) {
 			}
 		}
 	}
-	dirs := map[string]string{filepath.Join(root, "schedules"): "schedule"}
+	for _, job := range jobs {
+		if job.ID != "" && job.Err == "" {
+			check("schedule", filepath.Join(root, job.Path))
+		}
+	}
+	dirs := map[string]string{}
+	if cfg.Format < task.AreaRoutineFormat {
+		dirs[filepath.Join(root, "schedules")] = "schedule"
+	}
 	for _, area := range cfg.Areas {
 		for _, kind := range []string{"knowledge", "procedures", "projects"} {
 			dirs[filepath.Join(root, task.AreaDir(cfg.Format, area), kind)] = kind

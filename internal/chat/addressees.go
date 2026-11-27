@@ -7,17 +7,22 @@ import (
 	"strings"
 )
 
-// Behavior is the shared naming and recipient policy for Lacia conversations.
-// Core rules include this exact text; custom-rule conversations receive only
-// this policy rather than the entire task-oriented core rule set.
-//
+// OwnerMark stands for the name Lacia calls the record's owner by.
+const OwnerMark = "{{呼び名}}"
+
 //go:embed behavior.md
-var Behavior string
+var behaviorTemplate string
+
+// BehaviorFor renders the shared naming and recipient policy. The core
+// and conversation instructions use the same text to check for duplicates.
+func BehaviorFor(owner string) string {
+	return strings.ReplaceAll(strings.TrimSpace(behaviorTemplate), OwnerMark, owner)
+}
 
 // WithBehavior includes the shared naming and recipient policy once,
 // even when the repository maintains its own rules.
-func WithBehavior(text string) string {
-	behavior := strings.TrimSpace(Behavior)
+func WithBehavior(text, owner string) string {
+	behavior := BehaviorFor(owner)
 	if strings.Contains(text, behavior) {
 		return text
 	}

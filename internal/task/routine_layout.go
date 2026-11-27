@@ -10,9 +10,9 @@ import (
 
 const AreaRoutineFormat = 2
 
-var routineID = regexp.MustCompile(`^S[1-9][0-9]*$`)
+var routineID = regexp.MustCompile(`^S(0[0-9]{3}|[1-9][0-9]*)$`)
 
-func ValidRoutineID(id string) bool { return routineID.MatchString(id) }
+func ValidRoutineID(id string) bool { return id != "S0000" && routineID.MatchString(id) }
 
 // RoutineBase returns the repository-relative directory for routine definitions.
 func RoutineBase(format int, area string) string {

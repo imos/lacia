@@ -23,7 +23,7 @@ func TestTaskHistoryViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(root, item.Dir)
-	os.WriteFile(filepath.Join(dir, "task.md"), []byte("---\nid: "+item.ID+"\ntitle: 履歴の表示\nstatus: review\ncreated: 2026-11-24\n---\n\n## ひとことで\n\n履歴をたどれます。\n\n## 次にすること\n\n利用者さんに結果を見ていただきます。\n\n## いまの資料\n\n[現資料](artifacts/current.md)\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "task.md"), []byte("---\nid: "+item.ID+"\ntitle: 履歴の表示\nstatus: review\ncreated: 2026-11-24\n---\n\n## ひとことで\n\n履歴をたどれます。\n\n## 次にすること\n\nオーナーさんに結果を見ていただきます。\n\n## いまの資料\n\n[現資料](artifacts/current.md)\n"), 0644)
 	os.MkdirAll(filepath.Join(dir, "artifacts"), 0755)
 	for name, body := range map[string]string{"current.md": "# 新しい結果\n", "old.md": "# 前の結果\n", "unknown.md": "# 日時のない結果\n"} {
 		os.WriteFile(filepath.Join(dir, "artifacts", name), []byte(body), 0644)

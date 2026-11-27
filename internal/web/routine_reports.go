@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/imos/lacia/internal/notify"
@@ -38,12 +37,19 @@ func validRunReport(job schedule.Job, report routine.Result) bool {
 	if err := job.NormalizeCoverage(&report); err != nil {
 		return false
 	}
-	if len(report.Matters)+len(report.Handoffs) > 500 || len(report.Unverified) > 500 || len(report.Summary) > 8192 ||
+	if len(report.Matters)+len(report.Handoffs) > 500 || len(report.Unverified) > 500 || len(report.Resolved) > 500 || len(report.Summary) > 8192 ||
 		!validReportReference(report.Reference) || report.Nothing && len(report.Matters)+len(report.Handoffs) > 0 {
 		return false
 	}
-	if !report.Nothing && len(report.Matters)+len(report.Handoffs) == 0 && strings.TrimSpace(report.Summary) == "" && report.Reference == "" && report.CheckStatus == "" {
+	if !report.Nothing && len(report.Matters)+len(report.Handoffs)+len(report.Resolved) == 0 && strings.TrimSpace(report.Summary) == "" && report.Reference == "" && report.CheckStatus == "" {
 		return false
+	}
+	resolved := map[string]bool{}
+	for _, key := range report.Resolved {
+		if strings.TrimSpace(key) == "" || len(key) > 1024 || resolved[key] {
+			return false
+		}
+		resolved[key] = true
 	}
 	for _, matter := range report.Matters {
 		if !validMatter(matter, job.ExplicitMatters) {
@@ -97,6 +103,16 @@ func (s *Server) routineNotices(w http.ResponseWriter, request *http.Request) {
 		http.NotFound(w, request)
 		return
 	}
+	if s.routineActions() {
+		// An older agent would read a task notice as a receipt and give it
+		// a different notification ID. Wait for the explicit opt-in.
+		if request.URL.Query().Get("action") != "1" {
+			writeJSON(w, http.StatusOK, []notify.RoutineNotice{})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.routineTaskNotices())
+		return
+	}
 	out := []notify.RoutineNotice{}
 	jobs, _ := s.Schedules()
 	for _, job := range jobs {
@@ -130,18 +146,58 @@ func (s *Server) routineNotices(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+func (s *Server) routineTaskNotices() []notify.RoutineNotice {
+	out := []notify.RoutineNotice{}
+	if !s.Store.KeepsTasks() {
+		return out
+	}
+	for _, job := range s.routineJobs() {
+		if !task.ValidRoutineID(job.ID) || job.ReplyTo != "" {
+			continue
+		}
+		t, ok := s.routineTask(job.ID)
+		if !ok {
+			continue
+		}
+		sequence, summary, count := t.RoutineActionNotice()
+		if sequence > 0 && count > 0 {
+			out = append(out, notify.RoutineNotice{
+				RoutineID: t.ID, Sequence: sequence, Title: t.Title, Summary: summary, Count: count, Action: true,
+			})
+		}
+	}
+	return out
+}
+
 func (s *Server) routineNoticeAcknowledged(w http.ResponseWriter, r *http.Request) {
 	if s.Routines == nil {
 		http.NotFound(w, r)
 		return
 	}
 	id := r.PathValue("id")
-	sequence, err := strconv.ParseUint(r.PathValue("sequence"), 10, 64)
-	if err != nil || sequence == 0 {
-		http.Error(w, "受付番号を読めませんでした", http.StatusBadRequest)
+	sequence, valid := receiptSequence(r)
+	if !valid {
+		http.Error(w, "通知番号を読めませんでした", http.StatusBadRequest)
 		return
 	}
-	if err := s.Routines.MarkNotified(id, sequence); err != nil {
+	action := r.URL.Query().Get("action") == "1"
+	actionsEnabled := s.routineActions()
+	var err error
+	switch {
+	case action && actionsEnabled && s.Store.KeepsTasks():
+		err = s.Store.MarkRoutineActionNotified(id, sequence)
+	case action:
+		http.NotFound(w, r)
+		return
+	case actionsEnabled:
+		// An older client may still be acknowledging a receipt it read before
+		// switching modes. Its number is unrelated to the task notice sequence.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	default:
+		err = s.Routines.MarkNotified(id, sequence)
+	}
+	if err != nil {
 		http.Error(w, fmt.Sprintf("定期タスク %s の通知を記録できませんでした", id), http.StatusConflict)
 		return
 	}

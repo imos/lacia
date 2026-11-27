@@ -13,6 +13,13 @@ import (
 
 func TestSessionRulesFollowExecutableAndFallback(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("LACIA_USER", "")
+	if err := os.MkdirAll(filepath.Join(root, ".lacia"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".lacia", "config.json"), []byte(`{"user":"予備さん"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("lacia rules"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +52,11 @@ echo '{"core":"FIRST","behavior":"BEHAVIOR","revision":{"core":"one"}}'`)
 	fallback := sessionRules(ctx, root, executable)
 	if !strings.Contains(fallback.Core, "レイシアの決まり") || fallback.Behavior == "" {
 		t.Fatal("cannot read the embedded fallback")
+	}
+	got := resolveWindowInstructions("HEAD", root, fallback)
+	if strings.Count(got, fallback.Behavior) != 1 || !strings.Contains(fallback.Behavior, "予備さん") ||
+		strings.Contains(got, rules.OwnerMark) || strings.Contains(got, rules.DefaultOwner) {
+		t.Fatal("the fallback must include exactly one copy of the rendered policy")
 	}
 	if note := fallback.Revision.Notice(second.Revision); note != "" {
 		t.Fatalf("temporary child failure must not announce a rollback: %q", note)

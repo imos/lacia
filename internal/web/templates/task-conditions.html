@@ -2,6 +2,7 @@
 
 {{define "task-list-conditions"}}{{if not .Status.Closed}}
 {{if .HasReadyConditions}}{{with .ReadyLabel (eq .ListStatus "doing")}}<span class="tag resume">{{.Prefix}}{{range $j, $b := .Blockers}}{{if $j}}、{{end}}<a href="{{taskURL $b}}">{{$b}}</a>{{end}}{{.RoutinePrefix}}{{with .Routine}}<a href="{{routineURL .}}">{{.}}</a>{{end}}{{.Suffix}}</span>{{end}}{{end}}
+{{if and .Rechecks (eq .Status "waiting")}}{{with .RecheckState}}<span class="tag resume">{{.}}</span>{{end}}{{end}}
 {{with .ReadyRunRef}}<span class="tag resume"><a href="{{.}}">待っていた実行の結果</a></span>{{end}}
 {{if .Queued}}<span class="tag resume">会話の順番待ち</span>{{end}}
 {{if .RequestRunning}}<span class="tag resume">会話が依頼を処理しています</span>{{end}}

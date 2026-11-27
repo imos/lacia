@@ -8,5 +8,3 @@
 </details>{{end}}
 {{if .History}}{{template "history-groups" .History}}{{else if or .Body .Settings}}<article class="markdown">{{.Body}}</article>{{else}}<pre class="plain" id="source">{{.Plain}}</pre>{{end}}
 {{end}}{{end}}
-
-{{define "history-groups"}}{{range .}}<details class="history-group"><summary>{{.Label}}（{{len .Entries}}件）</summary><ul>{{range .Entries}}<li>{{.Text}}{{if .Body}}<details><summary>このときの本文</summary><article class="markdown">{{.Body}}</article></details>{{end}}</li>{{end}}</ul></details>{{end}}{{end}}

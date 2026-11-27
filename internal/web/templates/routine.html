@@ -1,19 +1,63 @@
 {{define "content"}}{{with .Data}}
-<section class="wide">
-<p><a href="/">ホーム</a> / <a href="/routines">定期タスク</a></p>
-<h1>{{.Name}} {{.Title}}</h1>
+<section class="head">
+<p class="crumbs"><a href="/">ホーム</a> / <a href="/routines">定期タスク</a></p>
+<h1><span class="id">{{.Name}}</span> {{.Title}}</h1>
+<p class="meta">{{with .RoutineTask}}<a class="status {{.Task.Status}}" href="#task">タスク {{.StatusLabel}}</a>{{end}}
+<span>{{if .Err}}定義を読めません{{else if .Enabled}}稼働中です{{else}}止めてあります{{end}}</span>
+<span>{{if .Next.IsZero}}次回の実行はありません{{else}}次は{{clock .Next}}に動きます{{end}}</span>
+{{if not $.Data.ActionsEnabled}}{{if .Snapshot.Pending}}<a href="#receipts">未確認の受付 {{len .Snapshot.Pending}}件</a>{{end}}{{end}}</p>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
-<h2 id="receipts">受付 <span class="count">未確認 {{len .Snapshot.Pending}}件</span></h2>
-{{if .Snapshot.Pending}}<form method="post" action="/routines/{{.Name}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">未確認分をまとめて確認する</button></form><p class="hint">この画面を開いたときの未確認分を確認済みにします。次の実行は続きます。</p>{{end}}
+</section>
+
+{{with .RoutineTask}}<section id="task" class="routine-task">
+<h2>タスク <span class="status {{.Task.Status}}">{{.StatusLabel}}</span>{{if .Since}} <span class="count">{{.Since}}から</span>{{end}}</h2>
+<form class="actions" method="post" action="{{routineURL .Task.ID}}/status">
+  {{range .Actions}}<button name="status" value="{{.Status}}" {{if .Primary}}class="primary"{{end}}>{{.Label}}</button>{{end}}
+  <input name="note" placeholder="ひとこと（履歴に残ります）" size="30">
+</form>
+<p class="hint">いまだれが何をすべきかを書いた本文です。実行のたびの分析結果は、下の受付にあります。本文は <code>lacia task write {{.Task.ID}} task.md</code> で書き直します。</p>
+<p class="path"><code>{{.Task.Dir}}</code> · 元のファイル <a href="{{routineURL .Task.ID}}/files/task.md?view=source">task.md</a>{{if .Notes}} <a href="{{routineURL .Task.ID}}/files/notes.md?view=source">notes.md</a>{{end}}</p>
+<article class="markdown">{{.Body}}</article>
+{{if .Artifacts}}<h3>成果物</h3>{{template "task-artifacts" .Artifacts}}{{end}}
+{{if .Stored}}<h3>大きな成果物</h3><ul class="files">{{range .Stored}}<li><a href="{{.URL}}">{{.Title}}</a> <code>{{.Path}}</code> <span class="hint">{{.At}}</span> <span class="due">{{size .Size}}</span></li>{{end}}</ul>{{end}}
+{{template "task-notes" .Notes}}
+{{template "task-warnings" .Warnings}}
+</section>{{end}}
+
+<section class="receipts">
+<h2 id="receipts">受付{{if not $.Data.ActionsEnabled}} <span class="count">未確認 {{len .Snapshot.Pending}}件</span>{{end}}</h2>
+{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">この定期タスクの実行で見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の定期タスクのタスク</a>に集めています。</p>{{end}}
+{{if and .Enabled .Problem.HasProblem}}<div id="problem"><h3>直近の実行</h3><p>{{.Problem.ProblemSummary}}</p>
+{{with .Problem.ProblemReasons}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}</div>{{end}}
+{{if $.Data.ActionsEnabled}}
+<table class="tasks"><thead><tr><th>受付</th><th>届いた時刻</th><th>結果</th><th>概要</th><th>実行履歴</th></tr></thead><tbody>
+{{range .Receipts}}<tr id="receipt-{{.Sequence}}"><td><a href="{{receiptURL $.Data.Name .Sequence}}">受付 {{.Sequence}}</a></td><td>{{dateTime .AcceptedAt}}</td><td>{{.OutcomeLabel}}</td><td>{{receiptBrief .Receipt}}</td><td>{{if .RunURL}}<a href="{{.RunURL}}">{{clock .RunAt}}の実行履歴</a>{{end}}</td></tr>
+{{else}}<tr><td colspan="5">結果はまだありません。</td></tr>{{end}}
+</tbody></table>
+{{else}}
+{{if .Snapshot.Pending}}<form method="post" action="/routines/{{.Name}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">未確認分をまとめて確認する</button></form><p class="hint">この画面を開いたときの未確認分を確認済みにします。次の実行は続きます。{{if .RoutineTask}}タスクの状態は変わりません。{{end}}</p>{{end}}
 <table class="tasks"><thead><tr><th>受付</th><th>届いた時刻</th><th>概要</th><th>確認</th></tr></thead><tbody>
-{{range .Receipts}}<tr id="receipt-{{.Sequence}}"><td><a href="{{receiptURL $.Data.Name .Sequence}}">受付 {{.Sequence}}</a></td><td>{{clock .AcceptedAt}}</td><td>{{receiptBrief .}}</td><td>{{if .Reviewed}}確認済み{{else}}未確認{{end}}</td></tr>
+{{range .Receipts}}<tr id="receipt-{{.Sequence}}"><td><a href="{{receiptURL $.Data.Name .Sequence}}">受付 {{.Sequence}}</a></td><td>{{clock .AcceptedAt}}</td><td>{{receiptBrief .Receipt}}</td><td>{{if .Reviewed}}確認済み{{else}}未確認{{end}}</td></tr>
 {{else}}<tr><td colspan="4">結果はまだありません。</td></tr>{{end}}
 </tbody></table>
-<h2>いまの様子</h2><p>{{if .Next.IsZero}}次回の実行はありません。{{else}}次は{{clock .Next}}に動きます。{{end}}{{if .Err}}{{.Err}}{{else if not .Enabled}}いまは止めてあります。{{end}}</p>
+{{end}}
+</section>
+
+<section class="definition">
+<h2 id="definition">定義</h2>
+<p>{{if .Err}}{{.Err}}{{else}}{{.When}}に、{{if .Side}}定期処理用の会話{{else}}窓口の会話{{end}}で実行する設定です。{{if .To}}宛先は <code>{{.To}}</code> です。{{end}}{{if not .Enabled}}いまは止めてあります。{{end}}{{end}}{{if .DefinitionURL}} <a href="{{.DefinitionURL}}">定義を開く</a>{{end}}</p>
+<div class="markdown routine-prompt">{{.PromptHTML}}</div>
+</section>
+
+<section class="records">
+<h2 id="records">その他の記録</h2>
+<h3>いまの様子</h3>
+{{if $.Data.ActionsEnabled}}{{if .Health.Failed}}<p>実行の失敗が{{.Health.Failed}}回続いています。</p>{{end}}{{if .Health.Missed}}<p>実行されなかった予定が{{.Health.Missed}}回続いています。</p>{{end}}{{end}}
 {{if .Health.Unverified}}<p>確認できていない範囲：</p><ul>{{range $scope, $health := .Health.Unverified}}<li>{{$scope}}：{{$health.Count}}回続いています。{{clock $health.Since}}から確認できていません。</li>{{end}}</ul>{{end}}
 <p>最後に全範囲を確認した時刻：{{if .Health.LastSuccess.IsZero}}まだ記録がありません。{{else}}{{clock .Health.LastSuccess}}{{end}}</p>
 {{if .Executions}}<table class="tasks"><thead><tr><th>本来の時刻</th><th>実行先</th><th>状態</th></tr></thead><tbody>{{range .Executions}}<tr><td>{{clock .Job.Slot}}</td><td>{{.DestinationLabel}}（{{.Device}}）{{if .Result.Profile}} / {{.Result.Profile}}{{end}}</td><td>{{.StatusLabel}}</td></tr>{{end}}</tbody></table>{{end}}
-<h2>実行の履歴</h2>{{if .Months}}<p>月：{{range .Months}}<a href="/routines/{{$.Data.Name}}?month={{.}}">{{.}}</a> {{end}}</p>{{end}}
-<table class="tasks"><thead><tr><th>本来の時刻</th><th>結果</th><th>ひとこと</th></tr></thead><tbody>{{range .Runs}}<tr id="{{.Anchor}}"><td>{{clock .At}}</td><td>{{.OutcomeLabel}}</td><td>{{if .Receipt}}{{brief .Summary}} <a href="{{receiptURL $.Data.Name .Receipt}}">受付 {{.Receipt}}</a>{{else}}{{.Summary}}{{end}}{{if .Handoffs}}<ul>{{range .Handoffs}}<li><a href="/tasks/{{.TaskID}}">{{.TaskID}}</a> {{.Summary}}</li>{{end}}</ul>{{end}}{{if .UnverifiedHandoffs}}<p>引き継ぎ先のタスクを確認できませんでした。{{range .UnverifiedHandoffs}} {{.}}{{end}}</p>{{end}}{{if and (not .Receipt) .Unverified}}<ul>{{range .Unverified}}<li>{{.}}</li>{{end}}</ul>{{end}}</td></tr>{{else}}<tr><td colspan="3">実行の記録は、まだありません。</td></tr>{{end}}</tbody></table>
-<h2>定義と手順</h2>{{if .DefinitionURL}}<p><a href="{{.DefinitionURL}}">定義を開く</a></p>{{end}}<div class="markdown">{{.PromptHTML}}</div>
-</section>{{end}}{{end}}
+<h3 id="runs">実行の履歴</h3>{{if .Months}}<p>月：{{range .Months}}<a href="/routines/{{$.Data.Name}}?month={{.}}#runs">{{.}}</a> {{end}}</p>{{end}}
+<table class="tasks"><thead><tr><th>本来の時刻</th><th>結果</th><th>ひとこと</th></tr></thead><tbody>{{range .Runs}}<tr id="{{.Anchor}}"><td>{{clock .At}}</td><td>{{.OutcomeLabel}}</td><td>{{if .Receipt}}{{brief .Summary}} <a href="{{receiptURL $.Data.Name .Receipt}}">受付 {{.Receipt}}</a>{{else}}{{.Summary}}{{end}}{{if .Handoffs}}<ul>{{range .Handoffs}}<li><a href="/tasks/{{.TaskID}}">{{.TaskID}}</a> {{.Summary}}</li>{{end}}</ul>{{end}}{{if .UnverifiedHandoffs}}<p>引き継ぎ先のタスクを確認できませんでした。{{range .UnverifiedHandoffs}} {{.}}{{end}}</p>{{end}}{{with .ProblemReasons}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}</td></tr>{{else}}<tr><td colspan="3">実行の記録は、まだありません。</td></tr>{{end}}</tbody></table>
+{{if .History}}<h3 id="history">タスクと定義の変更の履歴</h3>{{template "history-groups" .History}}{{if .HistoryURL}}<p><a href="{{.HistoryURL}}">履歴をすべて見る</a></p>{{end}}{{end}}
+</section>
+{{end}}{{end}}

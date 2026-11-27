@@ -42,6 +42,9 @@ func runInit(args []string) error {
 	if readOnlyCopy(root) {
 		return errors.New("ここは記録の読み取り専用のコピーです。lacia serve が記録を書き込むリポジトリーで lacia init を実行してください")
 	}
+	if err := requireCurrentRecords(root); err != nil {
+		return err
+	}
 	path := filepath.Join(root, task.ConfigFile)
 	settings := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(path); err == nil {

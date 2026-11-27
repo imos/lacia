@@ -34,16 +34,16 @@ func TestExplicitRoutineMatters(t *testing.T) {
 		{name: "receipt with an existing reply route", id: "S1016", body: `{"matters":[{"key":"local/storage","revision":"1","summary":"整理してよいファイルを選んでください。"}]}`, outcome: schedule.RunDone, receipts: 1, routed: true},
 		{name: "scheduled reply keeps each structured result", id: "S1009", output: "none", body: `{"summary":"晴れです。"}`, outcome: schedule.RunDone, routed: true},
 		{name: "partial with explicit findings", id: "S1010", body: `{"check_status":"partial","unverified":["checks"],"matters":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。"}]}`, outcome: schedule.RunPartial, receipts: 1, notices: 1},
-		{name: "legacy partial without findings", id: "S1001", body: `{"summary":"取得が途中で止まりました。","unverified":["private","review"]}`, outcome: schedule.RunPartial, legacy: true, receipts: 2, notices: 2},
-		{name: "explicit partial without findings", id: "S1001", body: `{"summary":"取得が途中で止まりました。","unverified":["private","review"]}`, outcome: schedule.RunPartial},
-		{name: "S1011 unavailable", id: "S1011", scopes: []string{"cluster"}, body: `{"check_status":"unavailable","reference":"/tasks/T1196","checks":[{"scope":"cluster","status":"unverified","reason":"denied"}]}`, outcome: schedule.RunFailed, failure: "check_unavailable"},
-		{name: "required report missing", id: "S1014", scopes: []string{"jobs"}, outcome: schedule.RunFailed, failure: "result_missing"},
+		{name: "legacy partial without findings", id: "S1001", body: `{"summary":"取得が途中で止まりました。","unverified":["private","review"]}`, outcome: schedule.RunPartial, legacy: true, receipts: 1, notices: 1},
+		{name: "explicit partial without findings", id: "S1001", body: `{"summary":"取得が途中で止まりました。","unverified":["private","review"]}`, outcome: schedule.RunPartial, receipts: 1, notices: 1},
+		{name: "all scopes unavailable", id: "S1042", scopes: []string{"cluster"}, body: `{"check_status":"unavailable","reference":"/tasks/T1043","checks":[{"scope":"cluster","status":"unverified","reason":"denied"}]}`, outcome: schedule.RunFailed, failure: "check_unavailable", receipts: 1, notices: 1},
+		{name: "required report missing", id: "S1014", scopes: []string{"jobs"}, outcome: schedule.RunFailed, failure: "result_missing", receipts: 1, notices: 1},
 		{name: "no optional report with reply", id: "S1002", output: "none", outcome: schedule.RunDone, reply: true},
 		{name: "explicit matter takes priority over handoff", overlap: true, receipts: 1, notices: 1, id: "S1010", handoff: true, body: `{"check_status":"complete","matters":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。"}],"handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"%s"}]}`, outcome: schedule.RunDone},
-		{name: "confirmed handoff despite partial check", id: "S1010", handoff: true, body: `{"check_status":"partial","unverified":["checks"],"handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"%s"}]}`, outcome: schedule.RunPartial},
+		{name: "confirmed handoff despite partial check", id: "S1010", handoff: true, body: `{"check_status":"partial","unverified":["checks"],"handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"%s"}]}`, outcome: schedule.RunPartial, receipts: 1, notices: 1},
 		{name: "task output links without receipt", id: "S1008", output: "task", handoff: true, body: `{"check_status":"complete","handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"%s"}]}`, outcome: schedule.RunDone},
 		{name: "unverified handoff falls back to the receipt", id: "S1010", body: `{"check_status":"complete","handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"T999999"}]}`, outcome: schedule.RunPartial, failure: "handoff_unverified", receipts: 1, notices: 1},
-		{name: "task output failed handoff goes to trouble", id: "S1008", output: "task", body: `{"check_status":"complete","handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"T999999"}]}`, outcome: schedule.RunPartial, failure: "handoff_unverified"},
+		{name: "task output failed handoff opens a receipt", id: "S1008", output: "task", body: `{"check_status":"complete","handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"T999999"}]}`, outcome: schedule.RunPartial, failure: "handoff_unverified", receipts: 1, notices: 1},
 		{name: "closed task falls back to the receipt", id: "S1010", handoff: true, closed: true, body: `{"check_status":"complete","handoffs":[{"key":"pr/1","revision":"a","summary":"依頼をレビューしてください。","task_id":"%s"}]}`, outcome: schedule.RunPartial, failure: "handoff_unverified", receipts: 1, notices: 1},
 		{name: "stopped before start does not accept a result", id: "S1016", stopped: true, body: `{"matters":[{"key":"local/storage","revision":"1","summary":"整理してよいファイルを選んでください。"}]}`, outcome: schedule.RunSkipped},
 	} {
@@ -226,7 +226,7 @@ func TestExplicitRoutineMatters(t *testing.T) {
 			}
 			deviceAlerts := map[string]schedule.DeviceStatus{"local-platform": {Status: schedule.WaitingAuth}}
 			if trouble := schedule.Troubles(root, []schedule.Job{job}, deviceAlerts); len(trouble) < 1 ||
-				trouble[len(trouble)-1].Key != "device:local-platform:auth" || ((tc.outcome == schedule.RunFailed || taskHandoffFailure) && len(trouble) != 2) {
+				trouble[len(trouble)-1].Key != "device:local-platform:auth" || len(trouble) != 1 {
 				t.Fatalf("trouble=%+v", trouble)
 			}
 		})

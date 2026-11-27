@@ -179,8 +179,9 @@ func runAgent(args []string) error {
 		watcher.Path = append(watcher.Path, filepath.Dir(self))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		watcher.Path = append(watcher.Path, filepath.Join(home, ".local", "bin"), filepath.Join(home, "git", "config", "bin"))
+		watcher.Path = append(watcher.Path, filepath.Join(home, ".local", "bin"))
 	}
+	watcher.Path = append(watcher.Path, list.CommandDirs()...)
 	if t.Kubectl != "" {
 		watcher.Path = append(watcher.Path, filepath.Dir(t.Kubectl))
 	}
@@ -279,7 +280,7 @@ func runAgent(args []string) error {
 			in.AlertsOK = json.Unmarshal(data, &in.Alerts) == nil
 		}
 		if config.Enabled && config.TaskNotifications {
-			if data, _, err := get("/api/routine-notices"); err == nil {
+			if data, _, err := get("/api/routine-notices?action=1"); err == nil {
 				if err := json.Unmarshal(data, &in.RoutineNotices); err != nil {
 					in.RoutineNotices = nil
 				}

@@ -202,6 +202,27 @@ func (l *List) Names() []string {
 	return names
 }
 
+// CommandDirs returns the directories of the explicitly configured absolute
+// launchers, in login order. A bare or relative command still uses PATH.
+func (l *List) CommandDirs() []string {
+	var dirs []string
+	seen := map[string]bool{}
+	for _, name := range l.Names() {
+		entry := l.Logins[name]
+		for _, command := range [][]string{entry.Codex, entry.Claude} {
+			if len(command) == 0 || !filepath.IsAbs(command[0]) {
+				continue
+			}
+			dir := filepath.Dir(command[0])
+			if !seen[dir] {
+				dirs = append(dirs, dir)
+				seen[dir] = true
+			}
+		}
+	}
+	return dirs
+}
+
 // Command is how a login starts an agent of a kind ("codex" or "claude").
 func (l *List) Command(name, kind string) ([]string, error) {
 	entry, ok := l.Logins[name]

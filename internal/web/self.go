@@ -3,8 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,10 +18,12 @@ import (
 
 type selfData struct {
 	Document string
-	Notes    []self.Note
-	Nights   []self.Night
-	At       string
-	Flash    string
+	// Improvements are the candidates for mending the mechanism, newest first.
+	Improvements []self.Improvement
+	Notes        []self.Note
+	Nights       []self.Night
+	At           string
+	Flash        string
 }
 
 // selfPage shows her view as it stands, what she jotted down today, and what
@@ -28,7 +33,12 @@ func (s *Server) selfPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusNotFound, "自分についての記録の設定は、このサーバーにはありません。")
 		return
 	}
-	s.render(w, http.StatusOK, "self", "レイシアのこと", selfData{Document: selfDisplayDocument(s.Self.Document()), Notes: s.Self.Notes(),
+	improvements := s.Self.Improvements()
+	slices.Reverse(improvements)
+	if len(improvements) > 10 {
+		improvements = improvements[:10]
+	}
+	s.render(w, http.StatusOK, "self", "レイシアのこと", selfData{Document: selfDisplayDocument(s.Self.Document()), Improvements: improvements, Notes: s.Self.Notes(),
 		Nights: s.Self.History(14), At: s.Self.At, Flash: r.URL.Query().Get("flash")})
 }
 
@@ -87,6 +97,42 @@ func (s *Server) apiSelfTidy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "その日の整理結果はありません"})
 }
 
+// apiSelfImprovements lists the candidates for mending the mechanism.
+func (s *Server) apiSelfImprovements(w http.ResponseWriter, _ *http.Request) {
+	if s.Self == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"improvements": s.Self.Improvements()})
+}
+
+// apiDecideSelfImprovement records whether a candidate became a task.
+func (s *Server) apiDecideSelfImprovement(w http.ResponseWriter, r *http.Request) {
+	if s.Self == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		return
+	}
+	var in struct{ Outcome, Task, Note string }
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		return
+	}
+	if in.Task = strings.TrimSpace(in.Task); in.Outcome == self.ImproveTask && in.Task != "" {
+		t, err := s.Store.Get(in.Task)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		in.Task = t.ID
+	}
+	got, err := s.Self.DecideImprovement(r.PathValue("id"), in.Outcome, in.Task, in.Note)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, got)
+}
+
 // apiSelfNote is for Lacia herself, through `lacia notice`.
 func (s *Server) apiSelfNote(w http.ResponseWriter, r *http.Request) {
 	if s.Self == nil {
@@ -125,6 +171,21 @@ func (s *Server) apiSelfSleep(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&in)
 	go s.Self.Sleep(context.WithoutCancel(r.Context()), in.Force)
 	writeJSON(w, http.StatusAccepted, map[string]string{"started": time.Now().Format(time.RFC3339)})
+}
+
+// apiSelfDates writes the days on the items of a document that has none
+// yet. The nightly rewrite would do the same; this is for not waiting.
+func (s *Server) apiSelfDates(w http.ResponseWriter, _ *http.Request) {
+	if s.Self == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "自分についての記録の設定は、このサーバーにはありません"})
+		return
+	}
+	changed, err := s.Self.Date()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"changed": changed})
 }
 
 // apiSelfCore is the chat side's door for the part of her view both modes
@@ -181,4 +242,14 @@ func selfDisplayDocument(doc string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// itemDate finds the day the server keeps at the head of an item, once the
+// document is HTML.
+var itemDate = regexp.MustCompile(`(<li>(?:\s*<p>)?)\[(\d{4}-\d{2}-\d{2})\] ?`)
+
+// selfMarkdown renders her document, with the day each item last changed
+// set small before its text.
+func selfMarkdown(text string) template.HTML {
+	return template.HTML(itemDate.ReplaceAllString(string(renderMarkdown(text, "")), `$1<span class="item-date">$2</span> `))
 }

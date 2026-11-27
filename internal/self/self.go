@@ -112,6 +112,12 @@ type Keeper struct {
 	// conversation. TidyLog optionally copies the result to the day's log.
 	TidyLog  func(day time.Time, text string) (string, error)
 	TidyTell func(notice, text string) error
+	// ImproveTell turns on the candidates for mending the mechanism and
+	// hands them to the conversation. Nil on a profile that keeps no tasks.
+	ImproveTell func(notice, text string) error
+	// TaskState names the present state of a task a candidate became, for
+	// the rewrite prompt. It may be nil.
+	TaskState func(id string) string
 	// Saved is called after the document changed.
 	Saved func(Night)
 	Now   func() time.Time
@@ -343,7 +349,10 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 	if oldest := started.Add(-72 * time.Hour); since.Before(oldest) {
 		since = oldest
 	}
-	previous := strings.TrimSpace(k.Document())
+	today := started.In(k.Zone()).Format(time.DateOnly)
+	// A document from before the items carried days gets them here. They
+	// are saved with the next accepted version.
+	previous := k.backdate(strings.TrimSpace(k.Document()), today)
 	notes := k.Notes()
 	var exchanges []Exchange
 	if k.Exchanges != nil {
@@ -361,7 +370,7 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 		core, err := k.PeerCore(ctx)
 		if err != nil {
 			night.Sharing = k.peerLabel() + "から共有する節を受け取れませんでした。" + err.Error()
-		} else if core = strings.TrimSpace(core); core != Core(previous) {
+		} else if core = strings.TrimSpace(core); StripDates(core) != StripDates(Core(previous)) {
 			peer = core
 		}
 	}
@@ -389,20 +398,23 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 		k.record(night)
 		return night, nil
 	}
-	next, summary, err := parse(out)
-	if err == nil {
-		err = k.check(previous, next, night.Weekly)
+	// The server keeps the days: whatever the model did to them is undone.
+	accept := func(out string) (string, string, error) {
+		next, summary, err := parse(out)
+		if err != nil {
+			return "", "", err
+		}
+		next = stamp(next, today, previous, peer)
+		return next, summary, k.check(previous, next, night.Weekly)
 	}
+	next, summary, err := accept(out)
 	if err != nil {
 		// One more try, told why: a result a few sentences over the limit
 		// is mended more easily than written again the next night.
 		if again, thinkErr := think(ctx, prompt+retryText(err, out)); thinkErr == nil {
 			first := err
 			out = again
-			if next, summary, err = parse(out); err == nil {
-				err = k.check(previous, next, night.Weekly)
-			}
-			if err != nil {
+			if next, summary, err = accept(out); err != nil {
 				err = fmt.Errorf("%w（1度やり直しました。最初の案は、次の理由で採用していません。%v）", err, first)
 			}
 		}
@@ -417,8 +429,7 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 		return night, err
 	}
 	night.Accepted, night.Summary = true, summary
-	day := started.In(k.Zone()).Format("2006-01-02")
-	if err := writeFile(filepath.Join(k.Dir, "versions", day+".md"), []byte(next+"\n"), 0o600); err != nil {
+	if err := writeFile(filepath.Join(k.Dir, "versions", today+".md"), []byte(next+"\n"), 0o600); err != nil {
 		slog.Error("self version", "error", err)
 	}
 	// Digested: the notes go, and the next night looks only at what follows.
@@ -433,6 +444,7 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 	if k.Saved != nil {
 		k.Saved(night)
 	}
+	k.keepImprovements(parseImprovements(out), started)
 	return night, nil
 }
 
@@ -497,7 +509,7 @@ func (k *Keeper) SetCore(core string) (bool, error) {
 	if core == "" {
 		return false, errors.New("「わたし自身」の文章が空です")
 	}
-	if utf8.RuneCountInString(core) > 4000 {
+	if utf8.RuneCountInString(StripDates(core)) > 4000 {
 		return false, errors.New("「わたし自身」の文章が長すぎます")
 	}
 	k.run.Lock()
@@ -507,6 +519,9 @@ func (k *Keeper) SetCore(core string) (bool, error) {
 		doc = title + "\n\nやり取りを通して、わたしがどう考えるようになったかをここに書いています。夜に書き留めや会話の記録をもとに見直します。\n\n" +
 			CoreHeading + "\n\n## " + k.Label + "で\n\nまだ、書けることがありません。\n"
 	}
+	// A core from a server that does not keep the days yet must not wipe
+	// the ones known here.
+	core = carryDates(core, doc)
 	if Core(doc) == core {
 		return false, nil
 	}
@@ -612,6 +627,8 @@ func content(doc string) []string {
 // check refuses a result that has the wrong shape, is too long, or moved too
 // far from the previous version in one night.
 func (k *Keeper) check(previous, next string, weekly bool) error {
+	// The days at the head of the items are the server's, and are not counted.
+	previous, next = StripDates(previous), StripDates(next)
 	if !strings.HasPrefix(next, title) {
 		return fmt.Errorf("自分についての記録が「%s」で始まっていません", title)
 	}
@@ -721,7 +738,7 @@ func (k *Keeper) prompt(now time.Time, previous string, notes []Note, exchanges 
 		people, peerRule = task.OwnerName+"と"+k.people(), "- 書き直した「わたし自身」は、"+k.peerLabel()+"のレイシアが手元の「わたし自身」の節と合わせて1つにまとめます。こちらのやり取りを知らなくても分かるように書いてください。\n"
 	}
 	allowed := ""
-	if n := len(content(previous)); n > 0 {
+	if n := len(content(StripDates(previous))); n > 0 {
 		gone, added := allowance(n, weekly)
 		allowed = fmt.Sprintf("- サーバーは前の版と1文ずつ照合します。前の版は%d文です。今夜削れるのは%d文まで、追加できるのは%d文までです。1文を言い換えたときは、削除1文、追加1文として数えます。相手の「わたし自身」から新しく取り入れる文も追加に含みます。上限を超えた案は採用できないので、入りきらない分は次の夜に回してください。\n", n, gone, added)
 	}
@@ -748,8 +765,11 @@ func (k *Keeper) prompt(now time.Time, previous string, notes []Note, exchanges 
 	if weekly {
 		weeklyText = "\n今夜は週に1度の見直しです。この1週間のやり取りを振り返り、考えが変わったところがあれば書き直してください。確かめられないままの見立てや、いまはもう当てはまらない見立ては省きます。今夜はふだんより多くの文を変えられます。\n"
 	}
+	improveRule, improveOutput, improveKnown := k.improvePrompt()
 	text := strings.NewReplacer(
 		rules.OwnerMark, task.OwnerName,
+		"{{IMPROVE}}", improveRule,
+		"{{IMPROVE_OUTPUT}}", improveOutput,
 		"{{MODE}}", k.Label,
 		"{{MODES}}", modes,
 		"{{PEOPLE}}", people,
@@ -763,6 +783,7 @@ func (k *Keeper) prompt(now time.Time, previous string, notes []Note, exchanges 
 		"{{NOTES}}", strings.TrimRight(n.String(), "\n"),
 		"{{EXCHANGES}}", exchangeTextIn(exchanges, k.Zone()),
 	).Replace(promptText)
+	text += improveKnown
 	if peer != "" {
 		name := k.peerLabel()
 		text += "\n### " + name + "から届いた「わたし自身」\n\n下の文章と手元の「わたし自身」の節を読んで、1つにまとめてください。見方が違うところには、" + name + "でのやり取りが反映されています。どちらかの見方を省くときは、やり取りに照らして理由を確かめてください。\n\n" + peer + "\n"

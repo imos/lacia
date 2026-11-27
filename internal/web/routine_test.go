@@ -409,3 +409,111 @@ func TestRoutineReceiptPageAndIndividualCompletion(t *testing.T) {
 		})
 	}
 }
+
+func TestRoutineFailureUsesExistingReview(t *testing.T) {
+	s, h := setupRoutine(t)
+	job := schedule.Job{
+		ID: "S1001", Name: "S1001", CheckResult: true, Output: "matters", ExplicitMatters: true,
+		CheckScopes: []string{"cluster:site-a/auth", "cluster:site-b/auth", "cluster:site-c/auth"},
+	}
+	base := time.Date(2026, 11, 27, 9, 0, 0, 0, task.JST)
+	var report routine.Result
+	log := &schedule.RunLog{
+		Root: s.Store.Root(), State: filepath.Join(t.TempDir(), "pending.json"),
+		Execution: func(string) (schedule.Execution, bool) {
+			return schedule.Execution{Job: job, Report: &report}, true
+		},
+		Review: func(id string, _ schedule.Run, result routine.Result) error {
+			_, _, err := s.Routines.Accept(id, result)
+			return err
+		},
+	}
+	const failure = "3拠点とも通信エラーでPod一覧を取得できませんでした。"
+	const reason = "通信が許可されませんでした"
+	settle := func(id string, slot, finished time.Time, failed bool) {
+		t.Helper()
+		job.Slot = slot
+		report = routine.Result{RunID: id, CheckStatus: "complete", Nothing: true}
+		for _, scope := range job.CheckScopes {
+			check := routine.Check{Scope: scope, Status: "verified"}
+			if failed {
+				check.Status, check.Reason = "unverified", reason
+			}
+			report.Checks = append(report.Checks, check)
+		}
+		if failed {
+			report.CheckStatus, report.Summary = "unavailable", failure
+		}
+		if err := log.Begin(job, id, slot); err != nil {
+			t.Fatal(err)
+		}
+		lookup := func(string) (schedule.Result, bool) { return schedule.Result{Settled: true, Finished: finished}, true }
+		if err := log.Settle(lookup, finished); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertPage := func(path string, present, absent []string) {
+		t.Helper()
+		status, body, _ := get(t, h, path)
+		if status != http.StatusOK {
+			t.Fatalf("%s: %d %s", path, status, body)
+		}
+		for _, want := range present {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s does not include %q", path, want)
+			}
+		}
+		for _, unwanted := range absent {
+			if strings.Contains(body, unwanted) {
+				t.Errorf("%s still includes %q", path, unwanted)
+			}
+		}
+	}
+	settle("failed-first", base, base.Add(time.Minute), true)
+	assertPage("/", []string{"要対応", "未確認の結果が1回分", failure, "cluster:site-c/auth：" + reason,
+		`href="/routines/S1001/receipts/1"`}, []string{"予約の不調"})
+	assertPage("/routines", []string{`href="/routines/S1001#problem"`, failure}, nil)
+	assertPage("/routines/S1001", []string{failure, "cluster:site-b/auth：" + reason}, nil)
+	assertPage("/routines/S1001/receipts/1", []string{failure, "cluster:site-a/auth：" + reason, "この回の実行履歴を開く"}, nil)
+
+	token := viewToken(t, h, "S1001")
+	if rec := post(h, "/routines/S1001/complete", "", url.Values{"view": {token}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("complete: %d %s", rec.Code, rec.Body.String())
+	}
+	assertPage("/", nil, []string{"未確認の結果が", failure})
+	assertPage("/routines/S1001", []string{failure, "cluster:site-b/auth：" + reason}, nil)
+	assertPage("/routines/S1001/receipts/1", []string{failure, "確認済みです。"}, nil)
+
+	settle("same-failure", base.Add(time.Hour), base.Add(time.Hour+time.Minute), true)
+	assertPage("/", nil, []string{"未確認の結果が", failure})
+	settle("success", base.Add(3*time.Hour), base.Add(3*time.Hour+time.Minute), false)
+	assertPage("/routines", nil, []string{failure, "#problem"})
+	settle("older-failed", base.Add(2*time.Hour), base.Add(3*time.Hour+2*time.Minute), true)
+	assertPage("/", nil, []string{"未確認の結果が", failure})
+	assertPage("/routines/S1001", []string{failure}, []string{`id="problem"`})
+	settle("failed-again", base.Add(4*time.Hour), base.Add(4*time.Hour+time.Minute), true)
+	assertPage("/", []string{"未確認の結果が1回分", failure, `href="/routines/S1001/receipts/2"`}, []string{"予約の不調"})
+}
+
+func TestExistingReceiptDisplaysItsStoredFailure(t *testing.T) {
+	s, h := setupRoutine(t)
+	acceptRoutine(t, s, "S1001", "previously-accepted")
+	path := filepath.Join(s.Store.Root(), "routines", "S1001", "runs", "2026-11")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "runs.jsonl"), []byte(`{"at":"2026-11-27T09:00:00+09:00","outcome":"partial","id":"previously-accepted","summary":"別の範囲を確認できませんでした。","checks":[{"scope":"cluster","status":"unverified","reason":"通信エラー"}]}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/", "/routines/S1001/receipts/1"} {
+		code, body, _ := get(t, h, path)
+		if code != 200 || !strings.Contains(body, "cluster：通信エラー") {
+			t.Errorf("the existing receipt lacks the error on %s: %d", path, code)
+		}
+	}
+	snap, err := s.Routines.Snapshot("S1001")
+	if err != nil || len(snap.Pending) != 1 || snap.Pending[0].Sequence != 1 || snap.Pending[0].ProblemKey != "" {
+		t.Fatalf("historical receipt changed: %+v, %v", snap, err)
+	}
+}

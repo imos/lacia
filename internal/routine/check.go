@@ -19,7 +19,7 @@ type Check struct {
 // an older partial result from being counted as a full success.
 func (r *Result) NormalizeChecks() error {
 	if r.Version != 0 && r.Version != 1 {
-		return errors.New("結果の形式の版を読めません")
+		return errors.New("結果の JSON の version には 1 を指定してください")
 	}
 	for _, scope := range r.Unverified {
 		if strings.TrimSpace(scope) == "" || len(scope) > 1024 {
@@ -27,11 +27,11 @@ func (r *Result) NormalizeChecks() error {
 		}
 	}
 	if len(r.Checks) > 500 {
-		return errors.New("確認範囲が多すぎます")
+		return errors.New("checks で指定する範囲は500件までにしてください")
 	}
 	if r.CheckStatus == "" {
 		if len(r.Checks) > 0 {
-			return errors.New("確認結果の種類が必要です")
+			return errors.New("checks を書いたときは、check_status に全体の確認結果を指定してください")
 		}
 		if len(r.Unverified) > 0 {
 			r.CheckStatus = "partial"
@@ -53,24 +53,24 @@ func (r *Result) NormalizeChecks() error {
 			unverified++
 			scopes = append(scopes, check.Scope)
 		default:
-			return errors.New("確認範囲の結果を読めません")
+			return errors.New("各範囲の status には、確認できたら verified、できなかったら unverified を指定してください")
 		}
 	}
 	switch r.CheckStatus {
 	case "complete":
 		if verified == 0 || unverified > 0 || len(r.Unverified) > 0 {
-			return errors.New("未確認の範囲が残っています")
+			return errors.New("complete は、1件以上の範囲を確認し、すべてを verified と報告できたときに指定してください")
 		}
 	case "partial":
 		if len(r.Checks) > 0 && (verified == 0 || unverified == 0) || len(r.Checks) == 0 && len(r.Unverified) == 0 {
-			return errors.New("一部を確認した範囲が必要です")
+			return errors.New("partial の回は、確認できた範囲とできなかった範囲の両方を checks に書いてください")
 		}
 	case "unavailable":
 		if verified > 0 || len(r.Matters)+len(r.Handoffs) > 0 || len(r.Checks) == 0 && len(r.Unverified) == 0 {
-			return errors.New("確認できなかった範囲が必要です")
+			return errors.New("unavailable の回は、確認できなかった範囲を書いてください。確認できた範囲や用件、引き継ぎがあるときは、確認結果を見直してください")
 		}
 	default:
-		return errors.New("確認結果の種類を読めません")
+		return errors.New("check_status には complete、partial、unavailable のどれかを指定してください")
 	}
 	if len(r.Checks) > 0 {
 		r.Unverified = scopes

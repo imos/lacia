@@ -14,8 +14,8 @@
   {{if .Owner}}<span class="task-owner">担当 {{.Owner}}</span>{{end}}
   {{if .HandoverAction}}<p class="next">{{.HandoverAction}}</p>{{end}}
   {{if .RoutineTaskNext}}<p class="next">{{.RoutineTaskNext}} <a href="{{.URL}}#task">タスクを開く</a></p>{{end}}
-  {{if .Next}}<p class="next">{{.Next}}{{if .RoutineReceiptURL}} <a href="{{.RoutineReceiptURL}}">最新の未確認受付を開く</a>{{end}}</p>{{end}}
-  {{with .ParentTask}}<p class="next parent">親タスク: <a href="{{taskURL .ID}}">{{.ID}} {{.Title}}</a></p>{{end}}{{range .RoutineIssues}}{{if .}}<p class="next">{{.}}</p>{{end}}{{end}}
+  {{if .Next}}<p class="next">{{.Next}}{{if .RoutineReceiptURL}} <a href="{{.RoutineReceiptURL}}">未確認のうち最新の受付を開く</a>{{end}}</p>{{end}}
+  {{with .ParentTask}}<p class="next parent">親のタスク <a href="{{taskURL .ID}}">{{.ID}} {{.Title}}</a></p>{{end}}{{range .RoutineIssues}}{{if .}}<p class="next">{{.}}</p>{{end}}{{end}}
   </div>
 </li>{{end}}
 </ul>

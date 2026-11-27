@@ -134,9 +134,9 @@ func (c configSource) apply(fs *flag.FlagSet) (map[string]map[string]string, err
 		}
 		switch {
 		case fs.Lookup(s.name) == nil:
-			slog.Warn("config: unknown setting skipped", "file", path, "line", s.line, "name", s.name)
+			slog.Warn("config: unknown setting skipped", "detail", "この版では使えない設定項目を読み飛ばしました。項目名を確かめてください。", "file", path, "line", s.line, "name", s.name)
 		case c.allow != nil && !c.allow[s.name]:
-			slog.Warn("config: setting not allowed in this file skipped", "file", path, "line", s.line, "name", s.name)
+			slog.Warn("config: setting not allowed in this file skipped", "detail", "このファイルでは指定できない設定項目を読み飛ばしました。", "file", path, "line", s.line, "name", s.name)
 		case !given[s.name]:
 			if c.base != "" && pathSettings[s.name] && s.value != "" {
 				s.value = resolvePath(c.base, s.value)

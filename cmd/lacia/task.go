@@ -35,9 +35,9 @@ func runTask(args []string) error {
 	note := fs.String("note", "", "履歴に残す補足")
 	to := fs.String("to", task.FilesDir, "成果物の置き場所。files は Git の管理外に置き、artifacts は Git に保存します")
 	as := fs.String("as", "", "成果物に付ける名前（省くと元のファイル名を使います）")
-	every := fs.String("every", "", "recheck で、確認の間隔（1d、3h のように、日か時間で書きます）")
-	until := fs.String("until", "", "recheck で、確認を続ける期限の日付か日時")
-	next := fs.String("next", "", "recheck で、最初の確認の日時（省くと、いまから間隔1回分のあとです）")
+	every := fs.String("every", "", "繰り返し確かめる間隔です。1d や 3h のように、日か時間で指定します")
+	until := fs.String("until", "", "繰り返しの確認をいつまで続けるかを、日付か日時で指定します")
+	next := fs.String("next", "", "最初に確かめる日時です。省くと、いまから --every で指定した間隔のあとに確かめます")
 	// Flags may come before or after the positional arguments.
 	var positional []string
 	rest := args[1:]
@@ -302,8 +302,8 @@ func runTask(args []string) error {
 			fmt.Printf("%s には、同じ確認がすでに登録されています。\n", t.ID)
 			return nil
 		}
-		fmt.Printf("%s を外部待ちにして、%sと登録しました。最初の確認は %s です。\n", t.ID, t.RecheckLabel(), t.ResumeOn)
-		fmt.Println("「次にすること」に、何を確かめるのかと、何が起きたらお知らせするのかを書いておいてください。確認する会話は、それだけを読んで動きます。")
+		fmt.Printf("%s を外部待ちにしました。確認の予定は「%s」です。最初の確認は %s です。\n", t.ID, t.RecheckLabel(), t.ResumeOn)
+		fmt.Println("「次にすること」に、何を確かめるのかと、何が起きたらお知らせするのかを書いてください。確認を担当する会話は、その記述をもとに確かめます。")
 	case "rechecked":
 		// Records what one look at a waiting task found.
 		if err := need(3, "ID、結果（same、changed、unknown のどれか）、何を確かめてどうだったのか"); err != nil {
@@ -328,9 +328,9 @@ func runTask(args []string) error {
 		case task.RecheckChanged:
 			fmt.Printf("%s の結果を「変化あり」と記録して、確認待ちにしました。繰り返しの確認は止まりました。\n", t.ID)
 		case task.RecheckUnknown:
-			fmt.Printf("%s の結果を「確かめられなかった」と記録しました。外部待ちを続けます。%s。\n", t.ID, t.RecheckState())
+			fmt.Printf("%s の結果を「確かめられなかった」と記録しました。外部待ちを続けます。\n%s\n", t.ID, t.RecheckState())
 		default:
-			fmt.Printf("%s の結果を「変化なし」と記録しました。外部待ちを続けます。%s。\n", t.ID, t.RecheckState())
+			fmt.Printf("%s の結果を「変化なし」と記録しました。外部待ちを続けます。\n%s\n", t.ID, t.RecheckState())
 		}
 	case "attach":
 		if err := need(2, "IDと、置くファイルかディレクトリー"); err != nil {
@@ -619,7 +619,7 @@ func outputTaskList(tasks []task.Task, statuses, area string, all, asJSON bool) 
 
 func printTaskDetail(detail task.Detail) {
 	if detail.Routine {
-		fmt.Printf("定期タスク「%s」のタスクです。題名と定義は routine.md にあります。\n\n", detail.Title)
+		fmt.Printf("定期タスク「%s」の記録です。題名と定義は routine.md にあります。\n\n", detail.Title)
 	}
 	fmt.Print(detail.Markdown)
 	fmt.Printf("\n場所: %s\n", detail.Dir)

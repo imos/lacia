@@ -132,7 +132,7 @@ func TestRoutineTaskUsesTheTaskCommands(t *testing.T) {
 		t.Fatalf("write = %q, %v", out, err)
 	}
 	out, _, err = captureMirrorTask(t, "show", "--root", root, "S1011")
-	if err != nil || !strings.Contains(out, "定期タスク「クラスタ操作コマンドの認証を確かめる」のタスクです。") || !strings.Contains(out, "status: waiting") {
+	if err != nil || !strings.Contains(out, "定期タスク「クラスタ操作コマンドの認証を確かめる」の記録です。") || !strings.Contains(out, "status: waiting") {
 		t.Fatalf("show = %q, %v", out, err)
 	}
 	out, _, err = captureMirrorTask(t, "set", "--root", root, "S1011", "review")

@@ -103,7 +103,7 @@ func runAgent(args []string) error {
 	statePath := filepath.Join(*stateDir, "agent-state.json")
 	state, err := notify.LoadState(statePath)
 	if err != nil {
-		slog.Error("state", "error", err)
+		slog.Error("state", "detail", "通知の状態を読み取れませんでした。", "error", err)
 		return err
 	}
 	mirror := mirrorPoll{dir: cfg.TasksRepo, site: cfg.Site, statePath: statePath, state: state}
@@ -118,7 +118,7 @@ func runAgent(args []string) error {
 		}}
 		mirror.display(&manifest, now, config.Enabled)
 		if err := notify.WriteManifest(manifestPath, manifest); err != nil {
-			slog.Error("write manifest", "error", err)
+			slog.Error("write manifest", "detail", "通知アプリに渡す通知の一覧を保存できませんでした。", "error", err)
 		}
 	}
 	var forwardReady atomic.Bool
@@ -198,14 +198,14 @@ func runAgent(args []string) error {
 			State: filepath.Join(*stateDir, "schedule-worker.json"), Client: client, Available: alive, RunConversation: conversations.run, SelectProfile: conversations.selection,
 		}
 		if err := worker.Validate(); err != nil {
-			slog.Error("scheduled work misconfigured", "error", err)
+			slog.Error("scheduled work misconfigured", "detail", "この端末で予約を実行できません。通知アプリの予約の設定を確かめてください。", "error", err)
 		} else {
 			watcher.HandoverSecret = worker.Credential
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
 				if err := worker.Run(ctx); err != nil && ctx.Err() == nil {
-					slog.Error("scheduled work stopped", "error", err)
+					slog.Error("scheduled work stopped", "detail", "この端末で予約を受け取る処理が止まりました。", "error", err)
 				}
 			}()
 			defer func() { stop(); <-done }()
@@ -217,7 +217,7 @@ func runAgent(args []string) error {
 	seen := map[string]bool{}
 	for {
 		if *parentPID > 1 && os.Getppid() != *parentPID {
-			slog.Info("parent is gone; stopping")
+			slog.Info("parent is gone; stopping", "detail", "起動元のアプリが終了したため、通知を用意する処理を止めます。")
 			return nil
 		}
 		if direct == "" && !alive() {
@@ -226,7 +226,7 @@ func runAgent(args []string) error {
 				if ctx.Err() != nil {
 					return nil
 				}
-				slog.Error("port-forward", "error", err)
+				slog.Error("port-forward", "detail", "サーバーへのポート転送を開始できませんでした。", "error", err)
 				writeOffline()
 				// Keep the enrollment alive so the authentication probe can
 				// record what happened even before the API is reachable.
@@ -245,7 +245,7 @@ func runAgent(args []string) error {
 			config, err = notify.ParseConfig(raw)
 		}
 		if err != nil {
-			slog.Error("config", "error", err)
+			slog.Error("config", "detail", "通知アプリの設定を読み取れませんでした。", "error", err)
 		}
 		if repoConfig, err := task.LoadConfig(cfg.TasksRepo); err == nil {
 			config.Location = repoConfig.Location()
@@ -321,11 +321,11 @@ func runAgent(args []string) error {
 		mirror.display(&manifest, in.Now, config.Enabled)
 		stateErr := notify.SaveState(statePath, state)
 		if stateErr != nil {
-			slog.Error("save state", "error", stateErr)
+			slog.Error("save state", "detail", "通知の状態を保存できませんでした。", "error", stateErr)
 		}
 		manifestErr := notify.WriteManifest(manifestPath, manifest)
 		if manifestErr != nil {
-			slog.Error("write manifest", "error", manifestErr)
+			slog.Error("write manifest", "detail", "通知アプリに渡す通知の一覧を保存できませんでした。", "error", manifestErr)
 		}
 		if stateErr == nil && manifestErr == nil {
 			ackRoutineNotices(ctx, client, base(), in.RoutineNotices, manifest)

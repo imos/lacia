@@ -1,7 +1,7 @@
 {{define "content"}}
 <section class="wide">
 <h1>定期タスク</h1>
-{{if not .Data.ActionsEnabled}}<p class="hint">新しい受付はホームの「要対応」にも出ます。受付を確認したあとも、定期タスクは予定どおり続きます。</p>{{end}}
+{{if not .Data.ActionsEnabled}}<p class="hint">新しい受付はホームの「要対応」にも出ます。受付を確認しても、定期タスクの実行予定は変わりません。</p>{{end}}
 <table class="tasks"><thead><tr><th>名前</th><th>区分</th><th>実行の予定</th>{{if .Data.ActionsEnabled}}{{if .Tasks}}<th>タスク</th>{{end}}{{else}}<th>未確認</th>{{end}}<th>稼働</th></tr></thead><tbody>
 {{range .Data.Rows}}<tr><td><a href="/routines/{{.Name}}">{{.Name}} {{.Title}}</a></td><td>{{areaLabel .Area}}</td><td>{{if .Next.IsZero}}次回はありません{{else}}{{clock .Next}}{{end}}</td>{{if $.Data.ActionsEnabled}}{{if $.Tasks}}<td>{{if .TaskStatus}}<a href="{{routineURL .Name}}#task">{{.TaskStatus}}</a>{{end}}</td>{{end}}{{else}}<td>{{if .Snapshot.Pending}}<a href="{{routineURL .Name}}#receipts">{{len .Snapshot.Pending}}回分</a>{{else}}0回分{{end}}</td>{{end}}<td>{{if .Err}}{{.Err}}{{else if and $.Data.ActionsEnabled .Enabled .Missed}}<a href="{{routineURL .Name}}#records">{{.Missed}}回実行されていません</a>{{else if and .Enabled .Problem.HasProblem}}<a href="{{routineURL .Name}}#problem">{{.Problem.ProblemLabel}}</a>{{if .Problem.Summary}} {{brief .Problem.Summary}}{{else}}{{with .Problem.ProblemReasons}} {{index . 0}}{{end}}{{end}}{{else if .Enabled}}稼働中です{{else}}止めてあります{{end}}</td></tr>{{else}}<tr><td colspan="{{if and $.Data.ActionsEnabled (not $.Tasks)}}4{{else}}5{{end}}">定期タスクはありません。</td></tr>{{end}}
 </tbody></table>

@@ -208,7 +208,7 @@ func (s *Store) MergeRoutineActions(id string, observation RoutineObservation) (
 		if len(observation.Actions) == 0 {
 			return Task{}, nil
 		}
-		const body = "## ひとことで\n\n定期タスクで生じた対応を追います。\n\n## 次にすること\n\n次の実行で結果を確かめます。\n"
+		const body = "## ひとことで\n\n定期タスクの実行で見つかった用件を、ここにまとめます。\n\n## 次にすること\n\n次の実行で結果を確かめます。\n"
 		if _, err := s.createRoutineTask(id, body, routineActionActor); err != nil {
 			if _, getErr := s.Get(id); getErr != nil {
 				return Task{}, err

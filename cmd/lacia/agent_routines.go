@@ -35,7 +35,7 @@ func ackRoutineNotices(ctx context.Context, client *http.Client, base string, re
 			}
 		}
 		if err != nil {
-			slog.Warn("routine notice acknowledgement", "id", result.ID(), "error", err)
+			slog.Warn("routine notice acknowledgement", "detail", "定期タスクの通知を通知アプリに渡したことを、サーバーに知らせられませんでした。", "id", result.ID(), "error", err)
 		}
 	}
 }

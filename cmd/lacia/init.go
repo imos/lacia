@@ -73,7 +73,7 @@ func runInit(args []string) error {
 		}
 	}
 	if name == "" {
-		return errors.New("名前が空です")
+		return errors.New("わたしに呼んでほしい名前を入力してください")
 	}
 	if strings.ContainsAny(name, "\n\r\t{}") || len([]rune(name)) > 40 {
 		return errors.New("呼び名は40字以内で、改行、タブ、波かっこを含めずに書いてください")

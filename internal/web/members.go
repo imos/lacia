@@ -36,7 +36,7 @@ func (s *Server) apiMemberPause(w http.ResponseWriter, r *http.Request) {
 		Minutes int    `json:"minutes"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	if action := r.PathValue("action"); action != "pause" && action != "resume" {

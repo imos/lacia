@@ -72,7 +72,7 @@ func TestStylesheetURLMatchesServedContent(t *testing.T) {
 func TestPages(t *testing.T) {
 	_, h := setup(t)
 	code, body, _ := get(t, h, "/")
-	for _, want := range []string{`<span>レイシア<small>(Lacia)</small></span></a>`, "要対応", "T1002", "佐藤さんが結果を確認します。", `<p class="next parent">親タスク: <a href="/tasks/T1001">T1001 親のタスク</a></p>`} {
+	for _, want := range []string{`<span>レイシア<small>(Lacia)</small></span></a>`, "要対応", "T1002", "佐藤さんが結果を確認します。", `<p class="next parent">親のタスク <a href="/tasks/T1001">T1001 親のタスク</a></p>`} {
 		if code != 200 || !strings.Contains(body, want) {
 			t.Errorf("home (%d) lacks %q", code, want)
 		}
@@ -128,7 +128,7 @@ func TestHomeParentContextKeepsRowOrder(t *testing.T) {
 			rec := httptest.NewRecorder()
 			s.render(rec, http.StatusOK, "home", "レイシア", homeData{Sections: []Section{sec}})
 			body := rec.Body.String()
-			caption := `<p class="next parent">親タスク: <a href="/tasks/T1001">T1001 親のタスク</a></p>`
+			caption := `<p class="next parent">親のタスク <a href="/tasks/T1001">T1001 親のタスク</a></p>`
 			if strings.Count(body, caption) != 2 || strings.Contains(body, "<h4>") {
 				t.Errorf("parent should appear only as context on both children: %s", body)
 			}
@@ -393,7 +393,7 @@ func TestProjects(t *testing.T) {
 	store.SetStatus(ids[1], task.Review, "", "")
 	dir := filepath.Join(root, "areas", "work", "projects", "alpha")
 	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "project.md"), []byte("---\ntitle: 金融特化LLM\nstatus: active\n---\n\n## 方針\n\n小さく試してから広げます。\n\n## 取りかかる順\n\n1. "+ids[0]+" — 最初に決めるため\n2. "+ids[1]+"\n3. "+ids[2]+"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "project.md"), []byte("---\ntitle: 金融特化LLM\nstatus: active\n---\n\n## 方針\n\n小さく試してから広げます。\n\n## 取りかかる順\n\n1. "+ids[0]+" — データを作る前に定義を決めます。\n2. "+ids[1]+"\n3. "+ids[2]+"\n"), 0o644)
 	store.SetField(ids[2], "after", ids[1], "")
 	h, err := (&Server{Store: store}).Handler()
 	if err != nil {
@@ -419,7 +419,7 @@ func TestProjects(t *testing.T) {
 		t.Errorf("review list:\n%s", review)
 	}
 	page := get("/projects/work/alpha")
-	if !strings.Contains(page, "小さく試してから広げます。") || !strings.Contains(page, "最初に決めるため") || !strings.Contains(page, "終了後要対応") || !strings.Contains(page, "次の1件") {
+	if !strings.Contains(page, "小さく試してから広げます。") || !strings.Contains(page, "データを作る前に定義を決めます。") || !strings.Contains(page, "終了後要対応") || !strings.Contains(page, "次の1件") {
 		t.Errorf("project page:\n%s", page)
 	}
 	if body := get("/tasks/" + ids[2]); !strings.Contains(body, "3件のうち 3番目") || !strings.Contains(body, "終了後要対応") {
@@ -432,7 +432,7 @@ func TestProjects(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	text, _ := os.ReadFile(filepath.Join(dir, "project.md"))
-	if rec.Code != 303 || !strings.Contains(string(text), "1. "+ids[1]+"\n2. "+ids[0]+" — 最初に決めるため\n") {
+	if rec.Code != 303 || !strings.Contains(string(text), "1. "+ids[1]+"\n2. "+ids[0]+" — データを作る前に定義を決めます。\n") {
 		t.Errorf("move: %d\n%s", rec.Code, text)
 	}
 	if log, _ := readTestHistory(t, filepath.Join(dir)); !strings.Contains(string(log), "1つ前に移しました") {
@@ -547,7 +547,7 @@ func TestTaskStartsByItselfWhenReady(t *testing.T) {
 	wake()
 	got, _ := store.Get(auto.ID)
 	recent := queue.Recent(5, auto.ID, false)
-	if got.Status != task.Doing || got.OnReady != "" || got.ReviewAt != "" || len(recent) != 1 || !strings.Contains(recent[0].Text, "指定した着手の条件がそろったので、サーバーがこの依頼を出しました。") {
+	if got.Status != task.Doing || got.OnReady != "" || got.ReviewAt != "" || len(recent) != 1 || !strings.Contains(recent[0].Text, "タスクの着手条件がそろったので、サーバーがこの依頼を送りました。") {
 		t.Errorf("after waking: %+v, requests %v", got, recent)
 	}
 	wake()

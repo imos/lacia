@@ -64,7 +64,7 @@ func (s *Server) waitDestination(next string, who caller.Caller) (string, error)
 	if next == "" || next == "owner" {
 		if !who.Known() {
 			if next == "owner" {
-				return "", fmt.Errorf("登録した会話が分かりません。--next を指定してください")
+				return "", fmt.Errorf("この待ちを登録する会話を特定できません。続きを頼む宛先を --next で指定してください")
 			}
 			return wait.NextNone, nil
 		}
@@ -94,7 +94,7 @@ func (s *Server) apiWaitDestination(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiAddWait(w http.ResponseWriter, r *http.Request) {
 	var in waitIn
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	t, err := s.Store.Get(in.Task)
@@ -173,7 +173,7 @@ func (s *Server) apiUpdateWait(w http.ResponseWriter, r *http.Request) {
 		Ack, Cancel             bool
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, 400, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	id := r.PathValue("id")
@@ -186,7 +186,7 @@ func (s *Server) apiUpdateWait(w http.ResponseWriter, r *http.Request) {
 		switch in.Seen {
 		case wait.Pending, wait.Running, wait.Succeeded, wait.Failed, wait.Gone, wait.Unseen:
 		default:
-			writeJSON(w, 400, map[string]string{"error": "観測した状態を読めません"})
+			writeJSON(w, 400, map[string]string{"error": "確認した状態を seen に指定してください。使える値は pending、running、succeeded、failed、gone、unseen です"})
 			return
 		}
 		item, _, err = s.Waits.Observe(id, in.Seen, summary(in.Detail, 400))

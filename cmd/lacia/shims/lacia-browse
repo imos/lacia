@@ -105,7 +105,7 @@ opened() {
 case "${1:-}" in
   read)
     # One page, as text: open, wait for the scripts to settle, print, close.
-    url="${2:?URL を指定してください: lacia-browse read <URL>}"
+    url="${2:?読みたいページの URL を lacia-browse read <URL> の形で指定してください。}"
     SESSION="read-$$"
     trap 'run close >/dev/null 2>&1 || true' EXIT
     opened "$url" || exit 1

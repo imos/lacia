@@ -48,7 +48,7 @@ func planRoutines(results []RoutineNotice, state *State, now time.Time, siteURL 
 		}
 		if result.Action {
 			target += "#task"
-			title = "定期タスクにお願いがあります"
+			title = "定期タスクでお願いしたいことがあります"
 			if result.Summary != "" {
 				body += "\n" + result.Summary
 			}

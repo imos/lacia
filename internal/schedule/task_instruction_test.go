@@ -27,7 +27,7 @@ func TestTaskInstructionOnlyWhenTheRoutineHasATask(t *testing.T) {
 		}
 	}
 	collected := job.TaskInstruction(root, true)
-	if !strings.Contains(collected, "サーバーが本文の「実行から分かった対応」へ集めます") || strings.Contains(collected, "自動で変わりません") {
+	if !strings.Contains(collected, "サーバーが本文の「実行から分かった対応」へ集めます") || strings.Contains(collected, "タスクの本文は自動では変わりません") {
 		t.Errorf("collected: %q", collected)
 	}
 	if legacy := (Job{Name: "github", Path: "schedules/github.md"}).TaskInstruction(root, false); legacy != "" {

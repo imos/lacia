@@ -9,7 +9,7 @@ function setUpCopy(button, readText) {
       await navigator.clipboard.writeText(readText());
       button.textContent = "コピーしました";
     } catch {
-      button.textContent = "コピーできませんでした";
+      button.textContent = "文字を選んでコピーしてください";
       delay = 2500;
     }
     clearTimeout(reset);

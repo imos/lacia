@@ -60,14 +60,14 @@ func (s *Server) readRoutineToken(token, id string) (routineView, error) {
 	var view routineView
 	a, b, ok := strings.Cut(token, ".")
 	if !ok {
-		return view, fmt.Errorf("画面を開き直してから、もう一度完了にしてください。")
+		return view, fmt.Errorf("この画面からは確認済みにできません。ページを開き直して、もう1度確認してください。")
 	}
 	raw, e := base64.RawURLEncoding.DecodeString(a)
 	sig, e2 := base64.RawURLEncoding.DecodeString(b)
 	mac := hmac.New(sha256.New, s.routineKey)
 	mac.Write(raw)
 	if e != nil || e2 != nil || !hmac.Equal(sig, mac.Sum(nil)) || json.Unmarshal(raw, &view) != nil || view.ID != id || view.OperationID == "" {
-		return routineView{}, fmt.Errorf("画面を開き直してから、もう一度完了にしてください。")
+		return routineView{}, fmt.Errorf("この画面からは確認済みにできません。ページを開き直して、もう1度確認してください。")
 	}
 	return view, nil
 }
@@ -311,7 +311,7 @@ func (s *Server) addRoutineTaskReviews(sec *Section) {
 		}
 		next = summary(next, 110)
 		if next == "" {
-			next = "タスクが確認待ちです。"
+			next = "タスクの本文で、お願いしたいことを確かめてください。"
 		}
 		addReviewRow(sec, Row{Task: t, Routine: true, URL: schedule.RoutineURL(t.ID), RoutineTaskNext: next})
 	}
@@ -359,7 +359,7 @@ func (s *Server) addRoutineReview(sec *Section, troubles []schedule.Trouble) err
 		if asks {
 			row.RoutineTaskNext = summary(routineTask.Next(), 110)
 			if row.RoutineTaskNext == "" {
-				row.RoutineTaskNext = "タスクが確認待ちです。"
+				row.RoutineTaskNext = "タスクの本文で、お願いしたいことを確かめてください。"
 			}
 		}
 		if len(snap.Pending) > 0 {
@@ -415,7 +415,7 @@ func (s *Server) routine(w http.ResponseWriter, r *http.Request) {
 	if !page.ActionsEnabled {
 		page.Token, err = s.routineToken(job.Name, snap.LatestSequence, 0)
 		if err != nil {
-			s.fail(w, 500, "完了操作を準備できませんでした。")
+			s.fail(w, 500, "受付を確認済みにするための画面を用意できませんでした。")
 			return
 		}
 	}
@@ -523,7 +523,7 @@ func (s *Server) setRoutineStatus(w http.ResponseWriter, r *http.Request) {
 	t, changed, err := s.Store.SetStatus(id, task.Status(r.FormValue("status")), "Web", r.FormValue("note"))
 	switch {
 	case errors.Is(err, task.ErrNotFound):
-		s.fail(w, http.StatusNotFound, "この定期タスクには、まだタスクがありません。")
+		s.fail(w, http.StatusNotFound, "この定期タスクには、状態を変えるための task.md がまだありません。")
 		return
 	case err != nil:
 		s.fail(w, http.StatusBadRequest, err.Error())
@@ -617,7 +617,7 @@ func (s *Server) routineReceipt(w http.ResponseWriter, r *http.Request) {
 	if !page.ActionsEnabled && !page.Receipt.Reviewed {
 		page.Token, err = s.routineToken(job.Name, 0, sequence)
 		if err != nil {
-			s.fail(w, 500, "完了操作を準備できませんでした。")
+			s.fail(w, 500, "受付を確認済みにするための画面を用意できませんでした。")
 			return
 		}
 	}
@@ -664,15 +664,12 @@ func (s *Server) completeRoutine(w http.ResponseWriter, r *http.Request) {
 			}
 			target, fragment = routine.ReceiptURL(job.Name, sequence), ""
 		}
-		flash := "受付には実行の結果が残ります。必要な対応は、定期タスクのタスクでご覧ください。"
-		if !s.Store.KeepsTasks() {
-			flash = "受付で実行の結果をご覧いただけます。"
-		}
+		flash := "この定期タスクでは、受付を確認済みにする操作は要りません。実行結果は受付で読めます。"
 		http.Redirect(w, r, target+"?flash="+url.QueryEscape(flash)+fragment, http.StatusSeeOther)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.fail(w, 400, "完了操作を読めませんでした。")
+		s.fail(w, 400, "確認する受付を読み取れませんでした。ページを開き直してください。")
 		return
 	}
 	view, err := s.readRoutineToken(r.FormValue("view"), id)
@@ -684,12 +681,12 @@ func (s *Server) completeRoutine(w http.ResponseWriter, r *http.Request) {
 	if r.PathValue("sequence") != "" {
 		sequence, valid := receiptSequence(r)
 		if !valid || view.Sequence != sequence {
-			s.fail(w, 409, "受付の画面を開き直してから、もう一度確認してください。")
+			s.fail(w, 409, "受付の画面を開き直して、「この受付を確認済みにする」を押してください。")
 			return
 		}
 		completion.Sequences = []uint64{sequence}
 	} else if view.Sequence != 0 {
-		s.fail(w, 409, "定期タスクの画面を開き直してから、もう一度完了にしてください。")
+		s.fail(w, 409, "定期タスクの画面を開き直して、「未確認分をまとめて確認する」を押してください。")
 		return
 	}
 	snap, err := s.Routines.Complete(id, completion)
@@ -704,7 +701,7 @@ func (s *Server) completeRoutine(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, routine.ReceiptURL(id, view.Sequence)+"?flash="+url.QueryEscape("この受付を確認済みにしました。"), 303)
 		return
 	}
-	flash := "表示した今回分を完了にしました。次の実行は続きます。"
+	flash := "画面を開いた時点で未確認だった受付を、まとめて確認済みにしました。定期タスクの実行予定は変わりません。"
 	if len(snap.Pending) > 0 {
 		flash += "未確認の結果が" + strconv.Itoa(len(snap.Pending)) + "回分残っています。"
 	}

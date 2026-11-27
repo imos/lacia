@@ -34,6 +34,7 @@ func TestSelf(t *testing.T) {
 	homeServer := httptest.NewServer(home)
 	defer homeServer.Close()
 	workStore, workKeeper := open("仕事モード", false)
+	workKeeper.At = "02:30"
 	link := &Peer{URL: homeServer.URL}
 	work, err := (&Server{Store: workStore, Site: "https://lacia.example.test", Peer: link, Self: workKeeper}).Handler()
 	if err != nil {
@@ -74,7 +75,7 @@ func TestSelf(t *testing.T) {
 		t.Fatalf("notes = %+v", notes)
 	}
 	page := call(work, "GET", "/self", "", pod, "lacia.example.test", "")
-	for _, want := range []string{"もう少し率直でよいです。", "表より先に、おすすめを求められました。", "自分についての記録はまだありません。", `<a href="/self">レイシアのこと</a>`} {
+	for _, want := range []string{"もう少し率直でよいです。", "表より先に、おすすめを求められました。", "自分についての記録はまだありません。", "この記録を自動で書き直す設定になっていません。", `<a href="/self">レイシアのこと</a>`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("the page lacks %q", want)
 		}
@@ -148,7 +149,7 @@ func TestSelfImprovementsAPI(t *testing.T) {
 	root := t.TempDir()
 	told := 0
 	keeper := &self.Keeper{Path: filepath.Join(root, "repo", "memory", "self.md"), Dir: filepath.Join(root, "state"), Label: "仕事モード",
-		ImproveTell: func(string, string) error { told++; return nil }}
+		At: "02:30", ImproveTell: func(string, string) error { told++; return nil }}
 	keeper.Think = func(context.Context, string) (string, error) {
 		return "<わたしのこと>\n# わたしのこと\n\n## わたし自身\n\n- 項目です。\n\n## 仕事モードで\n\n- 仕事の項目です。\n</わたしのこと>\n<今夜変えたこと>\n最初の版です。\n</今夜変えたこと>\n" +
 			"<仕組みで直せそうなこと>\n- 題名: 書き留めのきっかけを作る\n  理由: 何晩も続いています。\n</仕組みで直せそうなこと>\n", nil
@@ -183,7 +184,7 @@ func TestSelfImprovementsAPI(t *testing.T) {
 	if rec := call("POST", "/api/self/improvements/K1", `{"outcome":"skipped","note":"願いごとでした。"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"outcome":"skipped"`) {
 		t.Errorf("skip = %d %s", rec.Code, rec.Body)
 	}
-	if rec := call("GET", "/self", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "書き留めのきっかけを作る") || !strings.Contains(rec.Body.String(), `class="item-date"`) {
+	if rec := call("GET", "/self", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "書き留めのきっかけを作る") || !strings.Contains(rec.Body.String(), `class="item-date"`) || !strings.Contains(rec.Body.String(), "毎日 02:30 に書き留めを読み返し") {
 		t.Errorf("page = %d", rec.Code)
 	}
 }

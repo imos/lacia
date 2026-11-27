@@ -65,12 +65,12 @@ func Troubles(root string, jobs []Job, devices map[string]DeviceStatus) []Troubl
 			if item.CauseKey != "" && item.Device != "" {
 				key = "check:" + item.Device + ":" + scope + ":" + item.Reason + ":" + item.CauseKey
 			}
-			text := fmt.Sprintf("%s を%d回続けて確認できません。最初の未確認は%sです。", scope, item.Count, item.Since.Format("2006-01-02 15:04 MST"))
+			text := fmt.Sprintf("%s は、%s から%d回続けて確かめられませんでした。", scope, item.Since.Format("2006-01-02 15:04 MST"), item.Count)
 			if item.Reason != "" {
-				text += " 理由: " + item.Reason + "。"
+				text += " 報告された理由は「" + item.Reason + "」です。"
 			}
 			if !h.LastSuccess.IsZero() {
-				text += " 最後に全範囲を確認した時刻は" + h.LastSuccess.Format("2006-01-02 15:04 MST") + "です。"
+				text += " 最後にすべての範囲を確かめられたのは " + h.LastSuccess.Format("2006-01-02 15:04 MST") + " です。"
 			}
 			if existing := groups[key]; existing != nil {
 				existing.Title += "、" + title

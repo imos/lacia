@@ -20,9 +20,9 @@ func runDoctor(args []string) error {
 	root := fs.String("root", "", "記録のリポジトリー")
 	state := fs.String("state", "", "この記録を使うサーバーの状態ディレクトリー。指定すると会話の最終利用も点検します")
 	links := fs.Bool("links", false, "Markdown の相対リンクの先があるかも確かめます")
-	config := fs.String("config", "", "サーバーの設定ファイル。予定の祝日設定も点検します")
+	config := fs.String("config", "", "サーバーの設定ファイルです。指定すると、祝日の表示設定も点検します")
 	profile := fs.String("profile", "", "サーバーの設定にあるプロファイル")
-	holidays := fs.String("calendar-holidays", "jp", "日本の祝日を表示する jp、または表示しない off")
+	holidays := fs.String("calendar-holidays", "jp", "日本の祝日を表示するときは jp、表示しないときは off を指定します")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

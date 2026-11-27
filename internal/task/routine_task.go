@@ -146,7 +146,7 @@ func (s *Store) createRoutineTask(id, content, actor string) (Task, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
-			return Task{}, fmt.Errorf("%s の task.md が、ほかの書き込みで先に作られました。lacia task show %s で読み直してから、もう一度保存してください", id, id)
+			return Task{}, fmt.Errorf("%s の task.md が、ほかの書き込みで先に作られました。lacia task show %s で読み直してから、もう1度保存してください", id, id)
 		}
 		return Task{}, err
 	}

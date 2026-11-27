@@ -148,7 +148,7 @@ func TestRoutineActionReceiptsKeepLegacyLinksAndHistory(t *testing.T) {
 		if rec.Code != http.StatusSeeOther || !strings.HasPrefix(loc, want) {
 			t.Fatalf("old form POST: %d %s", rec.Code, loc)
 		}
-		if code, body, _ := get(t, h, loc); code != 200 || !strings.Contains(body, "必要な対応は、定期タスクのタスクでご覧ください") {
+		if code, body, _ := get(t, h, loc); code != 200 || !strings.Contains(body, "受付を確認済みにする操作は要りません") {
 			t.Fatalf("old form destination: %d %s", code, body)
 		}
 	}
@@ -288,14 +288,20 @@ func TestRoutineMattersCollectedInAnotherRoutineShowThere(t *testing.T) {
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &notices) != nil || len(notices) != 1 || notices[0].RoutineID != "S1012" || !notices[0].Action {
 		t.Fatalf("notices: %d %s", code, body)
 	}
-	const link = `<a href="/routines/S1012#task">S1012 の定期タスクのタスク</a>`
+	if _, err := s.Store.WriteDoc("S1011", "task.md", routineTaskBody, "test"); err != nil {
+		t.Fatal(err)
+	}
+	const link = `<a href="/routines/S1012#task">S1012 の「タスク」欄</a>`
 	for _, page := range []string{"/routines/S1011/receipts/1", "/routines/S1011"} {
 		if _, text, _ := get(t, h, page); !strings.Contains(text, link) {
 			t.Errorf("%s does not link to the collecting task: %s", page, text)
 		}
 	}
+	if _, text, _ := get(t, h, "/routines/S1011/receipts/1"); strings.Contains(text, `href="/routines/S1011#task"`) {
+		t.Error("the receipt also directs the reader to the source routine's task")
+	}
 	_, target, _ := get(t, h, "/routines/S1012")
-	if strings.Contains(target, "に集めています") || !strings.Contains(target, `href="/routines/S1011/receipts/1"`) {
+	if strings.Contains(target, "に集めています") || !strings.Contains(target, `id="task"`) || !strings.Contains(target, `href="/routines/S1011/receipts/1"`) {
 		t.Fatalf("the collecting routine: %s", target)
 	}
 	s.RoutineActions = false

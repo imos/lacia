@@ -90,7 +90,7 @@ func agendaPeriod(now time.Time, period, from, until string) (time.Time, time.Ti
 	var zero time.Time
 	if from != "" || until != "" {
 		if period != "" || from == "" {
-			return zero, zero, errors.New("期間は今日・明日・7日間、または開始日と終了日で指定してください")
+			return zero, zero, errors.New("日付で期間を指定するときは、開始日を指定し、期間の種類（period）は省いてください")
 		}
 		begin, err := parseDate(from, now.Location())
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,19 @@ func TestRepositoryWithoutTasks(t *testing.T) {
 	}
 	if !strings.Contains(page, "依頼する") {
 		t.Error("the form for requests is gone")
+	}
+	const text = "午後の天気も教えてください。"
+	rec = post(h, "/requests", "", url.Values{"text": {text}})
+	location := rec.Header().Get("Location")
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(location, "/requests/") {
+		t.Fatalf("request form redirected to %q (%d)", location, rec.Code)
+	}
+	formRequest, ok := q.Get(strings.TrimPrefix(location, "/requests/"))
+	if !ok || formRequest.Text != text || formRequest.TaskID != "" {
+		t.Fatalf("request form receipt: %+v, found %v", formRequest, ok)
+	}
+	if code, receipt, _ := get(t, h, location); code != http.StatusOK || !strings.Contains(receipt, text) {
+		t.Errorf("request form receipt page: %d %s", code, receipt)
 	}
 }
 

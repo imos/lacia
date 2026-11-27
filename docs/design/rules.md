@@ -125,7 +125,7 @@ lacia claude [--login <名前>] [--memory] [引数]    Claude Code を、レイ�
 
 レイシアから起動する Codex と Claude Code は、セッションをまたぐ自動メモリーを既定で無効にします。Web や Discord の依頼、予約、申し送りから新しく起動する場合も同じです。レイシアの記録は引き続き `memory/` やタスクのファイルから読み、同じ会話の再開にも引き続き対応します。
 
-- `lacia codex --memory` または `lacia claude --memory` で、その起動のメモリーの読み込みと生成を有効にします。`--memory=true` でも同じです。無効を明示する場合は `--memory=false` を使います。`--login` と併用する場合は、両方を製品側の引数より前に置きます。`--` 以降の引数は、そのまま渡します。
+- `lacia codex --memory` か `lacia claude --memory` で起動すると、その会話でメモリーの読み込みと生成が有効になります。`--memory=true` でも同じです。無効を明示する場合は `--memory=false` を使います。`--login` と併用する場合は、両方を製品側の引数より前に置きます。`--` 以降の引数は、そのまま渡します。
 - Codex には `-c features.memories=false -c memories.generate_memories=false` を既定で渡します。有効にするときは `features.memories` と `memories.generate_memories` に加えて `memories.use_memories` も `true` にします。Codex 側の引数に同じ設定を直接書いた場合は、後ろに渡す製品側の設定が優先します。 [Codex の設定リファレンス](https://learn.chatgpt.com/docs/config-file/config-reference)（2026-11-25に確認しました）。
 - Claude Code では、`--memory` を明示した場合、その値から子プロセスの `CLAUDE_CODE_DISABLE_AUTO_MEMORY` を設定します。フラグを省いた場合は、この環境変数にすでに値があれば引き継ぎ、未設定なら `1` を渡します。 [Claude Code の環境変数](https://code.claude.com/docs/en/env-vars)（2026-11-25に確認しました）。
 - 残りの引数は、そのまま Codex や Claude Code へ渡します。`--yolo` は、どちらでも同じ意味（承認とサンドボックスを外す）になるように、Claude Code 向けには置き換えます。 [このマシンのログインの一覧](logins.md#このマシンのログインの一覧)

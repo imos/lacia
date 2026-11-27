@@ -84,12 +84,12 @@ func (s *Server) apiInbox(w http.ResponseWriter, r *http.Request) {
 	}
 	var in message
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	in.Text = strings.TrimSpace(in.Text)
 	if !handoffID.MatchString(in.ID) || in.Text == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言のID（英数字とハイフン）と、文章を指定してください"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言の本文とIDを指定してください。IDは、半角の英数字とハイフンを使って4〜64文字で書いてください"})
 		return
 	}
 	req := request.Request{ID: inboxPrefix + in.ID}
@@ -104,7 +104,7 @@ func (s *Server) apiInbox(w http.ResponseWriter, r *http.Request) {
 	case FromStatus:
 		req.Kind, req.Source, req.ReplyTo = request.System, s.peerLabel(), s.Inbox.Discord
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言の種類が正しくありません"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言の種類には user、notice、status のどれかを指定してください"})
 		return
 	}
 	if in.Kind != FromStatus {
@@ -171,7 +171,7 @@ func ReplyToPeer(ctx context.Context, client *http.Client, workURL string, queue
 func (s *Server) apiReply(w http.ResponseWriter, r *http.Request) {
 	var in messageState
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	if s.Peer == nil {
@@ -228,7 +228,7 @@ func call(ctx context.Context, client *http.Client, method, target string, in, o
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
 			return errors.New(e.Error)
 		}
-		return fmt.Errorf("相手のサーバーが %d を返しました", resp.StatusCode)
+		return fmt.Errorf("相手のサーバーが HTTP %d を返しました", resp.StatusCode)
 	}
 	if out != nil {
 		return json.Unmarshal(data, out)
@@ -362,7 +362,7 @@ func (s *Server) tellPeer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiTellPeer(w http.ResponseWriter, r *http.Request) {
 	var in message
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSONを読めませんでした"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
 	}
 	in.Kind, in.Text = FromLacia, strings.TrimSpace(in.Text)
@@ -370,7 +370,7 @@ func (s *Server) apiTellPeer(w http.ResponseWriter, r *http.Request) {
 		in.ID = newMessageID()
 	}
 	if !handoffID.MatchString(in.ID) || in.Text == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言のID（英数字とハイフン）と、文章を指定してください"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伝言の本文を書いてください。IDを指定する場合は、半角の英数字とハイフンを使って4〜64文字で書いてください"})
 		return
 	}
 	rec, err := s.tell(r.Context(), in)

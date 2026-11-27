@@ -66,7 +66,7 @@ func HolidaySetting(value string) (bool, error) {
 	case "off":
 		return true, nil
 	default:
-		return false, fmt.Errorf("calendar-holidays は jp または off を指定してください")
+		return false, fmt.Errorf("calendar-holidays には jp か off を指定してください")
 	}
 }
 

@@ -26,7 +26,7 @@ func runIdleRestart(args []string) error {
 	if err := askIdleRestart(); err != nil {
 		return err
 	}
-	fmt.Println("処理が終わったときの再起動を予約しました。")
+	fmt.Println("サーバーの再起動を予約しました。処理が終わると、監督プロセスが起動し直します。")
 	return nil
 }
 
@@ -59,7 +59,7 @@ func requestIdleRestart(path string) error {
 		return err
 	}
 	if !info.Mode().IsRegular() {
-		return errors.New("再起動の予約を普通のファイルに保存できません")
+		return errors.New("再起動の予約を保存する場所に、通常のファイル以外のものがあります。サーバーの状態ディレクトリーを確かめてください")
 	}
 	return nil
 }
@@ -151,10 +151,10 @@ func (r *idleRestart) run(ctx context.Context, stop func(), busy func() bool) {
 		case now := <-ticker.C:
 			ok, err := r.stopIfIdle(now, busy)
 			if err != nil {
-				slog.Error("consume idle restart", "error", err)
+				slog.Error("consume idle restart", "detail", "再起動の予約を消せなかったため、サーバーは稼働を続けます。", "error", err)
 			}
 			if ok {
-				slog.Info("stopping for planned restart")
+				slog.Info("stopping for planned restart", "detail", "予約した再起動のため、サーバーをいったん終了します。")
 				stop()
 				return
 			}

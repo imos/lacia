@@ -267,7 +267,7 @@ const tellUsage = `使い方:
 --to を省くと、Claude Code からは Codex に、Codex からは Claude Code に送ります。
 相手は lacia wait ack で受け取りを知らせます。サーバーがその会話を特定できれば、タスクの担当が替わります。
 20分たっても知らせがなければ、受け取りの遅れを記録します。
---owner-action には、遅れた場合にオーナーさんへお願いする具体的な操作を、必要なときだけ指定します。`
+受け取りが遅れたとき、ご本人にお願いしたい操作があれば、--owner-action にその操作を書いてください。`
 
 // runTell hands a request to the named conversation.
 // The task's record stays the only thing the two conversations share: the
@@ -279,7 +279,7 @@ func runTell(args []string) error {
 	fs := commandFlags("tell")
 	taskID := fs.String("task", "", "依頼の対象のタスクのID")
 	to := fs.String("to", "", "届ける宛先（例: local-claude）。省くと、Claude Code の会話からは Codex、Codex の会話からは Claude Code を選びます")
-	ownerAction := fs.String("owner-action", "", "受け取りが遅れたとき、オーナーさんにお願いする具体的な操作")
+	ownerAction := fs.String("owner-action", "", "受け取りが遅れたとき、ご本人にお願いしたい操作")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -321,9 +321,9 @@ func runJob(args []string) error {
 	}
 	fs := commandFlags("job run")
 	common := addWaitFlags(fs)
-	kubeContext := fs.String("context", "", "kubectl の context")
+	kubeContext := fs.String("context", "", "kubectl のコンテキスト")
 	var namespace, file string
-	fs.StringVar(&namespace, "n", "", "Job の名前空間（省くと YAML の指定、それもなければ context の既定値を使います）")
+	fs.StringVar(&namespace, "n", "", "Job の名前空間（省くと YAML の指定、それもなければコンテキストの既定値を使います）")
 	fs.StringVar(&namespace, "namespace", "", "名前空間")
 	fs.StringVar(&file, "f", "", "Job の YAML")
 	kubectl := fs.String("kubectl", "kubectl", "kubectl のコマンド")

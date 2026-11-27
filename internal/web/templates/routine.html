@@ -15,7 +15,7 @@
   {{range .Actions}}<button name="status" value="{{.Status}}" {{if .Primary}}class="primary"{{end}}>{{.Label}}</button>{{end}}
   <input name="note" placeholder="ひとこと（履歴に残ります）" size="30">
 </form>
-<p class="hint">いまだれが何をすべきかを書いた本文です。実行のたびの分析結果は、下の受付にあります。本文は <code>lacia task write {{.Task.ID}} task.md</code> で書き直します。</p>
+<p class="hint">次にだれが何をするかは、この本文に書いてあります。各回の結果は下の「受付」で読めます。本文を直すときは、書き直したファイルを <code>lacia task write {{.Task.ID}} task.md ファイル名</code> で保存してください。</p>
 <p class="path"><code>{{.Task.Dir}}</code> · 元のファイル <a href="{{routineURL .Task.ID}}/files/task.md?view=source">task.md</a>{{if .Notes}} <a href="{{routineURL .Task.ID}}/files/notes.md?view=source">notes.md</a>{{end}}</p>
 <article class="markdown">{{.Body}}</article>
 {{if .Artifacts}}<h3>成果物</h3>{{template "task-artifacts" .Artifacts}}{{end}}
@@ -26,7 +26,7 @@
 
 <section class="receipts">
 <h2 id="receipts">受付{{if not $.Data.ActionsEnabled}} <span class="count">未確認 {{len .Snapshot.Pending}}件</span>{{end}}</h2>
-{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">この定期タスクの実行で見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の定期タスクのタスク</a>に集めています。</p>{{end}}
+{{if and $.Data.ActionsEnabled $.Tasks .MattersTask (not .Err)}}<p class="hint">ここで見つかった用件は、<a href="{{routineURL .MattersTask}}#task">{{.MattersTask}} の「タスク」欄</a>に集めています。</p>{{end}}
 {{if and .Enabled .Problem.HasProblem}}<div id="problem"><h3>直近の実行</h3><p>{{.Problem.ProblemSummary}}</p>
 {{with .Problem.ProblemReasons}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}</div>{{end}}
 {{if $.Data.ActionsEnabled}}
@@ -35,7 +35,7 @@
 {{else}}<tr><td colspan="5">結果はまだありません。</td></tr>{{end}}
 </tbody></table>
 {{else}}
-{{if .Snapshot.Pending}}<form method="post" action="/routines/{{.Name}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">未確認分をまとめて確認する</button></form><p class="hint">この画面を開いたときの未確認分を確認済みにします。次の実行は続きます。{{if .RoutineTask}}タスクの状態は変わりません。{{end}}</p>{{end}}
+{{if .Snapshot.Pending}}<form method="post" action="/routines/{{.Name}}/complete"><input type="hidden" name="view" value="{{.Token}}"><button class="primary">未確認分をまとめて確認する</button></form><p class="hint">この画面を開いた時点で未確認だった受付を、まとめて確認済みにします。定期タスクの実行予定{{if .RoutineTask}}とタスクの状態{{end}}は変わりません。</p>{{end}}
 <table class="tasks"><thead><tr><th>受付</th><th>届いた時刻</th><th>概要</th><th>確認</th></tr></thead><tbody>
 {{range .Receipts}}<tr id="receipt-{{.Sequence}}"><td><a href="{{receiptURL $.Data.Name .Sequence}}">受付 {{.Sequence}}</a></td><td>{{clock .AcceptedAt}}</td><td>{{receiptBrief .Receipt}}</td><td>{{if .Reviewed}}確認済み{{else}}未確認{{end}}</td></tr>
 {{else}}<tr><td colspan="4">結果はまだありません。</td></tr>{{end}}
@@ -52,9 +52,9 @@
 <section class="records">
 <h2 id="records">その他の記録</h2>
 <h3>いまの様子</h3>
-{{if $.Data.ActionsEnabled}}{{if .Health.Failed}}<p>実行の失敗が{{.Health.Failed}}回続いています。</p>{{end}}{{if .Health.Missed}}<p>実行されなかった予定が{{.Health.Missed}}回続いています。</p>{{end}}{{end}}
-{{if .Health.Unverified}}<p>確認できていない範囲：</p><ul>{{range $scope, $health := .Health.Unverified}}<li>{{$scope}}：{{$health.Count}}回続いています。{{clock $health.Since}}から確認できていません。</li>{{end}}</ul>{{end}}
-<p>最後に全範囲を確認した時刻：{{if .Health.LastSuccess.IsZero}}まだ記録がありません。{{else}}{{clock .Health.LastSuccess}}{{end}}</p>
+{{if $.Data.ActionsEnabled}}{{if .Health.Failed}}<p>{{.Health.Failed}}回続けて実行に失敗しています。</p>{{end}}{{if .Health.Missed}}<p>予定していたのに実行できなかった回が{{.Health.Missed}}回続いています。</p>{{end}}{{end}}
+{{if .Health.Unverified}}<p>まだ確かめられていない範囲があります。</p><ul>{{range $scope, $health := .Health.Unverified}}<li>{{$scope}} は、{{clock $health.Since}}から{{$health.Count}}回続けて確かめられていません。</li>{{end}}</ul>{{end}}
+<p>{{if .Health.LastSuccess.IsZero}}すべての範囲を確かめた記録はまだありません。{{else}}最後にすべての範囲を確かめたのは{{clock .Health.LastSuccess}}です。{{end}}</p>
 {{if .Executions}}<table class="tasks"><thead><tr><th>本来の時刻</th><th>実行先</th><th>状態</th></tr></thead><tbody>{{range .Executions}}<tr><td>{{clock .Job.Slot}}</td><td>{{.DestinationLabel}}（{{.Device}}）{{if .Result.Profile}} / {{.Result.Profile}}{{end}}</td><td>{{.StatusLabel}}</td></tr>{{end}}</tbody></table>{{end}}
 <h3 id="runs">実行の履歴</h3>{{if .Months}}<p>月：{{range .Months}}<a href="/routines/{{$.Data.Name}}?month={{.}}#runs">{{.}}</a> {{end}}</p>{{end}}
 <table class="tasks"><thead><tr><th>本来の時刻</th><th>結果</th><th>ひとこと</th></tr></thead><tbody>{{range .Runs}}<tr id="{{.Anchor}}"><td>{{clock .At}}</td><td>{{.OutcomeLabel}}</td><td>{{if .Receipt}}{{brief .Summary}} <a href="{{receiptURL $.Data.Name .Receipt}}">受付 {{.Receipt}}</a>{{else}}{{.Summary}}{{end}}{{if .Handoffs}}<ul>{{range .Handoffs}}<li><a href="/tasks/{{.TaskID}}">{{.TaskID}}</a> {{.Summary}}</li>{{end}}</ul>{{end}}{{if .UnverifiedHandoffs}}<p>引き継ぎ先のタスクを確認できませんでした。{{range .UnverifiedHandoffs}} {{.}}{{end}}</p>{{end}}{{with .ProblemReasons}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}</td></tr>{{else}}<tr><td colspan="3">実行の記録は、まだありません。</td></tr>{{end}}</tbody></table>

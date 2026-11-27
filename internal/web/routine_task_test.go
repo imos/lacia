@@ -125,7 +125,7 @@ func TestRoutinePageWithoutATaskStartsWithReceipts(t *testing.T) {
 	if strings.Contains(body, `id="task"`) || strings.Contains(body, "タスク 待機") {
 		t.Fatalf("a routine without task.md shows a task part:\n%s", body)
 	}
-	at := sectionOrder(t, body, "<h1>", "次は", `id="receipts"`, "朝の結果です。", `id="definition"`, "共有の予定を確かめるための定期タスクです。", `id="records"`, "最後に全範囲を確認した時刻", "実行の履歴")
+	at := sectionOrder(t, body, "<h1>", "次は", `id="receipts"`, "朝の結果です。", `id="definition"`, "共有の予定を確かめるための定期タスクです。", `id="records"`, "すべての範囲を確かめた記録はまだありません。", "実行の履歴")
 	if !ascending(at) {
 		t.Fatalf("order = %v:\n%s", at, body)
 	}
@@ -245,11 +245,11 @@ func TestRoutineTaskInReviewSharesTheRoutinesRowInTheActionList(t *testing.T) {
 
 	// The receipt page leads back to the task.
 	_, receipt, _ := get(t, h, "/routines/S1011/receipts/1")
-	if !strings.Contains(receipt, `<a href="/routines/S1011#task">定期タスクのタスク</a>（確認待ち）`) {
+	if !strings.Contains(receipt, `<a href="/routines/S1011#task">この定期タスクの「タスク」欄</a>（確認待ち）`) {
 		t.Fatalf("receipt page:\n%s", receipt)
 	}
 	_, other, _ := get(t, h, "/routines/S1012")
-	if strings.Contains(other, "定期タスクのタスク</a>") {
+	if strings.Contains(other, "この定期タスクの「タスク」欄</a>") {
 		t.Fatalf("a routine without a task links to one:\n%s", other)
 	}
 }

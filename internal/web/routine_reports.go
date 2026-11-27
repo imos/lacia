@@ -91,7 +91,7 @@ func (s *Server) reportRoutineRun(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, schedule.ErrRoutineReport) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		} else {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "結果を保存できませんでした"})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "定期タスクの結果を保存できませんでした"})
 		}
 		return
 	}
@@ -177,7 +177,7 @@ func (s *Server) routineNoticeAcknowledged(w http.ResponseWriter, r *http.Reques
 	id := r.PathValue("id")
 	sequence, valid := receiptSequence(r)
 	if !valid {
-		http.Error(w, "通知番号を読めませんでした", http.StatusBadRequest)
+		http.Error(w, "通知番号には1以上の整数を、先頭に0を付けずに指定してください", http.StatusBadRequest)
 		return
 	}
 	action := r.URL.Query().Get("action") == "1"

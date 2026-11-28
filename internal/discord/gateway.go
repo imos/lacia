@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/imos/lacia/internal/effect/network"
 )
 
 // intents: guilds, guild messages, message content.
@@ -85,9 +87,12 @@ func (g *gateway) connect(ctx context.Context, s *session) error {
 		}
 		target += "/?v=10&encoding=json"
 	}
+	// Handling an event already read outlives the connection: the sequence
+	// number has moved past it, so a resumed session will not send it again.
+	work := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, target, nil)
+	conn, err := network.WebSocket(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -212,13 +217,13 @@ func (g *gateway) connect(ctx context.Context, s *session) error {
 					return err
 				}
 				s.id, s.resume = ready.SessionID, ready.ResumeURL
-				g.onReady(ctx, ready.User.ID, false)
+				g.onReady(work, ready.User.ID, false)
 			case "RESUMED":
-				g.onReady(ctx, "", true)
+				g.onReady(work, "", true)
 			case "MESSAGE_CREATE":
 				var m Message
 				if json.Unmarshal(f.D, &m) == nil {
-					g.onMessage(ctx, m)
+					g.onMessage(work, m)
 				}
 			}
 		}

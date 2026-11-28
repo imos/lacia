@@ -130,7 +130,7 @@ done
 	"work":{"codex":["./agent","codex-work"],"claude":["./agent","claude-work"]},
 	"personal":{"codex":["./agent","codex-personal"],"claude":["./agent","claude-personal"]}
 }}`
-	if err := os.WriteFile(filepath.Join(dir, login.ListFile), []byte(config), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "logins.json"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	self, err := os.Executable()
@@ -200,7 +200,7 @@ func TestRecordsConfigIsLimited(t *testing.T) {
 	if err := fs.Parse([]string{"--calendar-write=false"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (configSource{path: conf, allow: recordsSettings, base: root}).apply(fs); err != nil {
+	if _, err := (configSource{path: conf, recordsOnly: true, base: root}).apply(fs); err != nil {
 		t.Fatal(err)
 	}
 	if *label != "田中さんのレイシア" {
@@ -361,7 +361,7 @@ func TestInstructionsNameThePeer(t *testing.T) {
 
 func TestChooseLogin(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, login.ListFile)
+	path := filepath.Join(dir, "logins.json")
 	// A machine without the file starts the agent as it is installed.
 	none, err := login.LoadList(path)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestChooseLogin(t *testing.T) {
 		}
 	}
 	env := map[string]string{"HOME": "/home/u"}
-	if got := login.ListPath(func(k string) string { return env[k] }); got != "/home/u/.config/lacia/logins.json" {
+	if got := login.ListPath(func(k string) string { return env[k] }); got != "/home/u/.lacia/config/logins.json" {
 		t.Errorf("path = %q", got)
 	}
 	env["LACIA_CONFIG_DIR"] = "/etc/lacia"
@@ -524,5 +524,55 @@ func TestEveryEntryPointReceivesSharedChatBehavior(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Run outside the records, lacia codex starts in them; --here keeps it
+// where it was run.
+func TestLaunchStartsInTheRecords(t *testing.T) {
+	const child = "LACIA_TEST_LAUNCH_PLACE_CHILD"
+	if os.Getenv(child) == "1" {
+		if err := run(os.Args[3:]); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := makeRecords(t, filepath.Join(base, "records"))
+	outside := filepath.Join(base, "code")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := filepath.Join(base, "agent")
+	if err := os.WriteFile(agent, []byte("#!/bin/sh\necho \"$(pwd -P) $PWD $LACIA_TASKS\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logins := `{"default":"work","logins":{"work":{"codex":["` + agent + `"]}}}`
+	if err := os.WriteFile(filepath.Join(base, "logins.json"), []byte(logins), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		dir  string
+		args []string
+		want string
+	}{
+		{outside, []string{"codex"}, records},
+		{outside, []string{"codex", "--here"}, outside},
+		{filepath.Join(records, ".lacia"), []string{"codex"}, filepath.Join(records, ".lacia")},
+	} {
+		cmd := exec.Command(self, append([]string{"-test.run=^TestLaunchStartsInTheRecords$", "--"}, c.args...)...)
+		cmd.Dir = c.dir
+		cmd.Env = append(cmd.Environ(), child+"=1", "PWD="+c.dir, "LACIA_TASKS="+records, "LACIA_CONFIG_DIR="+base)
+		got, err := cmd.Output()
+		if want := c.want + " " + c.want + " " + records + "\n"; err != nil || string(got) != want {
+			t.Errorf("%v in %s: %q, %v; want %q", c.args, c.dir, got, err, want)
+		}
 	}
 }

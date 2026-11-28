@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/task"
 )
@@ -599,10 +600,7 @@ func (r *Runner) Tick(now time.Time) error {
 		r.seen = now
 		r.last[tickKey] = now.UTC().Format(time.RFC3339)
 		data, _ := json.MarshalIndent(r.last, "", "  ")
-		if err := os.MkdirAll(filepath.Dir(r.State), 0o700); err != nil {
-			return err
-		}
-		if err := os.WriteFile(r.State, append(data, '\n'), 0o600); err != nil {
+		if err := disk.WriteFileNoSync(r.State, append(data, '\n'), 0o600); err != nil {
 			return err
 		}
 	}

@@ -37,6 +37,11 @@
 
 {{define "content"}}{{with .Data}}
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+{{if .Machine}}<section class="list machine">
+  <h2>この端末で直すこと <span class="count">{{len .Machine}}</span></h2>
+  <p class="hint">サーバーが、この端末で見つけたことです。ターミナルで lacia doctor を実行すると、ほかの点検も行います。</p>
+  <ul class="rows">{{range .Machine}}<li><p>{{.Problem}}{{if .Guide}} <a href="{{.Guide}}">案内を読む</a>{{end}}</p>{{if .Fix}}<pre>{{.Fix}}</pre>{{end}}</li>{{end}}</ul>
+</section>{{end}}
 {{if .Undo}}<form method="post" action="/tasks/{{.Undo}}/status" class="undo"><input type="hidden" name="back" value="home"><input type="hidden" name="status" value="closing"><button>取り消す</button> <span class="hint">{{.Undo}} を「完了確認待ち」へ戻します。</span></form>{{end}}
 {{if .CanAsk}}<section class="ask">
   <form method="post" action="/requests">

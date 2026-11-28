@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/routine"
 )
 
@@ -148,36 +148,7 @@ func atomicJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".state-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err = f.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err = f.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return disk.WriteFile(path, append(data, '\n'), 0o600)
 }
 
 // update rolls memory back if persistence fails. No delivery precedes a durable write.

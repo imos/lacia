@@ -44,7 +44,7 @@ func TestWaitingGuidanceInStandaloneAndConnectedCLI(t *testing.T) {
 			}
 			_, _, err := captureMirrorTask(t, "set", "--root", root, id, "waiting")
 			if format == 1 {
-				if err == nil || !strings.Contains(err.Error(), "lacia migrate --dry-run") {
+				if err == nil || !strings.Contains(err.Error(), "形式2の記録だけ") {
 					t.Fatalf("format 1 did not get migration guidance: %v", err)
 				}
 				return

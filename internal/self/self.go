@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -92,8 +93,10 @@ type Keeper struct {
 	At         string // "HH:MM" JST of the nightly rewrite; empty turns the timer off
 	Lines      int    // limit of non-empty lines; 120 when zero
 	// OpenSession provides the model conversation for this night. It may
-	// open the process only when the first prompt is actually sent.
-	OpenSession func(context.Context) (Think, func())
+	// open the process only when the first prompt is actually sent. An
+	// error says why no model can be started tonight; the night is
+	// recorded with it, and nothing else is done.
+	OpenSession func(context.Context) (Think, func(), error)
 	Think       Think
 	// RecordChanges supplies recently changed record files when the nightly
 	// session is permitted to read them.
@@ -175,17 +178,8 @@ func (k *Keeper) AddNote(n Note) (Note, error) {
 func (k *Keeper) appendNote(n Note) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if err := os.MkdirAll(k.Dir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(filepath.Join(k.Dir, "notes.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 	data, _ := json.Marshal(n)
-	_, err = f.Write(append(data, '\n'))
-	return err
+	return disk.Append(filepath.Join(k.Dir, "notes.jsonl"), append(data, '\n'), 0o600)
 }
 
 // Notes returns what was jotted down since the last rewrite, oldest first.
@@ -253,8 +247,8 @@ func (k *Keeper) dropNotes(until time.Time) {
 	}
 	path := filepath.Join(k.Dir, "notes.jsonl")
 	if len(keep) == 0 {
-		os.Remove(path)
-	} else if err := writeFile(path, keep, 0o600); err != nil {
+		disk.Remove(path)
+	} else if err := disk.WriteFileNoSync(path, keep, 0o600); err != nil {
 		slog.Error("self notes", "error", err)
 	}
 }
@@ -281,21 +275,10 @@ func (k *Keeper) updateState(change func(*state)) state {
 	after := before
 	change(&after)
 	data, _ := json.MarshalIndent(after, "", "  ")
-	if err := writeFile(filepath.Join(k.Dir, "state.json"), append(data, '\n'), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "state.json"), append(data, '\n'), 0o600); err != nil {
 		slog.Error("self state", "error", err)
 	}
 	return before
-}
-
-func writeFile(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // Tick runs the nightly rewrite once the time has come. If the server
@@ -342,7 +325,12 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 	think := k.Think
 	if k.OpenSession != nil {
 		var closeSession func()
-		think, closeSession = k.OpenSession(ctx)
+		var err error
+		if think, closeSession, err = k.OpenSession(ctx); err != nil {
+			night := Night{At: started, Reason: err.Error()}
+			k.record(night)
+			return night, nil
+		}
 		defer closeSession()
 	}
 	since := k.loadState().Since
@@ -425,11 +413,11 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 		k.record(night)
 		return night, nil
 	}
-	if err := writeFile(k.Path, []byte(next+"\n"), 0o644); err != nil {
+	if err := disk.WriteFileNoSync(k.Path, []byte(next+"\n"), 0o644); err != nil {
 		return night, err
 	}
 	night.Accepted, night.Summary = true, summary
-	if err := writeFile(filepath.Join(k.Dir, "versions", today+".md"), []byte(next+"\n"), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", today+".md"), []byte(next+"\n"), 0o600); err != nil {
 		slog.Error("self version", "error", err)
 	}
 	// Digested: the notes go, and the next night looks only at what follows.
@@ -451,18 +439,10 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 func (k *Keeper) record(n Night) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if err := os.MkdirAll(k.Dir, 0o700); err != nil {
-		slog.Error("self history", "error", err)
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(k.Dir, "history.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		slog.Error("self history", "error", err)
-		return
-	}
-	defer f.Close()
 	data, _ := json.Marshal(n)
-	f.Write(append(data, '\n'))
+	if err := disk.Append(filepath.Join(k.Dir, "history.jsonl"), append(data, '\n'), 0o600); err != nil {
+		slog.Error("self history", "error", err)
+	}
 }
 
 // keepDraft saves what the model answered on a night whose result was not
@@ -473,7 +453,7 @@ func (k *Keeper) keepDraft(at time.Time, out string) string {
 		return ""
 	}
 	day := at.In(k.Zone()).Format("2006-01-02")
-	if err := writeFile(filepath.Join(k.Dir, "rejected", day+".md"), []byte(out+"\n"), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "rejected", day+".md"), []byte(out+"\n"), 0o600); err != nil {
 		slog.Error("self draft", "error", err)
 		return ""
 	}
@@ -529,7 +509,7 @@ func (k *Keeper) SetCore(core string) (bool, error) {
 	if !ok {
 		return false, errors.New("「わたしのこと」の文書に「わたし自身」の節がありません")
 	}
-	if err := writeFile(k.Path, []byte(strings.TrimSpace(next)+"\n"), 0o644); err != nil {
+	if err := disk.WriteFileNoSync(k.Path, []byte(strings.TrimSpace(next)+"\n"), 0o644); err != nil {
 		return false, err
 	}
 	night := Night{At: k.now(), Accepted: true, Summary: k.peerLabel() + "でまとめた「わたし自身」の節を取り込みました。"}
@@ -793,10 +773,6 @@ func (k *Keeper) prompt(now time.Time, previous string, notes []Note, exchanges 
 	}
 	return text
 }
-
-// exchangeText lists exchanges for the model prompt, with at most
-// 1200 characters per message or reply and about 60000 in total.
-func exchangeText(exchanges []Exchange) string { return exchangeTextIn(exchanges, task.JST) }
 
 func exchangeTextIn(exchanges []Exchange, loc *time.Location) string {
 	// The newest exchanges matter most: when there are too many, the oldest go.

@@ -13,7 +13,7 @@ import (
 
 func runRoutine(args []string) error {
 	if len(args) != 4 || args[0] != "report" {
-		return errors.New("使い方: lacia run report <定期タスクID> <実行ID> <JSONファイル|->")
+		return usageError("run")
 	}
 	if apiBase() == "" {
 		return errors.New(apiAddressHelp)

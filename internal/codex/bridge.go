@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/chat"
+	"github.com/imos/lacia/internal/effect/network"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -49,16 +49,16 @@ const SideInstructions = `あなたはレイシアです。この会話では、
 
 // Config describes the Codex to run.
 type Config struct {
-	Command     []string      // how to start Codex, e.g. ["codex"]
-	Workspace   string        // the task repository; Codex works here
-	StateDir    string        // where the conversation ID and the socket live
-	Model       string        // empty keeps the model of Codex's own settings
-	Effort      string        // reasoning effort; empty keeps Codex's own
-	Env         []string      // extra environment for Codex, as KEY=value
-	Sandbox     string        // Codex sandbox mode; empty keeps Codex's default
-	Threads     int           // main conversation plus sub-agents
-	Ephemeral   bool          // do not keep the conversation (for tests)
-	RolloverDay func() string // current rollover date, or empty outside the window
+	Command     []string // how to start Codex, e.g. ["codex"]
+	Workspace   string   // the task repository; Codex works here
+	StateDir    string   // where the conversation ID and the socket live
+	Model       string   // empty keeps the model of Codex's own settings
+	Effort      string   // reasoning effort; empty keeps Codex's own
+	Env         []string // extra environment for Codex, as KEY=value
+	Sandbox     string   // Codex sandbox mode; empty keeps Codex's default
+	Threads     int      // main conversation plus sub-agents
+	DisabledApp string   // an app reserved for a server-side tool
+	Ephemeral   bool     // do not keep the conversation (for tests)
 	// Instructions overrides the embedded text.
 	Instructions        string
 	CurrentInstructions func(context.Context) (string, rules.Revision)
@@ -98,16 +98,14 @@ type Bridge struct {
 	cfg     Config
 	OnChild func(Child) // called from the reader; must not block
 
-	setup           sync.Mutex
-	mu              sync.Mutex
-	client          *client
-	threadID        string
-	ruleVersion     rules.Revision
-	turns           map[string]*turn
-	process         *exec.Cmd
-	routes          childRoutes
-	childNotices    int // notifications still being routed to the request queue
-	childStateKnown bool
+	setup       sync.Mutex
+	mu          sync.Mutex
+	client      *client
+	threadID    string
+	ruleVersion rules.Revision
+	turns       map[string]*turn
+	process     *exec.Cmd
+	routes      childRoutes
 
 	socketOnce sync.Once
 	socketPath string
@@ -204,9 +202,7 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 	if err := os.MkdirAll(b.cfg.StateDir, 0o700); err != nil {
 		return err
 	}
-	if conn, err := net.DialTimeout("unix", b.socket(), time.Second); err == nil {
-		conn.Close()
-	} else {
+	if !network.Listening(b.socket()) {
 		os.Remove(b.socket())
 		args := WithMemoryDefaults(append(append([]string{}, b.cfg.Command[1:]...), "app-server"))
 		args = append(args, "--enable", "multi_agent", "--disable", "wake_on_agent_messages", "--listen", "unix://"+b.socket())
@@ -229,8 +225,7 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 		go cmd.Wait()
 		deadline := time.Now().Add(15 * time.Second)
 		for {
-			if conn, err := net.DialTimeout("unix", b.socket(), time.Second); err == nil {
-				conn.Close()
+			if network.Listening(b.socket()) {
 				break
 			}
 			if time.Now().After(deadline) {
@@ -257,6 +252,9 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 	config := map[string]any{
 		"agents.max_threads":              b.cfg.Threads,
 		"features.wake_on_agent_messages": false,
+	}
+	if b.cfg.DisabledApp != "" {
+		config["apps"] = map[string]any{b.cfg.DisabledApp: map[string]bool{"enabled": false}}
 	}
 	var ruleVersion rules.Revision
 	instructions := b.cfg.Instructions
@@ -307,9 +305,6 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 	}
 	if !b.cfg.Ephemeral {
 		known.ThreadID, known.Rules = started.Thread.ID, ruleVersion
-		if !resuming && b.cfg.RolloverDay != nil {
-			known.RolloverNight = max(known.RolloverNight, b.cfg.RolloverDay())
-		}
 		if err := b.writeThread(known); err != nil {
 			c.close()
 			return err
@@ -317,16 +312,11 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 	}
 	b.mu.Lock()
 	b.client, b.threadID, b.ruleVersion = c, started.Thread.ID, ruleVersion
-	b.childStateKnown = !resuming
 	b.mu.Unlock()
 	slog.Info("codex connected", "thread", started.Thread.ID, "resumed", resuming)
 	if resuming {
 		if err := b.recoverChildren(ctx, c, started.Thread.ID); err != nil {
 			slog.Warn("child history recovery", "error", err)
-		} else {
-			b.mu.Lock()
-			b.childStateKnown = true
-			b.mu.Unlock()
 		}
 	}
 	return nil
@@ -398,15 +388,9 @@ func (b *Bridge) notify(method string, raw json.RawMessage) {
 			close(t.done)
 		}
 	}
-	if child != nil {
-		b.childNotices++
-	}
 	b.mu.Unlock()
 	if child != nil {
 		b.routeChild(*child)
-		b.mu.Lock()
-		b.childNotices--
-		b.mu.Unlock()
 	}
 }
 

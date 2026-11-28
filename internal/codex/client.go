@@ -6,12 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"sync"
 	"sync/atomic"
 
 	"github.com/coder/websocket"
+
+	"github.com/imos/lacia/internal/effect/network"
 )
 
 // client is a minimal JSON-RPC peer: numbered requests, and a callback for
@@ -43,12 +43,7 @@ type incoming struct {
 // dial connects to the app-server's Unix socket and starts reading.
 // notify is called, in order, for each notification.
 func dial(ctx context.Context, socket string, notify func(method string, params json.RawMessage)) (*client, error) {
-	httpClient := &http.Client{Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
-		},
-	}}
-	conn, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: httpClient})
+	conn, err := network.SocketWebSocket(ctx, socket)
 	if err != nil {
 		return nil, err
 	}

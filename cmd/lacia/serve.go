@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -24,9 +23,12 @@ import (
 	"github.com/imos/lacia/internal/claudecode"
 	"github.com/imos/lacia/internal/codex"
 	"github.com/imos/lacia/internal/daylog"
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/gcal"
 	"github.com/imos/lacia/internal/gitsync"
 	"github.com/imos/lacia/internal/handover"
+	"github.com/imos/lacia/internal/home"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/routine"
@@ -40,99 +42,95 @@ import (
 )
 
 func runServe(args []string) error {
-	fs := commandFlags("serve")
-	configPath := fs.String("config", "", "設定ファイル。サーバーの設定を「名前 = 値」の形で1行ずつ書きます。[名前] で始まる節は、そのプロファイルだけに適用します。同じ項目をコマンドラインでも指定したときは、そちらを使います")
-	profile := fs.String("profile", "", "このサーバーで使うプロファイル名。共通の設定と同じ項目があれば、プロファイルの値を使います")
-	label := fs.String("label", self.DefaultLabel, "このプロファイルの呼び名。画面と「わたしのこと」の文書に表示し、相手への伝言にも使います")
-	pages := fs.Bool("pages", true, "false にすると、通常の画面と API は手元か --site のアドレスから使います。プロファイル間のやり取りと稼働確認の入口には外部からも接続できます")
-	waits := fs.Bool("waits", true, "クラスタの Job などの終了待ちを登録できます。会話を閉じたあとも終了を待ちます")
-	peer := fs.String("peer", "", "伝言と引き継ぎの相手にするプロファイル名。相手の呼び名には、そのプロファイルの label を使います")
-	fs.String("url", "", "ほかのプロファイルからこのサーバーに接続するためのアドレス（例: http://lacia-chat）")
-	inbox := fs.Bool("inbox", false, "相手からの伝言に返事をする側になります。false のときは伝言を送る側になります")
-	// 10148 reads as her name: 1, レ(0), イ(1), シ(4), ヤ(8).
-	addr := fs.String("addr", "127.0.0.1:10148", "待ち受けるアドレス。ローカル環境で使う場合は既定のまま、別の端末から使う場合は接続できるアドレスを指定します")
-	root := fs.String("root", "", "記録のリポジトリー")
-	rescan := fs.Duration("rescan", 10*time.Second, "ファイルの変更を取り込む間隔")
-	calendarOverrides := fs.String("calendar-overrides", "", "予定の表示を上書きする JSON ファイル。記録のリポジトリーからの相対パスで指定します。既定の場所は "+calendarOverridesDefault+" です。ファイルがあれば、その設定を使います")
-	calendarPath := fs.String("calendar", "", "予定のスナップショットのパス（省くと記録のリポジトリーから探します）")
-	calendarDirect := fs.Bool("calendar-direct", true, "サーバーが Google Calendar から予定を読み取ります。false を指定すると、これまでの予定ファイルを読みます")
-	site := fs.String("site", "", "ブラウザーからこの Web サーバーに接続するための URL（予定の連携などで使います）")
-	googleClient := fs.String("google-client", "", "Google Calendar を直接読むための OAuth クライアント設定。Google Cloud の「認証情報」でダウンロードした JSON ファイルを指定します。公開用のアドレスがなくても、認証後に手元のアドレスへ戻って連携できます")
-	calendars := fs.String("calendars", "", "表示するカレンダーの一覧。JSON ファイルに account、calendar_id、label を指定します")
-	calendarHolidays := fs.String("calendar-holidays", "jp", "日本の祝日を表示するときは jp、表示しないときは off を指定します")
-	calendarWrite := fs.Bool("calendar-write", false, "予定の連携で、読み取りに加えて、予定の作成や変更の許可も求めます")
-	codexCommand := fs.String("codex", "", "Codex を起動するコマンド（例: codex-work）。指定すると依頼を受け付けます")
-	user := fs.String("user", "", "わたしに呼んでほしい名前です（例: 田中さん）。省くと、LACIA_USER、記録の .lacia/config.json の user の順に探します")
-	claudeCommand := fs.String("claude", "", "Claude Code を起動するコマンド（例: claude）。指定すると依頼を受け付けます")
-	defaultKind := fs.String("default-kind", "", "宛先を省いたときに起動する会話の種類（codex か claude）")
-	claudePermission := fs.String("claude-permission", "", "Claude Code の権限の設定。既定の acceptEdits では、追加の許可がなくてもファイルを編集でき、シェルでは lacia コマンドが使えます")
-	claudeModel := fs.String("claude-model", "", "Claude Code で使うモデル（省くと Claude Code の既定のモデルを使います）")
-	codexModel := fs.String("codex-model", "", "Codex で使うモデル（省くと Codex の設定を使います）")
-	codexEffort := fs.String("codex-effort", "", "Codex の推論の強さ（例: medium）。省くと Codex の設定を使います")
-	codexSandbox := fs.String("codex-sandbox", "", "Codex のサンドボックスの設定（例: danger-full-access）")
-	places := fs.String("places", "", "宛先の場所と端末を対応づける JSON の設定")
-	stateDir := fs.String("state", "", "依頼と Codex の接続情報を置くディレクトリー（リポジトリーの外）")
-	useDiscord := fs.Bool("discord", false, "Discord から依頼を受けます（接続先は環境変数で指定します）")
-	discordMembers := fs.String("discord-members", "", "Discord の参加者の登録表（JSON ファイル）。--discord を使うときに指定してください。登録された方の発言だけを受け付けます")
-	discordLog := fs.String("discord-log", "", "Discord のやり取りを日ごとに記録するディレクトリー。記録のリポジトリーからの相対パスで指定します（例: log/discord）。省略すると書きません")
-	noticeLog := fs.String("notice-log", "", "書き留めを日ごとに記録するディレクトリー。記録のリポジトリーからの相対パスで指定します（例: log/notices）。--discord-log と同じにすると、やり取りと同じファイルに入ります。省略すると書きません")
-	discordLogEntry := fs.Int("discord-log-entry", daylog.DefaultEntryLimit, "日ごとのログに残す、1件の本文の上限（字）")
-	discordLogDay := fs.Int("discord-log-day", daylog.DefaultDayLimit, "ログ1日分の上限（バイト）。上限を超える場合は見出しを残し、本文を省きます")
-	gitSync := fs.Bool("git-sync", false, "変更を Git にコミットしてプッシュします")
-	selfPath := fs.String("self", "", "「わたしのこと」の文書。記録のリポジトリーからの相対パスで指定します（例: memory/self.md）。指定すると書き留めを受け付けます")
-	selfAt := fs.String("self-at", "", "自分についての記録を毎日書き直す時刻（記録のタイムゾーンで HH:MM）")
-	selfClaude := fs.String("self-claude", "", "夜の整理と書き直しに使う Claude Code の実行ファイル（例: claude）。引数は付けられません")
-	selfModel := fs.String("self-model", "fable", "自分についての記録を書き直すモデル")
-	selfExchanges := fs.Bool("self-exchanges", true, "夜の整理と書き直しに、最近の依頼と返事や記録のリポジトリーを使います。false にすると、書き直しは書き留めなどをもとに行います")
-	people := fs.String("people", "", "記録の持ち主のほかに、わたしが話す方たちの呼び名です（例: ご家族）。伝言や引き継ぎの文面に使います。省くと「ほかの方」と書きます")
-	selfTidyPrompt := fs.String("self-tidy-prompt", "", "夜の整理の指示文。指定すると、実行ファイルに入っている指示文の代わりに使います")
-	selfTidy := fs.Bool("self-tidy", true, "夜の書き直しの前に、その日の話題を保存し、memory/ に残す候補を窓口に知らせます（--self-exchanges が必要です）。--discord-log があれば、その日のログにも書きます")
-	selfImprove := fs.Bool("self-improve", false, "夜の書き直しで、「わたしのこと」の項目のうち仕組みで直せそうなものを候補に挙げ、窓口に知らせます。タスクを持つプロファイルで有効にします")
-	routineExplicitMatters := fs.Bool("routine-explicit-matters", false, "定期タスクでは、ご本人への用件が書かれた回だけ、受付を作ります")
-	nowPath := fs.String("now", "memory/now.md", "ふだんと違う状況を書いた文書（記録のリポジトリーからの相対パス）。読めた内容を予約の依頼に添えます")
-	instructionsPath := fs.String("instructions", "", "会話への指示の文書。指定すると、実行ファイルに入っている指示の代わりに使います")
-	windowRollover := fs.String("window-rollover", "", "空いている窓口会話を新しくする時間帯（記録のタイムゾーンで HH:MM-HH:MM）。省略すると切り替えません")
-	instructionsExtra := fs.String("instructions-extra", "", "会話への指示の最後に足す文書。その環境だけに当てはまる決まりを書きます")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	peerURL, peerLabel := "", ""
-	if *configPath != "" {
-		profiles, err := applyConfig(fs, *configPath, *profile)
-		if err != nil {
-			return err
-		}
-		if *peer != "" {
-			if peerURL = strings.TrimRight(profiles[*peer]["url"], "/"); peerURL == "" {
-				return fmt.Errorf("相手のプロファイル「%s」の url が、設定ファイルにありません", *peer)
-			}
-			// The peer is called by the label its own section gives it.
-			if peerLabel = profiles[*peer]["label"]; peerLabel == "" {
-				peerLabel = self.DefaultPeerLabel
-			}
-		}
-	} else if *profile != "" || *peer != "" {
-		return errors.New("--profile と --peer は、--config と一緒に使ってください")
-	}
-	dir, err := findRoot(*root)
+	c, err := loadServeConfig(args)
 	if err != nil {
 		return err
 	}
+	if tools, err := disk.OpenTools(home.Dir(os.Getenv)); err == nil {
+		if err := rotateServeLog(tools, maxServeLog, os.Stdout, os.Stderr); err != nil {
+			slog.Warn("log: could not set the log aside", "error", err)
+		}
+		tools.Close()
+	}
+	if c.stale {
+		slog.Warn("config: read from the old place", "detail", oldPlacesText(home.Moves(os.Getenv)), "file", *c.str("config"))
+	}
+	configPath := c.str("config")
+	profile := c.str("profile")
+	label := c.str("label")
+	pages := c.on("pages")
+	waits := c.on("waits")
+	peer := c.str("peer")
+	inbox := c.on("inbox")
+	addr := c.str("addr")
+	rescan := c.span("rescan")
+	calendarOverrides := c.str("calendar-overrides")
+	calendarPath := c.str("calendar")
+	calendarDirect := c.on("calendar-direct")
+	site := c.str("site")
+	googleClient := c.str("google-client")
+	calendars := c.str("calendars")
+	calendarHolidays := c.str("calendar-holidays")
+	calendarWrite := c.on("calendar-write")
+	codexCommand := c.str("codex")
+	user := c.str("user")
+	claudeCommand := c.str("claude")
+	defaultKind := c.str("default-kind")
+	claudePermission := c.str("claude-permission")
+	claudeModel := c.str("claude-model")
+	codexModel := c.str("codex-model")
+	codexEffort := c.str("codex-effort")
+	codexSandbox := c.str("codex-sandbox")
+	places := c.str("places")
+	stateDir := c.str("state")
+	useDiscord := c.on("discord")
+	discordMembers := c.str("discord-members")
+	var family members
+	if *useDiscord {
+		family, err = loadMembers(*discordMembers)
+		if err != nil {
+			return err
+		}
+	}
+	if family.Mail != nil && *codexCommand == "" {
+		return errors.New("Discordからメールを確認するときは、メール連携を使えるCodexを指定してください")
+	}
+	discordLog := c.str("discord-log")
+	noticeLog := c.str("notice-log")
+	discordLogEntry := c.num("discord-log-entry")
+	discordLogDay := c.num("discord-log-day")
+	gitSync := c.on("git-sync")
+	selfPath := c.str("self")
+	selfAt := c.str("self-at")
+	selfClaude := c.str("self-claude")
+	selfModel := c.str("self-model")
+	selfExchanges := c.on("self-exchanges")
+	people := c.str("people")
+	selfTidyPrompt := c.str("self-tidy-prompt")
+	selfTidy := c.on("self-tidy")
+	selfImprove := c.on("self-improve")
+	routineExplicitMatters := c.on("routine-explicit-matters")
+	nowPath := c.str("now")
+	instructionsPath := c.str("instructions")
+	instructionsExtra := c.str("instructions-extra")
+	peerURL, peerLabel := "", ""
+	if *peer != "" {
+		if peerURL = strings.TrimRight(c.profiles[*peer]["url"], "/"); peerURL == "" {
+			return fmt.Errorf("相手のプロファイル「%s」の url が、設定ファイルにありません", *peer)
+		}
+		// The peer is called by the label its own section gives it.
+		if peerLabel = c.profiles[*peer]["label"]; peerLabel == "" {
+			peerLabel = self.DefaultPeerLabel
+		}
+	}
+	dir := c.root
 	cfg, err := task.LoadConfig(dir)
 	if err != nil {
 		return err
 	}
 	if err := cfg.RequireCurrentFormat(); err != nil {
 		return err
-	}
-	// The repository's own settings come last, so the command line and the
-	// file outside the repository win, and only what is safe to leave to
-	// the repository is read from it.
-	if conf := filepath.Join(dir, recordsConfig); fileExists(conf) {
-		if _, err := (configSource{path: conf, allow: recordsSettings, base: dir}).apply(fs); err != nil {
-			return err
-		}
 	}
 	if *user != "" {
 		os.Setenv("LACIA_USER", *user)
@@ -155,13 +153,6 @@ func runServe(args []string) error {
 		}
 	}
 	if err := calendar.SetHidden(cfg.CalendarHidden.Always, cfg.CalendarHidden.Week); err != nil {
-		return err
-	}
-	if *calendarOverrides == "" {
-		*calendarOverrides = calendarOverridesDefault
-	}
-	rollover, err := parseRolloverWindow(*windowRollover)
-	if err != nil {
 		return err
 	}
 	store, err := task.Open(dir)
@@ -207,10 +198,10 @@ func runServe(args []string) error {
 	// remains an input for a scheduled producer that has not been replaced.
 	var snapshotState *calendar.SnapshotState
 	var snapshotInput string
-	directCalendarConfigured := *calendarDirect && (*site != "" || *googleClient != "" || len(calendar.Scope) > 0) && *stateDir != ""
-	if *stateDir != "" && (server.CalendarPath != "" || directCalendarConfigured ||
+	directCalendarConfigured := *calendarDirect && (*site != "" || *googleClient != "" || len(calendar.Scope) > 0)
+	if server.CalendarPath != "" || directCalendarConfigured ||
 		fileExists(filepath.Join(*stateDir, "calendar", "snapshot.json")) ||
-		fileExists(filepath.Join(dir, "schedules", "calendar.md"))) {
+		fileExists(filepath.Join(dir, "schedules", "calendar.md")) {
 		snapshotInput = server.CalendarPath
 		if snapshotInput == "" {
 			snapshotInput = filepath.Join(dir, "calendar", "snapshot.json")
@@ -221,7 +212,7 @@ func runServe(args []string) error {
 			// an unfinished write from the older producer.
 			if !fileExists(snapshotState.Path) {
 				if rel, err := filepath.Rel(dir, snapshotInput); err == nil {
-					if seed, err := exec.Command("git", "-C", dir, "show", "HEAD:"+filepath.ToSlash(rel)).Output(); err == nil {
+					if seed, err := program.Git().Output(context.Background(), dir, "show", "HEAD:"+filepath.ToSlash(rel)); err == nil {
 						if err := snapshotState.Publish(seed); err != nil {
 							slog.Warn("calendar seed", "detail", "記録に保存してあった予定を、サーバーの最初の予定一覧に取り込めませんでした。", "error", err)
 						}
@@ -234,18 +225,14 @@ func runServe(args []string) error {
 		}
 		server.CalendarPath = snapshotState.Path
 	}
-	if *stateDir != "" {
-		// Which conversations ran commands, kept across restarts.
-		if server.Sessions, err = caller.OpenRegistry(filepath.Join(*stateDir, "sessions.json")); err != nil {
-			return err
-		}
+	// Which conversations ran commands, kept across restarts.
+	if server.Sessions, err = caller.OpenRegistry(filepath.Join(*stateDir, "sessions.json")); err != nil {
+		return err
 	}
-	if *stateDir != "" {
-		if server.Handovers, err = handover.Open(filepath.Join(*stateDir, "handovers")); err != nil {
-			return err
-		}
+	if server.Handovers, err = handover.Open(filepath.Join(*stateDir, "handovers")); err != nil {
+		return err
 	}
-	if *stateDir != "" && *waits {
+	if *waits {
 		// What is waited for outside a conversation, such as cluster jobs.
 		if server.Waits, err = wait.Open(filepath.Join(*stateDir, "waits")); err != nil {
 			return err
@@ -260,18 +247,11 @@ func runServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	restart := &idleRestart{last: time.Now()}
-	var restartBusy func() bool
-	var rollWindow func()
-	if *stateDir != "" {
-		restart.path = filepath.Join(*stateDir, restartRequestFile)
-		server.RestartWhenIdle = func() error { return requestIdleRestart(restart.path) }
-		restartBusy = func() bool { return fileExists(filepath.Join(*stateDir, "drain")) }
-	}
+	restart.path = filepath.Join(*stateDir, restartRequestFile)
+	server.RestartWhenIdle = func() error { return requestIdleRestart(restart.path) }
+	restartBusy := func() bool { return fileExists(filepath.Join(*stateDir, "drain")) }
 	takesRequests := len(kinds) > 0
 	if takesRequests {
-		if *stateDir == "" {
-			return errors.New("--codex や --claude を使うときは --state も指定してください")
-		}
 		queue, err := request.Open(filepath.Join(*stateDir, "requests"))
 		if err != nil {
 			return err
@@ -340,13 +320,8 @@ func runServe(args []string) error {
 		// "side", so a calendar fetch never makes a request wait. Each side
 		// run gets a fresh conversation: these jobs carry no memory.
 		mainRunners, sideRunners := map[string]request.Runner{}, map[string]request.Runner{}
-		var windowSessions []windowSession
-		localNow := func() time.Time { return time.Now().In(store.Location()) }
-		var rolloverDay func() string
-		if rollover.enabled() {
-			rolloverDay = func() string { return rollover.night(localNow()) }
-		}
 		var imageBot discordImagePreparer
+		var lookupDiscordMail func(context.Context, string, string) (bool, error)
 		closeAgents := func() {}
 		if *claudeCommand != "" {
 			claude := func(state, text string, ephemeral bool) *claudecode.Runner {
@@ -370,29 +345,23 @@ func runServe(args []string) error {
 					return result.Reply, result.TurnID, err
 				}
 			}
-			window := claude("claude", instructions, false)
-			roll := func(night string, ready func() bool) (bool, error) {
-				if !ready() {
-					return false, nil
-				}
-				return window.Rollover(night)
-			}
-			windowSessions = append(windowSessions, windowSession{caller.Claude, roll, func(_ context.Context, night string, ready func() bool) (bool, error) {
-				return roll(night, ready)
-			}})
-			mainRunners[caller.Claude] = withDiscordContext(window.Run)
+			mainRunners[caller.Claude] = withDiscordContext(claude("claude", instructions, false).Run)
 			sideRunners[caller.Claude] = withDiscordContext(claude("claude-side", codex.SideInstructions, true).Run)
 		}
 		if *codexCommand != "" {
 			codexEnv := append(append([]string(nil), env...), rulesNoticeEnvironment(dir)...)
-			bridge := codex.New(codex.Config{Command: strings.Fields(*codexCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, "codex"), Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, RolloverDay: rolloverDay, CurrentInstructions: currentInstructions(instructions)})
+			disabledApp := ""
+			if family.Mail != nil {
+				disabledApp = family.Mail.Connector
+			}
+			bridge := codex.New(codex.Config{Command: strings.Fields(*codexCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, "codex"), Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, DisabledApp: disabledApp, CurrentInstructions: currentInstructions(instructions)})
 			// A sub-agent finishing is told to the main conversation as a
 			// notice, queued behind anything the user is waiting for.
 			bridge.OnChild = func(c codex.Child) { enqueueChild(queue, c) }
-			windowSessions = append(windowSessions, windowSession{caller.Codex, bridge.Rollover, bridge.RolloverBeforeRequest})
+			lookupDiscordMail = bridge.LookupMail
 			go bridge.Maintain(ctx)
 			sideBridge := codex.New(codex.Config{Command: strings.Fields(*codexCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, "codex-side"),
-				Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, Ephemeral: true, Threads: 2, CurrentInstructions: currentInstructions(codex.SideInstructions)})
+				Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, Ephemeral: true, Threads: 2, DisabledApp: disabledApp, CurrentInstructions: currentInstructions(codex.SideInstructions)})
 			runner := func(b *codex.Bridge, fresh bool) request.Runner {
 				return func(ctx context.Context, text string) (string, string, error) {
 					res, err := runDiscordTurn(ctx, imageBot, request.Current(ctx), text, b.RunForImages)
@@ -412,33 +381,11 @@ func runServe(args []string) error {
 		if err != nil {
 			return err
 		}
-		main := routeRunner(mainRunners, defaultDestination.Kind)
+		main := family.withMail(routeRunner(mainRunners, defaultDestination.Kind), lookupDiscordMail)
 		side := routeRunner(sideRunners, defaultDestination.Kind)
 
 		drain := filepath.Join(*stateDir, "drain")
 		draining := func() bool { _, err := os.Stat(drain); return err == nil }
-		if rollover.enabled() {
-			queue.BeforeMain = func(ctx context.Context, r request.Request) {
-				kind := r.Agent
-				if kind == "" {
-					kind = defaultDestination.Kind
-				}
-				rollover.beforeMain(ctx, localNow, queue, windowSessions, kind, r)
-			}
-			rollWindow = func() {
-				rollover.run(ctx, store.Location(), func(night string) {
-					if draining() {
-						return
-					}
-					restart.runNightly(func() {
-						queue.WhenMainIdle(func() {
-							ready := func() bool { return rolloverDay() == night && !queue.MainQueued(isChildNotice) }
-							rolloverSessions(windowSessions, night, ready)
-						})
-					})
-				})
-			}
-		}
 		// The logs kept in the repository (docs/design/discord.md).
 		// Saving to Git follows within about a minute, as for any other
 		// change there.
@@ -482,7 +429,7 @@ func runServe(args []string) error {
 		}
 		queue.Finished = replyToWork
 		if *useDiscord {
-			bot, err := newDiscord(filepath.Join(*stateDir, "discord.json"), *discordMembers, queue, store.Location())
+			bot, err := newDiscord(filepath.Join(*stateDir, "discord.json"), family, queue, store.Location())
 			if err != nil {
 				return err
 			}
@@ -506,26 +453,22 @@ func runServe(args []string) error {
 				}
 			}()
 		}
-		if *selfPath != "" {
-			keeper := &self.Keeper{Location: store.Location(), Path: filepath.Join(dir, filepath.FromSlash(*selfPath)), Dir: filepath.Join(*stateDir, "self"), Label: mode, PeerLabel: peerLabel, ChatSide: answers, At: *selfAt, People: *people}
-			if command := strings.TrimSpace(*selfClaude); command != "" {
-				// The nightly launcher owns the permission and workspace flags.
-				executable, err := exec.LookPath(command)
-				if err != nil {
-					if len(strings.Fields(command)) > 1 {
-						return errors.New("--self-claude には Claude Code の実行ファイルだけを指定してください。引数は付けられません")
-					}
-					// The executable can be installed after configuring the server.
-					slog.Warn("self: the nightly rewrite is off; the command is missing", "detail", "夜の書き直しに使うコマンドが見つかりません。--self-claude に指定した実行ファイルを確かめてください。", "command", command)
-					keeper.At = ""
-				} else {
-					executable, err = filepath.Abs(executable)
-					if err != nil {
-						return err
-					}
-					keeper.OpenSession = self.Claude(executable, *selfModel, dir, *selfExchanges, *stateDir, *configPath, *discordMembers)
-				}
+		if *selfPath != "" && *selfPath != off {
+			at := *selfAt
+			if at == off {
+				at = ""
 			}
+			keeper := &self.Keeper{Location: store.Location(), Path: filepath.Join(dir, filepath.FromSlash(*selfPath)), Dir: filepath.Join(*stateDir, "self"), Label: mode, PeerLabel: peerLabel, ChatSide: answers, At: at, People: *people}
+			// The nightly launcher owns the permission and workspace flags.
+			if len(strings.Fields(*selfClaude)) > 1 {
+				return errors.New("--self-claude には Claude Code の実行ファイルだけを指定してください。引数は付けられません")
+			}
+			night := nightAgentOf(c)
+			if err := night.checkChoice(); err != nil {
+				return err
+			}
+			keeper.OpenSession = night.open(*selfModel, dir, *selfExchanges, keeper.Dir, *stateDir, *configPath, *discordMembers)
+			slog.Info("self: nightly", "detail", nightSummary(c))
 			if *selfExchanges {
 				keeper.Exchanges = func(since time.Time) []self.Exchange { return exchangesSince(queue, since) }
 				keeper.RecordChanges = self.RecentRecords(dir, keeper.Path)
@@ -917,6 +860,7 @@ func runServe(args []string) error {
 		}()
 	}
 
+	server.Machine = machineWatch(c)
 	var syncing sync.WaitGroup
 	if *gitSync {
 		syncer := &gitsync.Syncer{Dir: dir, Prepare: func() error {
@@ -984,11 +928,7 @@ func runServe(args []string) error {
 		}
 	}()
 
-	var serverHandler http.Handler = handler
-	if restartBusy != nil {
-		serverHandler = restart.handler(handler)
-	}
-	srv := &http.Server{Addr: *addr, Handler: serverHandler, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: *addr, Handler: restart.handler(handler), ReadHeaderTimeout: 10 * time.Second}
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -1011,12 +951,7 @@ func runServe(args []string) error {
 			}
 		}()
 	}
-	if restartBusy != nil {
-		go restart.run(ctx, stop, restartBusy)
-	}
-	if rollWindow != nil {
-		go rollWindow()
-	}
+	go restart.run(ctx, stop, restartBusy)
 	slog.Info("serving", "detail", "Web サーバーを起動しました。", "addr", *addr, "root", dir, "tasks", len(store.List()), "version", server.Version)
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -1130,7 +1065,7 @@ func guardCalendar(repo, path string) {
 	if err != nil {
 		return
 	}
-	previous, err := exec.Command("git", "-C", repo, "show", "HEAD:"+filepath.ToSlash(rel)).Output()
+	previous, err := program.Git().Output(context.Background(), repo, "show", "HEAD:"+filepath.ToSlash(rel))
 	if err != nil {
 		return
 	}

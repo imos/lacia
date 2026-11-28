@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/claudecode"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/schedule"
 )
@@ -129,7 +129,7 @@ func (r scheduleConversations) codex(ctx context.Context, dir string, command, e
 	}
 	args = append(args, "-")
 	argv := append(append([]string{}, command[1:]...), launchArgs(caller.Codex, instructions, r.root, r.root, args, false)...)
-	cmd := exec.CommandContext(ctx, command[0], argv...)
+	cmd := program.Codex(command[0]).Command(ctx, argv...)
 	cmd.Dir = r.root
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdin = strings.NewReader(prompt)

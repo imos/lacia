@@ -52,14 +52,12 @@ type Entry struct {
 	// Remark is a line from the server about the entry, written outside the
 	// quoted text.
 	Remark string
-	// Backfilled marks an entry rebuilt later from the saved requests.
-	Backfilled bool
 }
 
 // Log appends entries to one Markdown file per day, in a folder per month:
 // <Dir>/2026-11/2026-11-18.md. It only ever appends,
-// with a single write per entry, so a second process (the backfill) can add
-// to the same files. Saving to Git is left to whoever watches the
+// with a single write per entry, so a second process can add to the same
+// files. Saving to Git is left to whoever watches the
 // repository; Changed tells them.
 type Log struct {
 	Location   *time.Location
@@ -81,8 +79,8 @@ func (l *Log) Path(t time.Time) string {
 }
 
 // Add writes e at the end of its day's file and reports whether it did. It
-// does nothing when the key is already there, so receiving a message twice,
-// or running the backfill twice, leaves one entry.
+// does nothing when the key is already there, so receiving a message twice
+// leaves one entry.
 func (l *Log) Add(e Entry) (bool, error) {
 	if l == nil || l.Dir == "" {
 		return false, nil
@@ -193,9 +191,6 @@ func oneLine(s string) string {
 
 func heading(e Entry) string {
 	keys := append([]string{e.Key}, e.More...)
-	if e.Backfilled {
-		keys = append(keys, "backfill")
-	}
 	who := oneLine(e.Who)
 	if e.Place != "" {
 		who += "（" + oneLine(e.Place) + "）"

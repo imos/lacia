@@ -179,8 +179,6 @@ func validAfterRun(value string) bool {
 // ValidID reports whether s looks like a task ID such as T1001 or L24.
 func ValidID(s string) bool { return idPattern.MatchString(s) }
 
-func fromDoc(d Doc) (Task, error) { return parseTask(d, false) }
-
 // parseTask reads a task.md. The task of a routine takes its title from
 // routine.md and may have only the statuses in RoutineStatuses.
 func parseTask(d Doc, routine bool) (Task, error) {
@@ -492,12 +490,6 @@ func ParseWhenIn(s string, loc *time.Location) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("%q を日付や日時として読めません。2026-11-19 か 2026-11-19 15:00 の形で書いてください", s)
-}
-
-// FormatWhen writes a time the way ParseWhen reads it, without the time of
-// day when it is midnight.
-func FormatWhen(when time.Time) string {
-	return FormatWhenIn(when, JST)
 }
 
 func formatWhenIn(when time.Time, loc *time.Location) string { return FormatWhenIn(when, loc) }

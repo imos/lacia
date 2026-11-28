@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/imos/lacia/internal/chat"
 	"github.com/imos/lacia/internal/daylog"
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/network"
 )
 
 // Config says which messages count as requests.
@@ -38,6 +39,7 @@ type Incoming struct {
 	ID            string // Discord message ID
 	Channel       string // where the reply goes: the channel, or a thread
 	SourceChannel string // where the triggering message arrived
+	BotID         string
 	AuthorID      string
 	Author        string // display name
 	Member        Member // who this is, when members are configured
@@ -82,7 +84,7 @@ func New(cfg Config) *Bot {
 	if cfg.api == "" {
 		cfg.api = defaultAPI
 	}
-	b := &Bot{cfg: cfg, rest: &rest{api: cfg.api, token: cfg.Token, http: &http.Client{Timeout: 30 * time.Second}},
+	b := &Bot{cfg: cfg, rest: &rest{api: cfg.api, token: cfg.Token, http: network.Internet(30 * time.Second)},
 		kinds: map[string]Channel{}}
 	if data, err := os.ReadFile(cfg.State); err == nil {
 		json.Unmarshal(data, &b.state)
@@ -102,11 +104,7 @@ func New(cfg Config) *Bot {
 
 func (b *Bot) save() {
 	data, _ := json.MarshalIndent(b.state, "", "  ")
-	os.MkdirAll(filepath.Dir(b.cfg.State), 0o700)
-	tmp := b.cfg.State + ".tmp"
-	if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
-		os.Rename(tmp, b.cfg.State)
-	}
+	disk.WriteFileNoSync(b.cfg.State, append(data, '\n'), 0o600)
 }
 
 // Run stays connected until ctx ends.
@@ -309,7 +307,7 @@ func (b *Bot) handle(ctx context.Context, m Message, guild string) bool {
 		b.advance(m.ChannelID, m.ID)
 		return true
 	}
-	in := Incoming{ID: m.ID, Channel: m.ChannelID, SourceChannel: m.ChannelID, AuthorID: m.Author.ID, Author: m.Name(), Member: who, Text: strings.TrimSpace(text), ReviewReply: reviewReply}
+	in := Incoming{ID: m.ID, Channel: m.ChannelID, SourceChannel: m.ChannelID, BotID: botID, AuthorID: m.Author.ID, Author: m.Name(), Member: who, Text: strings.TrimSpace(text), ReviewReply: reviewReply}
 	for _, a := range m.Attachments {
 		if len(in.Images) < MaxIncomingImages {
 			in.Images = append(in.Images, ImageRef{Channel: m.ChannelID, Message: m.ID, Author: m.Author.ID, Attachment: a.ID})

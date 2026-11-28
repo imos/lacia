@@ -120,6 +120,9 @@ type Server struct {
 	waitMu             sync.Mutex
 	// Notice returns a problem to show on every page, such as a failed push.
 	Notice func() string
+	// Machine returns what to fix on the machine the server runs on, for
+	// the home page. Nil shows nothing.
+	Machine func() []MachineIssue
 
 	pages    map[string]*template.Template
 	calendar *calendar.Reader
@@ -581,7 +584,12 @@ type projectBlock struct {
 	Rows []Row
 }
 
+// MachineIssue is one thing to fix on the machine, the commands that fix it
+// (lacia doctor), and the part of the install guide about it.
+type MachineIssue struct{ Problem, Fix, Guide string }
+
 type homeData struct {
+	Machine        []MachineIssue
 	Projects       []projectBlock // active projects, each with its next task
 	CanAsk         bool
 	Latest         []request.Request
@@ -656,6 +664,9 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		Areas:    s.Store.Areas(),
 		Flash:    r.URL.Query().Get("flash"),
 		Tasks:    true,
+	}
+	if s.Machine != nil {
+		data.Machine = s.Machine()
 	}
 	// Closing a finished task from its row takes one click, so the notice
 	// that follows offers to take it back.

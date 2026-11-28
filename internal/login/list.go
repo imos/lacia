@@ -4,16 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/imos/lacia/internal/home"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
-// ListFile is the file of a machine that says how each login is started:
-// by a command of one's own, by a flag, or by a variable. It lies in the
-// directory LACIA_CONFIG_DIR names, or in ~/.config/lacia.
-const ListFile = "logins.json"
+// The list of a machine says how each login is started: by a command of
+// one's own, by a flag, or by a variable (home.Logins says where it lies).
 
 // Entry is one login in the list.
 type Entry struct {
@@ -87,15 +86,7 @@ var reserved = map[string]bool{"login": true, "stop": true, "probe": true}
 
 // ListPath is where the list of this machine lies.
 func ListPath(getenv func(string) string) string {
-	dir := getenv("LACIA_CONFIG_DIR")
-	if dir == "" {
-		base := getenv("XDG_CONFIG_HOME")
-		if base == "" {
-			base = filepath.Join(getenv("HOME"), ".config")
-		}
-		dir = filepath.Join(base, "lacia")
-	}
-	return filepath.Join(dir, ListFile)
+	return home.Logins(getenv).Path()
 }
 
 // LoadList reads the list. A machine without the file has no logins to

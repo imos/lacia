@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/claudecode"
 	"github.com/imos/lacia/internal/codex"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/wait"
 
@@ -62,14 +62,14 @@ type Watcher struct {
 	Every time.Duration
 	// Exec runs a command and returns its output and exit code. Replaced
 	// in tests.
-	Exec func(ctx context.Context, name string, args ...string) (stdout, stderr string, code int, err error)
+	Exec func(ctx context.Context, p program.Program, args ...string) (stdout, stderr string, code int, err error)
 
 	tick    sync.Mutex // held while a Tick is looking
 	mu      sync.Mutex
 	looked  map[string]time.Time
 	posted  map[string]posted
 	running map[string]bool
-	awake   *exec.Cmd
+	awake   *program.Cmd
 }
 
 type posted struct {
@@ -120,24 +120,18 @@ func (l Login) title() string {
 	return "Codex（" + l.Label + "）"
 }
 
-// DefaultRunners start the installed Claude Code without a named login.
-func DefaultRunners() map[string][]string {
-	return map[string][]string{wait.NextClaude: {"claude", "-p"}}
-}
-
 // DefaultLogins is Codex as it is installed, with no login to choose.
 func DefaultLogins() []Login {
 	return []Login{{Command: []string{"codex"}}}
 }
 
-func run(ctx context.Context, name string, args ...string) (string, string, int, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+func run(ctx context.Context, p program.Program, args ...string) (string, string, int, error) {
+	cmd := p.Command(ctx, args...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return out.String(), errOut.String(), exit.ExitCode(), nil
+	if code, ok := program.ExitCode(err); ok {
+		return out.String(), errOut.String(), code, nil
 	}
 	return out.String(), errOut.String(), 0, err
 }
@@ -273,7 +267,7 @@ func (w *Watcher) Look(ctx context.Context, item wait.Wait) (seen, detail string
 		// The file is the sign that the work ended. Its first line says
 		// how: a line starting with "fail" means it ended badly.
 		args := append(base, "exec", item.Name, "--", "sh", "-c", `if [ -e "$1" ]; then head -c 300 "$1"; else exit 7; fi`, "sh", item.Path)
-		out, errOut, code, err := w.Exec(ctx, w.Kubectl, args...)
+		out, errOut, code, err := w.Exec(ctx, program.Kubectl(w.Kubectl), args...)
 		switch {
 		case err != nil:
 			return wait.Unseen, firstLine(err.Error())
@@ -288,7 +282,7 @@ func (w *Watcher) Look(ctx context.Context, item wait.Wait) (seen, detail string
 		}
 		return wait.Succeeded, line
 	}
-	out, errOut, code, err := w.Exec(ctx, w.Kubectl, append(base, "get", "job", item.Name, "-o", "json")...)
+	out, errOut, code, err := w.Exec(ctx, program.Kubectl(w.Kubectl), append(base, "get", "job", item.Name, "-o", "json")...)
 	switch {
 	case err != nil:
 		return wait.Unseen, firstLine(err.Error())
@@ -560,7 +554,7 @@ func (w *Watcher) queueToCodex(ctx context.Context, item handover.Handover) (Log
 		queue := login.queue()
 		args := append(queue[1:], "--thread", sess.thread, "--message", QueueMessage(item, owner))
 		run, cancel := context.WithTimeout(ctx, time.Minute)
-		out, errOut, code, err := w.Exec(run, w.resolve(queue[0]), args...)
+		out, errOut, code, err := w.Exec(run, program.Codex(w.resolve(queue[0])), args...)
 		cancel()
 		if err == nil && code == 0 {
 			slog.Info("wait: queued", "id", item.ID, "task", item.TaskID, "session", sess.label, "login", login.Name, "output", firstLine(out))
@@ -644,7 +638,11 @@ func (w *Watcher) runContinuation(ctx context.Context, item handover.Handover, k
 	name := w.resolve(args[0])
 	run, cancel := context.WithTimeout(ctx, 6*time.Hour)
 	defer cancel()
-	cmd := exec.CommandContext(run, name, args[1:]...)
+	start := program.ClaudeCode
+	if kind == wait.NextCodex {
+		start = program.Codex
+	}
+	cmd := start(name).Command(run, args[1:]...)
 	cmd.Dir = w.Dir
 	cmd.Env = append(os.Environ(), "PATH="+path, "LACIA_PROFILE="+w.place(), "LACIA_TASKS="+w.Dir, "LACIA_HANDOVER="+item.ID, "LACIA_WAIT="+item.WaitID)
 	if w.Base != nil {
@@ -665,12 +663,8 @@ func (w *Watcher) runContinuation(ctx context.Context, item handover.Handover, k
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(out, tail), io.MultiWriter(out, tail)
 	slog.Info("wait: continuation started", "id", item.ID, "task", item.TaskID, "command", name)
 	err := cmd.Run()
-	code := 0
-	var exit *exec.ExitError
-	switch {
-	case errors.As(err, &exit):
-		code = exit.ExitCode()
-	case err != nil:
+	code, exited := program.ExitCode(err)
+	if err != nil && !exited {
 		code = -1
 		fmt.Fprintf(tail, "\n起動できませんでした: %v", err)
 	}
@@ -708,7 +702,7 @@ func (w *Watcher) keepAwake(busy bool) {
 	defer w.mu.Unlock()
 	switch {
 	case busy && w.awake == nil:
-		cmd := exec.Command("/usr/bin/caffeinate", "-i", "-w", fmt.Sprint(os.Getpid()))
+		cmd := program.Caffeinate().Command(context.Background(), "-i", "-w", fmt.Sprint(os.Getpid()))
 		if err := cmd.Start(); err != nil {
 			slog.Debug("caffeinate", "error", err)
 			return

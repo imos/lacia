@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/network"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
 )
@@ -197,7 +198,7 @@ func (s *Server) apiReply(w http.ResponseWriter, r *http.Request) {
 // they are shown on the page.
 func call(ctx context.Context, client *http.Client, method, target string, in, out any) error {
 	if client == nil {
-		client = http.DefaultClient
+		client = network.Server(0)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

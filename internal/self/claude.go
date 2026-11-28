@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -21,7 +20,7 @@ type Think func(context.Context, string) (string, error)
 
 // Claude opens a lazy stream for the night. A successful result leaves the
 // process open so the next prompt sees the same conversation.
-func Claude(executable, model, root string, readRecords bool, privatePaths ...string) func(context.Context) (Think, func()) {
+func Claude(executable, model, root string, readRecords bool, privatePaths ...string) func(context.Context) (Think, func(), error) {
 	flags := []string{"--print", "--verbose", "--model", model, "--safe-mode", "--restricted",
 		"--permission-mode", "dontAsk", "--no-session-persistence", "--strict-mcp-config", "--disallowedTools", "mcp__*",
 		"--input-format", "stream-json", "--output-format", "stream-json"}
@@ -35,7 +34,7 @@ func Claude(executable, model, root string, readRecords bool, privatePaths ...st
 		flags = append(flags, "--tools", "")
 	}
 
-	return func(ctx context.Context) (Think, func()) {
+	return func(ctx context.Context) (Think, func(), error) {
 		var session *claudeStream
 		var temporary string
 		closeSession := func() {
@@ -76,7 +75,7 @@ func Claude(executable, model, root string, readRecords bool, privatePaths ...st
 				}
 			}
 			return result, err
-		}, closeSession
+		}, closeSession, nil
 	}
 }
 
@@ -84,23 +83,13 @@ func Claude(executable, model, root string, readRecords bool, privatePaths ...st
 // boundary. State and machine configuration can also be configured inside
 // the repository, so exclude the actual paths when applicable.
 func recordReadDeny(root string, privatePaths []string) []string {
-	patterns := []string{"./.git", "./.git/**", "./.lacia", "./.lacia/**",
-		"./.claude", "./.claude/**", "./local", "./local/**", "./runtime", "./runtime/**",
-		".env", ".env.*", "*.pem", "*.key", "secrets", "secrets/**"}
-	for _, p := range privatePaths {
-		if p == "" {
-			continue
-		}
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			continue
-		}
-		rel, err := filepath.Rel(root, abs)
-		if err != nil || !filepath.IsLocal(rel) || rel == "." {
-			continue
-		}
-		rel = "./" + filepath.ToSlash(rel)
-		patterns = append(patterns, rel, rel+"/**")
+	var patterns []string
+	for _, dir := range privateTop {
+		patterns = append(patterns, "./"+dir, "./"+dir+"/**")
+	}
+	patterns = append(patterns, privateAnywhere...)
+	for _, rel := range privateRel(root, privatePaths) {
+		patterns = append(patterns, "./"+rel, "./"+rel+"/**")
 	}
 	rules := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {

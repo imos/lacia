@@ -42,6 +42,10 @@ If you violate these terms, your license ends. However, the first time the licen
 
 The software is provided "as is", without warranty of any kind. Except in cases of intent or gross negligence on the licensor's part, the licensor's total liability for damages relating to the software is limited to 10,000 yen.
 
+## Starter Files
+
+The files under `internal/starter/files/` are the first content that the software writes into a new records repository. These terms do not apply to those files, to the copies of them that the software writes, or to changes made to those copies. Instead, you may use them under the MIT No Attribution license, whose text is in `internal/starter/LICENSE`.
+
 ## Other Terms
 
 These terms grant no rights other than those expressly stated. Third-party materials included in the software remain under their own licenses. These terms are governed by the laws of Japan. If the English and Japanese versions differ, the Japanese version prevails.
@@ -93,6 +97,10 @@ The **software** is the software the licensor makes available under these terms,
 ## 無保証と責任の制限
 
 本ソフトウェアは、現状のまま、いかなる保証もなく提供されます。権利者に故意又は重大な過失がある場合を除き、本ソフトウェアに関して権利者が負う損害賠償の責任は、合計1万円を上限とします。
+
+## 記録の初期の中身
+
+`internal/starter/files/` の下のファイルは、本ソフトウェアが新しい記録のリポジトリーへ書き出す、初期の中身です。これらのファイルと、本ソフトウェアが書き出したその写しと、写しを改変したものには、この条件を適用しません。これらは、代わりに MIT No Attribution ライセンスの条件で利用できます。その条文は、`internal/starter/LICENSE` にあります。
 
 ## そのほか
 

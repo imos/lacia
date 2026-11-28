@@ -14,11 +14,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/network"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/request"
 	"golang.org/x/sys/unix"
 )
@@ -102,7 +103,7 @@ func (w *Worker) call(ctx context.Context, path string, in, out any) error {
 	req.Header.Set("Content-Type", "application/json")
 	client := w.Client
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = network.Server(15 * time.Second)
 	}
 	copyClient := *client
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -219,12 +220,11 @@ func (w *Worker) Tick(ctx context.Context) error {
 	}
 	if len(w.Config.AuthCheck) > 0 {
 		probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := exec.CommandContext(probeCtx, w.Config.AuthCheck[0], w.Config.AuthCheck[1:]...).Run()
+		err := program.AuthCheck(w.Config.AuthCheck[0]).Command(probeCtx, w.Config.AuthCheck[1:]...).Run()
 		cancel()
 		if err != nil {
 			status := WaitingConnection
-			var exit *exec.ExitError
-			if errors.As(err, &exit) && exit.ExitCode() == 77 {
+			if code, ok := program.ExitCode(err); ok && code == 77 {
 				status = WaitingAuth
 			}
 			if saveErr := w.event(status); saveErr != nil {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 
@@ -26,7 +25,7 @@ func rulesFor() (root, owner string) {
 func runRules(args []string) error {
 	root, owner := rulesFor()
 	if len(args) > 1 {
-		return errors.New("使い方: lacia rules [名前 | list]")
+		return usageError("rules")
 	}
 	if len(args) == 1 && args[0] == "--session-json" {
 		current, err := rules.ReadSessionRules(root, owner)

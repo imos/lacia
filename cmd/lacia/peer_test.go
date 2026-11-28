@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/imos/lacia/internal/testrecords"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/imos/lacia/internal/request"
@@ -55,7 +56,7 @@ func TestPeerCommand(t *testing.T) {
 	if err := runPeer([]string{"status", id}); err != nil {
 		t.Errorf("lacia peer status: %v", err)
 	}
-	if err := runPeer(nil); err == nil || err.Error() != "使い方: lacia peer tell [--task ID] [--discord] [--wait] <文章|->、lacia peer status <伝言のID>" {
+	if err := runPeer(nil); err == nil || !strings.HasPrefix(err.Error(), "使い方:\n  lacia peer tell [--task ID]") {
 		t.Errorf("usage = %v", err)
 	}
 

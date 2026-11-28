@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -60,7 +61,7 @@ func (k *Keeper) updateImprovements(change func([]Improvement) []Improvement) []
 	defer k.mu.Unlock()
 	list := change(k.readImprovements())
 	data, _ := json.MarshalIndent(list, "", "  ")
-	if err := writeFile(k.improvePath(), append(data, '\n'), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(k.improvePath(), append(data, '\n'), 0o600); err != nil {
 		slog.Error("self improvements", "error", err)
 	}
 	return list

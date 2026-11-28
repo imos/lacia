@@ -310,7 +310,7 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
         menu.addItem(review)
         syncReviewItem = review
         menu.addItem(.separator())
-        for (title, selector) in [("通知を許可する", #selector(authorizeNotifications)), ("テストの通知を1件表示する", #selector(testNotification)), ("通知の設定を開く", #selector(openSettings)), ("このMacの設定ファイルを開く", #selector(openConfig)), ("終了する（常駐中は自動で起動し直します）", #selector(quit))] {
+        for (title, selector) in [("レイシアを開く", #selector(openHome)), ("通知を許可する", #selector(authorizeNotifications)), ("テストの通知を1件表示する", #selector(testNotification)), ("通知の設定を開く", #selector(openSettings)), ("このMacの設定ファイルを開く", #selector(openConfig)), ("終了する（常駐中は自動で起動し直します）", #selector(quit))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }
         statusItem?.menu = menu
@@ -346,6 +346,7 @@ final class App: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelega
     }
     @objc func openSettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!) }
     @objc func openConfig() { NSWorkspace.shared.open(configURL) }
+    @objc func openHome() { if let url = URL(string: siteBase(config()?.site) + "/") { NSWorkspace.shared.open(url) } }
     @objc func quit() { NSApp.terminate(nil) }
     @objc func testNotification() {
         let now = Date().timeIntervalSince1970

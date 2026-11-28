@@ -49,7 +49,8 @@ func TestWantsThread(t *testing.T) {
 }
 
 // fake is a minimal Discord: REST for one guild and a gateway that sends
-// whatever the test pushes.
+// whatever the test pushes. As Discord does, the gateway lets a dropped
+// session resume and replays the events after the client's last sequence.
 type fake struct {
 	t        *testing.T
 	mu       sync.Mutex
@@ -58,11 +59,26 @@ type fake struct {
 	history  map[string][]Message
 	channels map[string]Channel
 	events   chan string
+	sent     []string      // every event pushed; event i has sequence i+2, after READY
+	more     chan struct{} // closed when sent grows
+	dropAt   int           // the gateway drops the connection once after sending this sequence
+	beat     int           // heartbeat interval in milliseconds
+	resumes  int
 	server   *httptest.Server
 }
 
 func newFake(t *testing.T) *fake {
-	f := &fake{t: t, history: map[string][]Message{}, channels: map[string]Channel{}, events: make(chan string, 16)}
+	f := &fake{t: t, history: map[string][]Message{}, channels: map[string]Channel{}, events: make(chan string, 16), more: make(chan struct{}), beat: 1000}
+	go func() {
+		for payload := range f.events {
+			f.mu.Lock()
+			f.sent = append(f.sent, payload)
+			close(f.more)
+			f.more = make(chan struct{})
+			f.mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() { close(f.events) })
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/channels/{id}", func(w http.ResponseWriter, r *http.Request) {
 		c, ok := f.channels[r.PathValue("id")]
@@ -116,15 +132,37 @@ func newFake(t *testing.T) *fake {
 			return
 		}
 		defer conn.CloseNow()
-		ctx := r.Context()
-		conn.Write(ctx, websocket.MessageText, []byte(`{"op":10,"d":{"heartbeat_interval":50}}`))
-		_, identify, err := conn.Read(ctx)
-		if err != nil || !strings.Contains(string(identify), `"intents":33281`) || !strings.Contains(string(identify), "the-token") {
-			t.Errorf("identify = %s (%v)", identify, err)
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"op":10,"d":{"heartbeat_interval":%d}}`, f.beat)))
+		_, data, err := conn.Read(ctx)
+		var identify struct {
+			Op int
+			D  struct {
+				SessionID    string `json:"session_id"`
+				Intents, Seq int
+			}
+		}
+		if err == nil {
+			err = json.Unmarshal(data, &identify)
+		}
+		f.mu.Lock()
+		next := len(f.sent)
+		f.mu.Unlock()
+		switch {
+		case err == nil && identify.Op == 2 && identify.D.Intents == 33281 && strings.Contains(string(data), "the-token"):
+			conn.Write(ctx, websocket.MessageText, []byte(`{"op":0,"t":"READY","s":1,"d":{"session_id":"s","resume_gateway_url":"ws://unused","user":{"id":"1"}}}`))
+		case err == nil && identify.Op == 6 && identify.D.SessionID == "s" && strings.Contains(string(data), "the-token"):
+			next = identify.D.Seq - 1
+			f.mu.Lock()
+			f.resumes++
+			f.mu.Unlock()
+		default:
+			t.Errorf("identify = %s (%v)", data, err)
 			return
 		}
-		conn.Write(ctx, websocket.MessageText, []byte(`{"op":0,"t":"READY","s":1,"d":{"session_id":"s","resume_gateway_url":"ws://unused","user":{"id":"1"}}}`))
 		go func() {
+			defer cancel()
 			for {
 				_, data, err := conn.Read(ctx)
 				if err != nil {
@@ -135,14 +173,30 @@ func newFake(t *testing.T) *fake {
 				}
 			}
 		}()
-		seq := 1
 		for {
+			f.mu.Lock()
+			pending, more := f.sent[next:], f.more
+			f.mu.Unlock()
+			for _, payload := range pending {
+				next++
+				seq := next + 1
+				if conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"op":0,"t":"MESSAGE_CREATE","s":%d,"d":%s}`, seq, payload))) != nil {
+					return
+				}
+				f.mu.Lock()
+				drop := seq == f.dropAt
+				if drop {
+					f.dropAt = 0
+				}
+				f.mu.Unlock()
+				if drop {
+					return
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case payload := <-f.events:
-				seq++
-				conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"op":0,"t":"MESSAGE_CREATE","s":%d,"d":%s}`, seq, payload)))
+			case <-more:
 			}
 		}
 	})
@@ -190,6 +244,9 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 		t.Fatal("the bot never became ready")
 	}
 
+	f.mu.Lock()
+	f.dropAt = 8 // after the thread message, so the rest arrive on the resumed session
+	f.mu.Unlock()
 	f.events <- message("11", "100", "20", "明日の予定を教えて", "")
 	f.events <- message("11", "100", "20", "明日の予定を教えて", "")                                // the same message again
 	f.events <- message("12", "100", "1", "自分の投稿", "")                                     // the bot itself
@@ -202,11 +259,14 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 	f.events <- message("19", "100", "20", "スレッドで詳しく教えて", "")
 	f.events <- message("20", "100", "20", "", `,"attachments":[{"id":"400","filename":"a.png","url":"https://cdn.example/a.png"}]`)
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		mu.Lock()
 		n := len(got)
 		mu.Unlock()
+		f.mu.Lock()
+		n = min(n, len(f.reacted)) // a reaction follows its request
+		f.mu.Unlock()
 		if n >= 4 || time.Now().After(deadline) {
 			break
 		}
@@ -236,8 +296,8 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 	f.mu.Lock()
 	reacted := strings.Join(f.reacted, " ")
 	f.mu.Unlock()
-	if reacted != "11 16 19 20" {
-		t.Errorf("reactions = %q", reacted)
+	if reacted != "11 16 19 20" || f.resumes == 0 {
+		t.Errorf("reactions = %q, resumed %d times", reacted, f.resumes)
 	}
 
 	if err := bot.Send(context.Background(), "100", "r-abc", strings.Repeat("長い返事です。", 400)+"@everyone"); err != nil {
@@ -268,5 +328,38 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 	mu.Lock()
 	if last := got[len(got)-1]; len(got) != 5 || last.ID != "21" {
 		t.Errorf("after restart: %d requests, last %+v", len(got), last)
+	}
+}
+
+// A connection found dead while a message is handled must not cancel the
+// handling: the resumed session will not send that message again.
+func TestBotFinishesAMessageWhenTheConnectionDies(t *testing.T) {
+	f := newFake(t)
+	f.beat = 20 // a slow Receive keeps the acknowledgements unread, so the bot drops the connection
+	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, AnyHuman: true, State: filepath.Join(t.TempDir(), "discord.json"),
+		api: f.server.URL + "/api", gateway: "ws" + strings.TrimPrefix(f.server.URL, "http") + "/gateway"}
+	bot := New(cfg)
+	ready := make(chan struct{})
+	bot.Ready = func() { close(ready) }
+	bot.Receive = func(Incoming) (bool, error) { time.Sleep(200 * time.Millisecond); return true, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the bot never became ready")
+	}
+	f.events <- message("11", "100", "20", "明日の予定を教えて", "")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		f.mu.Lock()
+		reacted := strings.Join(f.reacted, " ")
+		f.mu.Unlock()
+		if reacted == "11" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reactions = %q", reacted)
+		}
 	}
 }

@@ -251,7 +251,7 @@ func TestLegacyRuntimeRequiresMigration(t *testing.T) {
 			os.MkdirAll(filepath.Join(root, ".lacia"), 0755)
 			os.WriteFile(filepath.Join(root, ConfigFile), []byte(config), 0644)
 		}
-		if _, err := Open(root); err == nil || !strings.Contains(err.Error(), "lacia migrate --dry-run") {
+		if _, err := Open(root); err == nil || !strings.Contains(err.Error(), "形式2の記録だけ") {
 			t.Fatalf("legacy runtime was opened: %v", err)
 		}
 		if _, err := os.Stat(filepath.Join(root, "areas")); !os.IsNotExist(err) {

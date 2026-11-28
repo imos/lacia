@@ -198,14 +198,11 @@ func LoadConfig(root string) (Config, error) {
 	return cfg, nil
 }
 
-// RequireCurrentFormat keeps older layouts available for migration and
-// diagnosis while requiring the current layout for normal operation.
+// RequireCurrentFormat refuses the older layouts before anything is written.
+// lacia doctor still reads them, to tell what it finds.
 func (c Config) RequireCurrentFormat() error {
-	switch c.Format {
-	case 0:
-		return fmt.Errorf("この記録は形式0です。lacia migrate --dry-run で変更内容を確かめ、lacia migrate を1回ずつ実行して形式1、形式2の順に移してください")
-	case 1:
-		return fmt.Errorf("この記録は形式1です。lacia migrate --dry-run で変更内容を確かめ、lacia migrate で形式2へ移してください")
+	if c.Format < LatestFormat {
+		return fmt.Errorf("この記録は形式%dです。この lacia は形式%dの記録だけを扱います。形式%dへ移すには、lacia migrate が入っている 2026-11-28 より前の版を使ってください", c.Format, LatestFormat, LatestFormat)
 	}
 	return nil
 }
@@ -1095,13 +1092,6 @@ func writeAtomic(path, content string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
-}
-
-func by(actor string) string {
-	if actor == "" {
-		return ""
-	}
-	return "（" + actor + "）"
 }
 
 func contains(list []string, v string) bool {

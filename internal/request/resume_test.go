@@ -3,6 +3,7 @@ package request
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -83,8 +84,8 @@ func TestWorkDoesNotRunWithoutDurableRunningState(t *testing.T) {
 	q, _ := Open(dir)
 	saved, _, _ := q.Add(Request{ID: "save-failure", TaskID: "T1001", Text: "request", Author: "owner"})
 	// The queued record remains readable, but starting work cannot be persisted.
-	blocked := q.path(&saved) + ".tmp"
-	if err := os.Mkdir(blocked, 0700); err != nil {
+	blocked := filepath.Dir(q.path(&saved))
+	if err := os.Chmod(blocked, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
@@ -97,7 +98,7 @@ func TestWorkDoesNotRunWithoutDurableRunningState(t *testing.T) {
 	if current.Status != Queued || !current.Started.IsZero() || !q.served["owner"].IsZero() {
 		t.Fatalf("failed claim was not restored: %+v", current)
 	}
-	if err := os.Remove(blocked); err != nil {
+	if err := os.Chmod(blocked, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	q, _ = Open(dir)

@@ -37,7 +37,7 @@ func runPeer(args []string) error {
 		return printTold(got, peerLabel())
 	}
 	if len(args) == 0 || args[0] != "tell" {
-		return errors.New("使い方: lacia peer tell [--task ID] [--discord] [--wait] <文章|->、lacia peer status <伝言のID>")
+		return usageError("peer")
 	}
 	fs := commandFlags("peer tell")
 	taskID := fs.String("task", "", "話の対象のタスクのID")

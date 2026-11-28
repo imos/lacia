@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // Session is one conversation the server has heard from.
@@ -159,12 +160,5 @@ func (r *Registry) save() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
-		return err
-	}
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, r.path)
+	return disk.WriteFileNoSync(r.path, data, 0o600)
 }

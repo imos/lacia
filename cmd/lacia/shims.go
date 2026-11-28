@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,7 +63,7 @@ func writeShims(dir, self string) error {
 // a machine where no server does it.
 func runShims(args []string) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-		return errors.New("使い方: lacia shims <置き場所のディレクトリー>")
+		return usageError("shims")
 	}
 	self, err := os.Executable()
 	if err != nil {

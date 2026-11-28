@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/imos/lacia/internal/chat"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -23,7 +23,7 @@ func sessionRules(ctx context.Context, root, executable string) rules.SessionRul
 	if usingReplacement {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, executable, "rules", "--session-json")
+		cmd := program.Lacia(executable).Command(ctx, "rules", "--session-json")
 		cmd.Dir = root
 		cmd.Env = []string{"LACIA_TASKS=" + root, "LACIA_USER=" + os.Getenv("LACIA_USER")}
 		cmd.WaitDelay = 250 * time.Millisecond

@@ -8,11 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/program"
 )
 
 // Forward opens a connection when the local environment is configured to
@@ -27,7 +28,7 @@ type Forward struct {
 	RemotePort int
 
 	mu   sync.Mutex
-	cmd  *exec.Cmd
+	cmd  *program.Cmd
 	done chan struct{}
 	last string // last line kubectl printed, for the log
 }
@@ -40,7 +41,7 @@ func (f *Forward) Start(ctx context.Context) error {
 		return fmt.Errorf("ポート %d はすでに使われています", f.LocalPort)
 	}
 	probe.Close()
-	cmd := exec.Command(f.Kubectl, "--context", f.Context, "-n", f.Namespace, "port-forward", "--address", "127.0.0.1",
+	cmd := program.Kubectl(f.Kubectl).Command(context.Background(), "--context", f.Context, "-n", f.Namespace, "port-forward", "--address", "127.0.0.1",
 		f.Target, strconv.Itoa(f.LocalPort)+":"+strconv.Itoa(f.RemotePort))
 	out, err := cmd.StdoutPipe()
 	if err != nil {

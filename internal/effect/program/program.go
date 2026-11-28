@@ -21,8 +21,8 @@ type Cmd = exec.Cmd
 
 func (p Program) Name() string { return p.name }
 
-// Command prepares the program to run. The caller sets the directory, the
-// environment and the streams on the returned command.
+// The caller sets the directory, the environment and the streams on the
+// returned command.
 func (p Program) Command(ctx context.Context, args ...string) *Cmd {
 	return exec.CommandContext(ctx, p.name, args...)
 }
@@ -45,7 +45,6 @@ func (p Program) Output(ctx context.Context, dir string, args ...string) ([]byte
 	return out, err
 }
 
-// Find reports where the program is, or why it cannot be started.
 func (p Program) Find() (string, error) { return exec.LookPath(p.name) }
 
 // Replace runs the program in place of this process, as a shell's exec

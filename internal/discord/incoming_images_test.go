@@ -46,7 +46,7 @@ func TestHistoryImagesOnlyReturnsRefsForPermittedMessages(t *testing.T) {
 		}
 	}))
 	defer api.Close()
-	bot := New(Config{GuildID: "500", Channels: []string{"100"}, Authors: []string{"300"}, State: filepath.Join(t.TempDir(), "state"), api: api.URL})
+	bot := New(Config{GuildID: "500", Channels: []string{"100"}, Authors: []string{"300"}, State: testDir(t, t.TempDir()), StateName: "state", api: api.URL})
 	refs, err := bot.HistoryImages(context.Background(), "100", "200")
 	if err != nil || len(refs) != 1 || refs[0] != (ImageRef{Channel: "100", Message: "200", Author: "300", Attachment: "400"}) {
 		t.Fatalf("unexpected refs: %v %v", refs, err)
@@ -117,7 +117,7 @@ func TestIncomingImagesRefreshValidateAndClean(t *testing.T) {
 				json.NewEncoder(w).Encode(m)
 			}))
 			defer api.Close()
-			bot := New(Config{Token: "synthetic-token", GuildID: "500", Channels: []string{"100"}, Authors: []string{"300"}, State: filepath.Join(t.TempDir(), "state"), api: api.URL})
+			bot := New(Config{Token: "synthetic-token", GuildID: "500", Channels: []string{"100"}, Authors: []string{"300"}, State: testDir(t, t.TempDir()), StateName: "state", api: api.URL})
 			bot.imageTransport = imageRoundTrip(func(r *http.Request) (*http.Response, error) {
 				downloads++
 				if r.Header.Get("Authorization") != "" || r.URL.Host != "cdn.discordapp.com" {
@@ -168,7 +168,7 @@ func TestIncomingImagesRefreshValidateAndClean(t *testing.T) {
 				}
 			}
 			cleanup()
-			entries, _ := os.ReadDir(bot.cfg.State + ".incoming-images")
+			entries, _ := os.ReadDir(filepath.Join(bot.cfg.State.Path(), bot.imagesName()))
 			if len(entries) != 0 {
 				t.Error("temporary images remain")
 			}
@@ -177,7 +177,7 @@ func TestIncomingImagesRefreshValidateAndClean(t *testing.T) {
 }
 
 func TestIncomingImagesRejectedBeforeAccess(t *testing.T) {
-	bot := New(Config{State: filepath.Join(t.TempDir(), "state")})
+	bot := New(Config{State: testDir(t, t.TempDir()), StateName: "state"})
 	bot.rest.http.Transport = imageRoundTrip(func(*http.Request) (*http.Response, error) {
 		t.Fatal("untrusted reference accessed network")
 		return nil, nil
@@ -190,12 +190,12 @@ func TestIncomingImagesRejectedBeforeAccess(t *testing.T) {
 }
 
 func TestIncomingImagesCleanAfterRestart(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
-	root := state + ".incoming-images"
+	dir := t.TempDir()
+	root := filepath.Join(dir, "state.incoming-images")
 	os.MkdirAll(filepath.Join(root, "turn-old"), 0700)
 	os.WriteFile(filepath.Join(root, "turn-old", "1.png"), []byte("private synthetic image"), 0600)
 	os.WriteFile(filepath.Join(root, "unrelated"), []byte("keep"), 0600)
-	New(Config{State: state})
+	New(Config{State: testDir(t, dir), StateName: "state"})
 	if _, err := os.Stat(filepath.Join(root, "turn-old")); !os.IsNotExist(err) {
 		t.Fatal("old images remain")
 	}

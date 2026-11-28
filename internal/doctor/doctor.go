@@ -22,17 +22,17 @@ import (
 	"github.com/imos/lacia/internal/task"
 )
 
-// Known are the top-level names lacia reads and writes in a repository of
-// format 1 or 2, including names from the legacy schedule layout.
+// Known are the top-level names lacia reads and writes, including the
+// schedules/ and routines/ of older layouts, which are pointed out on their
+// own.
 var Known = []string{".lacia", "AGENTS.md", "CLAUDE.md", "README.md", "TODO.md", "rules", "memory", "schedules", "routines", "log", "areas", "archive", "local"}
 
 // template are the top-level names the template adds to Known.
 var template = []string{"LACIA_SOURCE", "LACIA_VERSION", "Makefile", "tools"}
 
-// taskEntries are what a task directory of format 1 may hold.
+// taskEntries are what a task directory may hold.
 var taskEntries = map[string]bool{"task.md": true, "notes.md": true, task.HistoryFile: true, task.ArtifactsDir: true, task.FilesDir: true}
 
-// MaxBrokenShown is how many broken links the report lists.
 const MaxBrokenShown = 20
 
 // Report is the result of a check. Errors are what must be fixed; Notes
@@ -67,38 +67,33 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 		r.errorf("%v", err)
 		return r
 	}
-	if cfg.Format >= 1 {
-		checkLayout(&r, root, cfg)
-	}
-	if cfg.Format >= task.AreaRoutineFormat {
-		checkAreaRoutines(&r, root, cfg)
-	}
-	jobs := schedule.Load(root)
-	if cfg.Format >= 1 {
-		store, err := task.Open(root)
-		if err != nil {
-			r.errorf("タスクを読めません: %v", err)
-		} else {
-			for _, p := range store.Problems() {
-				r.errorf("%s を読めません: %s", p.Path, p.Err)
-			}
-			tasks := store.List()
-			byID := map[string]task.Task{}
-			for _, t := range tasks {
-				byID[t.ID] = t
-			}
-			for _, t := range tasks {
-				for _, w := range task.StateWarnings(t, byID, context) {
-					r.notef("%s: %s", t.ID, w)
-				}
-				checkTask(&r, root, t)
-			}
-			checkProjects(&r, root, cfg)
-			checkDocuments(&r, root, cfg, jobs)
-		}
-	}
 	if err := cfg.RequireCurrentFormat(); err != nil {
 		r.notef("%v", err)
+		return r
+	}
+	checkLayout(&r, root, cfg)
+	checkAreaRoutines(&r, root, cfg)
+	jobs := schedule.Load(root)
+	store, err := task.Open(root)
+	if err != nil {
+		r.errorf("タスクを読めません: %v", err)
+	} else {
+		for _, p := range store.Problems() {
+			r.errorf("%s を読めません: %s", p.Path, p.Err)
+		}
+		tasks := store.List()
+		byID := map[string]task.Task{}
+		for _, t := range tasks {
+			byID[t.ID] = t
+		}
+		for _, t := range tasks {
+			for _, w := range task.StateWarnings(t, byID, context) {
+				r.notef("%s: %s", t.ID, w)
+			}
+			checkTask(&r, root, t)
+		}
+		checkProjects(&r, root, cfg)
+		checkDocuments(&r, root, cfg, jobs)
 	}
 	for _, job := range jobs {
 		if job.Err != "" {
@@ -109,7 +104,7 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 		}
 	}
 	checkTaskSetting(&r, root, cfg)
-	checkIgnore(&r, root, cfg.Format)
+	checkIgnore(&r, root)
 	if links {
 		checkLinks(&r, root)
 	}
@@ -129,9 +124,6 @@ func checkTaskSetting(r *Report, root string, cfg task.Config) {
 	if isFile(filepath.Join(root, "TODO.md")) {
 		r.notef("この記録はタスクを持たない使い方なので、サーバーは TODO.md を作りません。残っている TODO.md は、消して構いません。")
 	}
-	if cfg.Format < 1 {
-		return
-	}
 	store, err := task.Open(root)
 	if err != nil {
 		return
@@ -143,7 +135,7 @@ func checkTaskSetting(r *Report, root string, cfg task.Config) {
 	}
 }
 
-// checkLayout looks at the top of a repository of format 1 or 2.
+// checkLayout looks at the top of a repository.
 func checkLayout(r *Report, root string, cfg task.Config) {
 	known := map[string]bool{}
 	for _, name := range append(append([]string{}, Known...), template...) {
@@ -191,7 +183,7 @@ func checkAreaRoutines(r *Report, root string, cfg task.Config) {
 		"scripts": true, "ledger.json": true, task.HistoryFile: true, task.ArtifactsDir: true, task.FilesDir: true,
 	}
 	for _, area := range cfg.Areas {
-		base := task.RoutineBase(cfg.Format, area)
+		base := task.RoutineBase(area)
 		routines, err := os.ReadDir(filepath.Join(root, base))
 		if os.IsNotExist(err) {
 			continue
@@ -220,7 +212,7 @@ func checkAreaRoutines(r *Report, root string, cfg task.Config) {
 	}
 }
 
-// checkTask looks at the files of one task of format 1.
+// checkTask looks at the files of one task.
 func checkTask(r *Report, root string, t task.Task) {
 	entries, err := os.ReadDir(filepath.Join(root, t.Dir))
 	if err != nil {
@@ -271,7 +263,7 @@ func checkHistory(r *Report, file, rel string) {
 // projects, and at the histories of the projects.
 func checkProjects(r *Report, root string, cfg task.Config) {
 	for _, area := range cfg.Areas {
-		dir := task.AreaDir(cfg.Format, area) + "/projects"
+		dir := task.AreaDir(area) + "/projects"
 		entries, _ := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -288,21 +280,15 @@ func checkProjects(r *Report, root string, cfg task.Config) {
 }
 
 // checkIgnore looks for the lines .gitignore needs: local/, the clone of the
-// code under .lacia/source/, and files/ of the tasks stay out of Git.
-func checkIgnore(r *Report, root string, format int) {
+// code under .lacia/source/, and files/ of the tasks and routines stay out of
+// Git.
+func checkIgnore(r *Report, root string) {
 	data, _ := os.ReadFile(filepath.Join(root, ".gitignore"))
 	have := map[string]bool{}
 	for _, line := range strings.Split(string(data), "\n") {
 		have[strings.TrimSpace(line)] = true
 	}
-	files := "/*/tasks/*/*/files/"
-	if format >= 1 {
-		files = "/areas/*/tasks/*/*/files/"
-	}
-	wants := []string{"/local/", "/.lacia/source/", files}
-	if format >= task.AreaRoutineFormat {
-		wants = append(wants, "/areas/*/routines/*/files/")
-	}
+	wants := []string{"/local/", "/.lacia/source/", "/areas/*/tasks/*/*/files/", "/areas/*/routines/*/files/"}
 	var missing []string
 	for _, want := range wants {
 		if !have[want] {

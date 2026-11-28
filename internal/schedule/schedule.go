@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/task"
 )
@@ -102,12 +101,8 @@ func LoadIn(root string, loc *time.Location) []Job {
 
 func loadIn(root string, cfg task.Config, loc *time.Location) []Job {
 	paths := map[string]string{}
-	areas := cfg.Areas
-	if cfg.Format < task.AreaRoutineFormat {
-		areas = []string{""}
-	}
-	for _, area := range areas {
-		matches, _ := filepath.Glob(filepath.Join(root, task.RoutineBase(cfg.Format, area), "*", "routine.md"))
+	for _, area := range cfg.Areas {
+		matches, _ := filepath.Glob(filepath.Join(root, task.RoutineBase(area), "*", "routine.md"))
 		for _, filename := range matches {
 			paths[filename] = area
 		}
@@ -188,35 +183,15 @@ func loadIn(root string, cfg task.Config, loc *time.Location) []Job {
 		if name == "README" {
 			continue
 		}
-		if cfg.Format >= task.AreaRoutineFormat {
-			rel, _ := filepath.Rel(root, path)
-			jobs = append(jobs, Job{Name: name, Path: rel, Err: "形式2では schedules/ の定義は実行しません。areas/<領域>/routines/<ID>/routine.md へ移してください"})
-			continue
-		}
-		// Even an invalid replacement suppresses the old definition: an error
-		// must not accidentally reactivate the previous schedule.
-		if _, replaced := aliases[name]; replaced {
-			continue
-		}
-		job := Job{Name: name, Enabled: true, location: loc}
-		job.Path, _ = filepath.Rel(root, path)
-		data, err := os.ReadFile(path)
-		if err == nil {
-			err = parse(string(data), &job)
-		}
-		if err == nil && !namePattern.MatchString(name) {
-			err = fmt.Errorf("ファイル名には英小文字、数字、ハイフンだけを使えます")
-		}
-		if err != nil {
-			job.Err, job.Enabled = err.Error(), false
-		}
-		jobs = append(jobs, job)
+		rel, _ := filepath.Rel(root, path)
+		jobs = append(jobs, Job{Name: name, Path: rel, Err: "形式2では schedules/ の定義は実行しません。areas/<領域>/routines/<ID>/routine.md へ移してください"})
 	}
 	return jobs
 }
 
-// ValidName accepts both fixed routine IDs and historical schedule slugs.
-func ValidName(name string) bool {
+// ValidLegacyName accepts the name a routine had before: the name of a
+// definition in schedules/, or an older routine ID.
+func ValidLegacyName(name string) bool {
 	return task.ValidRoutineID(name) || namePattern.MatchString(name)
 }
 
@@ -230,14 +205,14 @@ func Resolve(root, name string) (Job, bool) {
 	return Job{}, false
 }
 
-// ResolveWait accepts an empty value to clear a wait or resolves a schedule
-// name to the fixed ID used in its execution history.
+// ResolveWait accepts an empty value to clear a wait or resolves a routine,
+// also by its former name, to the ID used in its execution history.
 func ResolveWait(root, value string) (string, error) {
 	name := strings.TrimSpace(value)
 	if name == "" {
 		return "", nil
 	}
-	if job, ok := Resolve(root, name); ok && ValidName(job.Name) {
+	if job, ok := Resolve(root, name); ok && task.ValidRoutineID(job.Name) {
 		return job.Name, nil
 	}
 	return "", fmt.Errorf("%q という定期タスクは見つかりません。定期タスクのIDを指定してください", name)
@@ -279,7 +254,7 @@ func parse(src string, job *Job) error {
 			}
 		}
 	}
-	if job.LegacyName != "" && !ValidName(job.LegacyName) {
+	if job.LegacyName != "" && !ValidLegacyName(job.LegacyName) {
 		return fmt.Errorf("legacy_name には旧予約の名前か旧IDを指定してください")
 	}
 	if job.ID != "" && doc.Get("id") != job.ID {
@@ -296,8 +271,6 @@ func parse(src string, job *Job) error {
 	}
 	if value := doc.Get("matters_task"); value != "" {
 		switch {
-		case job.ID == "":
-			return fmt.Errorf("matters_task は固定IDの定期タスクで使えます")
 		case !task.ValidRoutineID(value):
 			return fmt.Errorf("matters_task には S1001 のような定期タスクのIDを指定してください")
 		case value == job.ID:
@@ -504,7 +477,7 @@ type Runner struct {
 	Root       string // task repository
 	Location   *time.Location
 	TaskClosed func(string) bool
-	State      string        // file remembering the last slot of each job
+	State      StateFile     // remembers the last slot of each job
 	Grace      time.Duration // how late a daily job may still run
 	// Submit queues one occurrence. id is stable for the slot, so a
 	// repeated submit is harmless.
@@ -539,7 +512,7 @@ func (r *Runner) load() {
 		return
 	}
 	r.last = map[string]string{}
-	if data, err := os.ReadFile(r.State); err == nil {
+	if data, err := r.State.read(); err == nil {
 		json.Unmarshal(data, &r.last)
 	}
 	r.seen, _ = time.Parse(time.RFC3339, r.last[tickKey])
@@ -600,7 +573,7 @@ func (r *Runner) Tick(now time.Time) error {
 		r.seen = now
 		r.last[tickKey] = now.UTC().Format(time.RFC3339)
 		data, _ := json.MarshalIndent(r.last, "", "  ")
-		if err := disk.WriteFileNoSync(r.State, append(data, '\n'), 0o600); err != nil {
+		if err := r.State.Dir.WriteFileNoSync(r.State.Name, append(data, '\n'), 0o600); err != nil {
 			return err
 		}
 	}

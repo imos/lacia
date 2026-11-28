@@ -93,7 +93,7 @@ func TestRoutineActionReceiptsKeepLegacyLinksAndHistory(t *testing.T) {
 		ID: "occurrence", Request: "legacy", At: time.Date(2026, 11, 30, 9, 0, 0, 0, task.JST),
 		Outcome: schedule.RunPartial, Checks: []routine.Check{{Scope: "cluster", Status: "unverified", Reason: "通信エラー"}},
 	}
-	runPath := filepath.Join(s.Store.Root(), "routines", "S1001", "runs", "2026-11", "runs.jsonl")
+	runPath := filepath.Join(s.Store.Root(), "areas", "work", "routines", "S1001", "runs", "2026-11", "runs.jsonl")
 	if err := os.MkdirAll(filepath.Dir(runPath), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestRoutineActionNoticeAcknowledgementIsSeparateFromReceipt(t *testing.T) {
 func TestRoutineActionRecordsWithoutTasks(t *testing.T) {
 	s, _ := setupRoutine(t)
 	root := s.Store.Root()
-	if err := os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format":1,"areas":["work"],"tasks":false}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format":2,"areas":["work"],"tasks":false}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	store, err := task.Open(root)

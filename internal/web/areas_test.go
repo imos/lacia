@@ -13,12 +13,12 @@ import (
 // orderHeadingForTest is the section of project.md that orders the tasks.
 const orderHeadingForTest = "取りかかる順"
 
-// A repository of format 1 keeps its areas under areas/ and its history in
-// log.jsonl; the pages read both from there.
-func TestFormat1Pages(t *testing.T) {
+// A repository keeps its areas under areas/ and its history in log.jsonl;
+// the pages read both from there.
+func TestAreaPages(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
-	os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format": 1, "areas": ["work"]}`), 0o644)
+	os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format": 2, "areas": ["work"]}`), 0o644)
 	store, err := task.Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestFormat1Pages(t *testing.T) {
 		t.Errorf("project history:\n%s", data)
 	}
 	if _, err := os.Stat(filepath.Join(dir, task.LogFile)); !os.IsNotExist(err) {
-		t.Errorf("format 1 wrote log.md for the project: %v", err)
+		t.Errorf("log.md was written for the project: %v", err)
 	}
 	code, page, _ = get(t, h, "/projects/work/alpha")
 	if code != 200 || !strings.Contains(page, `href="/projects/work/alpha/log"`) || !strings.Contains(page, "1つ前に移しました。（Web）") || strings.Contains(page, "log.jsonl</a>") {
@@ -84,40 +84,34 @@ func TestFormat1Pages(t *testing.T) {
 
 // lacia project note writes to the project's history through the server.
 func TestProjectNote(t *testing.T) {
-	for _, format := range []int{1} {
-		root := t.TempDir()
-		os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
-		os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format": `+string(rune('0'+format))+`, "areas": ["work", "personal"]}`), 0o644)
-		store, err := task.Open(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, area := range []string{"work", "personal"} {
-			dir := filepath.Join(root, task.AreaDir(format, area), "projects", "alpha")
-			os.MkdirAll(dir, 0o755)
-			os.WriteFile(filepath.Join(dir, "project.md"), []byte("---\ntitle: アルファ\n---\n"), 0o644)
-		}
-		h, _ := (&Server{Store: store}).Handler()
-		post := func(body string) int {
-			req := httptest.NewRequest("POST", "/api/projects/notes", strings.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
-			return rec.Code
-		}
-		if code := post(`{"project": "alpha", "log": "順を変えました。"}`); code != 404 {
-			t.Errorf("format %d: an ambiguous name got %d", format, code)
-		}
-		if code := post(`{"project": "work/alpha", "log": "順を変えました。\n理由です。", "actor": "local-claude"}`); code != 200 {
-			t.Fatalf("format %d: note got %d", format, code)
-		}
-		data, _ := os.ReadFile(filepath.Join(root, task.AreaDir(format, "work"), "projects", "alpha", task.LogName(format)))
-		want := `"type":"note","by":"local-claude","text":"順を変えました。\n理由です。"`
-		if format == 0 {
-			want = "# アルファ の履歴\n- "
-		}
-		if !strings.Contains(string(data), want) || format == 0 && !strings.HasSuffix(string(data), " 順を変えました。 理由です。（local-claude）\n") {
-			t.Errorf("format %d: history =\n%s", format, data)
-		}
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
+	os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format": 2, "areas": ["work", "personal"]}`), 0o644)
+	store, err := task.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, area := range []string{"work", "personal"} {
+		dir := filepath.Join(root, task.AreaDir(area), "projects", "alpha")
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "project.md"), []byte("---\ntitle: アルファ\n---\n"), 0o644)
+	}
+	h, _ := (&Server{Store: store}).Handler()
+	post := func(body string) int {
+		req := httptest.NewRequest("POST", "/api/projects/notes", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"project": "alpha", "log": "順を変えました。"}`); code != 404 {
+		t.Errorf("an ambiguous name got %d", code)
+	}
+	if code := post(`{"project": "work/alpha", "log": "順を変えました。\n理由です。", "actor": "local-claude"}`); code != 200 {
+		t.Fatalf("note got %d", code)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, task.AreaDir("work"), "projects", "alpha", task.HistoryFile))
+	if want := `"type":"note","by":"local-claude","text":"順を変えました。\n理由です。"`; !strings.Contains(string(data), want) {
+		t.Errorf("history =\n%s", data)
 	}
 }

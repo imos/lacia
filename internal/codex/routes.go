@@ -2,12 +2,10 @@ package codex
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sync"
-
-	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // Routes are runtime state, kept outside Git. A turn is bound before any
@@ -33,8 +31,8 @@ func (b *Bridge) loadRoutes() error {
 	if r.loaded {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(b.cfg.StateDir, "child-routes.json"))
-	if err != nil && !os.IsNotExist(err) {
+	data, err := b.cfg.State.ReadFile("child-routes.json")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if len(data) > 0 {
@@ -57,7 +55,7 @@ func (b *Bridge) saveRoutes() error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFile(filepath.Join(b.cfg.StateDir, "child-routes.json"), data, 0o600)
+	return b.cfg.State.WriteFile("child-routes.json", data, 0o600)
 }
 
 func (b *Bridge) awaitingTurn(awaiting bool) {

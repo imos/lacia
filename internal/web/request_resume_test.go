@@ -18,7 +18,7 @@ import (
 
 func TestRequestResumeAPIAndWeb(t *testing.T) {
 	store, _ := setup(t)
-	q, _ := request.Open(t.TempDir())
+	q, _ := request.Open(testDir(t, t.TempDir()))
 	s := &Server{Store: store, Requests: q}
 	h, _ := s.Handler()
 	q.Add(request.Request{ID: "original-request", TaskID: "T1002", Text: "private-original"})
@@ -57,7 +57,7 @@ func TestRequestResumeAPIAndWeb(t *testing.T) {
 
 func TestRequestAdmissionDoesNotCopyTextAndDeduplicates(t *testing.T) {
 	store, _ := setup(t)
-	q, _ := request.Open(t.TempDir())
+	q, _ := request.Open(testDir(t, t.TempDir()))
 	s := &Server{Store: store, Requests: q}
 	h, _ := s.Handler()
 	const private = "private-request-marker-should-not-enter-git"

@@ -28,10 +28,10 @@ func TestMentionChannelsAcceptOnlyDirectMentionsFromPermittedPeople(t *testing.T
 	dir := t.TempDir()
 	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, MentionAllChannels: true,
 		Members: []Member{{ID: "20", Name: "許可ユーザー", Role: Adult}, {ID: "21", Name: "一時停止中のユーザー", Role: Child}},
-		State:   filepath.Join(dir, "discord.json"), api: f.server.URL + "/api"}
+		State:   testDir(t, dir), StateName: "discord.json", api: f.server.URL + "/api"}
 	bot := New(cfg)
 	bot.botID = "1"
-	bot.Log = daylog.Discord(filepath.Join(dir, "log"))
+	bot.Log = daylog.Discord(testDir(t, dir), "log")
 
 	var got []string
 	bot.Receive = func(in Incoming) (bool, error) {
@@ -96,7 +96,7 @@ func TestMentionChannelsRecoverFromTheirFirstRequestAfterRestart(t *testing.T) {
 		f.channels[id] = Channel{ID: id, GuildID: "G"}
 	}
 	cfg := Config{GuildID: "G", Channels: []string{"100"}, MentionAllChannels: true, Authors: []string{"20"},
-		State: filepath.Join(t.TempDir(), "discord.json"), api: f.server.URL + "/api"}
+		State: testDir(t, t.TempDir()), StateName: "discord.json", api: f.server.URL + "/api"}
 	authorMessage := func(id, channel, text string) Message {
 		m := Message{ID: id, ChannelID: channel, Content: text}
 		m.Author.ID = "20"
@@ -152,7 +152,7 @@ func TestMentionChannelAttachmentsKeepGuildChannelAndAuthorChecks(t *testing.T) 
 	}))
 	defer api.Close()
 	bot := New(Config{GuildID: "G", Channels: []string{"100"}, MentionAllChannels: true, Authors: []string{"20"},
-		State: filepath.Join(t.TempDir(), "discord.json"), api: api.URL})
+		State: testDir(t, t.TempDir()), StateName: "discord.json", api: api.URL})
 	bot.state.MentionChannels["300"] = true
 	bot.state.MentionChannels["301"] = true
 	refs, err := bot.HistoryImages(context.Background(), "300", "550")

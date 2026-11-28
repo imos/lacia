@@ -23,7 +23,7 @@ func soon(store *task.Store) (time.Time, string) {
 
 func TestARecheckIsRegisteredAskedAndRecordedThroughTheAPI(t *testing.T) {
 	store, s, handler, _ := setupWaits(t)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

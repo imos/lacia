@@ -37,24 +37,10 @@ var (
 	borrowedVerb = regexp.MustCompile(`[A-Za-z]{3,}(する|して|した|済み)`)
 )
 
-// Lint checks the body of a task.md of format 0 against the writing rules
-// in docs/design/writing.md that can be checked mechanically.
-func Lint(body string) []Warning { return LintFormat(body, 0) }
-
-// historyWord says where the history goes, for the advice of the checks.
-func historyWord(format int) string {
-	if format >= 1 {
-		return "履歴（lacia task note）"
-	}
-	return "履歴（log.md）"
-}
-
-// LintFormat is Lint for a repository of the given format.
-func LintFormat(body string, format int) []Warning {
-	var out []Warning
-	if format >= 1 {
-		out = append(out, LintContent(body)...)
-	}
+// Lint checks the body of a task.md against the writing rules in
+// docs/design/writing.md that can be checked mechanically.
+func Lint(body string) []Warning {
+	out := LintContent(body)
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if len(lines) > MaxBodyLines {
 		out = append(out, Warning{0, fmt.Sprintf("本文が%d行あります。%d行を超える内容は notes.md か成果物へ移してください。", len(lines), MaxBodyLines)})
@@ -82,7 +68,7 @@ func LintFormat(body string, format int) []Warning {
 			add("「%s」で終わる文があります。だれが何をしたのか、これからするのかを、動詞で書いてください。", m)
 		}
 		if m := machineID.FindString(line); m != "" {
-			add("「%s」のようなIDやハッシュは、本文ではなく%sに書いてください。", m, historyWord(format))
+			add("「%s」のようなIDやハッシュは、本文ではなく履歴（lacia task note）に書いてください。", m)
 		}
 		if m := borrowedVerb.FindString(line); m != "" {
 			add("「%s」は英語をそのまま動詞にしています。日本語の動詞で書いてください。", m)
@@ -91,45 +77,24 @@ func LintFormat(body string, format int) []Warning {
 	return out
 }
 
-// Headings a task.md may use, in format 0 and in format 1. Anything longer
+// allowedHeadings are the headings a task.md may use. Anything longer
 // belongs in notes.md.
-var (
-	allowedHeadings  = map[string]bool{"いまの状況": true, "次にすること": true, "見ていただくもの": true}
-	allowedHeadings1 = map[string]bool{"ひとことで": true, "このタスクを作ったわけ": true, "次にすること": true, "今回したこと": true, "いまの状況": true, "いまの資料": true}
-)
+var allowedHeadings = map[string]bool{"ひとことで": true, "このタスクを作ったわけ": true, "次にすること": true, "今回したこと": true, "いまの状況": true, "いまの資料": true}
 
-// Summary is the section a new task.md starts with: what the task is and
-// how far it has come.
-func Summary(format int) string {
-	if format >= 1 {
-		return "ひとことで"
-	}
-	return "いまの状況"
-}
-
-// Body is the text of a new task.md: the summary and the next step.
-func Body(format int, summary, next string) string {
-	return "## " + Summary(format) + "\n\n" + summary + "\n\n## 次にすること\n\n" + next + "\n"
+func Body(summary, next string) string {
+	return "## ひとことで\n\n" + summary + "\n\n## 次にすること\n\n" + next + "\n"
 }
 
 // Placeholder is what `lacia task new` writes where text is still missing.
 const Placeholder = "（まだ書かれていません）"
 
-// Check looks at the shape of a task of format 0: the sections task.md must
-// have, and files that do not belong in the task directory. It complements
-// Lint, which looks at the wording.
-func Check(t Task, files []string) []Warning { return CheckFormat(t, files, 0) }
-
-// CheckFormat is Check for a repository of the given format.
-func CheckFormat(t Task, files []string, format int) []Warning {
-	logName := LogName(format)
-	out := ShapeProblems(t, format)
+// Check looks at the shape of a task: the sections task.md must have, and
+// files that do not belong in the task directory. It complements Lint,
+// which looks at the wording.
+func Check(t Task, files []string) []Warning {
+	out := ShapeProblems(t)
 	if t.Status != Todo && strings.Contains(t.Body, Placeholder) {
-		what := "いまの状況と次にすること"
-		if format >= 1 {
-			what = "「ひとことで」と「次にすること」"
-		}
-		out = append(out, Warning{0, "「" + Placeholder + "」が残っています。着手したら、" + what + "を書いてください。"})
+		out = append(out, Warning{0, "「" + Placeholder + "」が残っています。着手したら、「ひとことで」と「次にすること」を書いてください。"})
 	}
 	next := Section(t.Body, "次にすること")
 	switch t.Status {
@@ -152,7 +117,7 @@ func CheckFormat(t Task, files []string, format int) []Warning {
 	}
 	for _, f := range files {
 		switch {
-		case f == "task.md", f == "notes.md", f == logName, strings.HasPrefix(f, "artifacts/"), strings.HasPrefix(f, "files/"):
+		case f == "task.md", f == "notes.md", f == HistoryFile, strings.HasPrefix(f, "artifacts/"), strings.HasPrefix(f, "files/"):
 		default:
 			out = append(out, Warning{0, fmt.Sprintf("%s は、タスクのディレクトリーに置くファイルではありません。見ていただくものは artifacts/ か files/ に、作業用のものはGitに入れない local/ に置いてください。", f)})
 		}
@@ -163,13 +128,9 @@ func CheckFormat(t Task, files []string, format int) []Warning {
 // ShapeProblems lists what breaks the shape of a task.md: headings it may
 // not use, and the sections it must have. A direct write (Store.WriteDoc)
 // refuses a body with any of these, since pages and other conversations
-// read the task by its sections; everything else CheckFormat and LintFormat
-// find is advice.
-func ShapeProblems(t Task, format int) []Warning {
-	history, allowed := "経過は log.md に書いてください", allowedHeadings
-	if format >= 1 {
-		history, allowed = "経過は lacia task note で履歴に書いてください", allowedHeadings1
-	}
+// read the task by its sections; everything else Check and Lint find is
+// advice.
+func ShapeProblems(t Task) []Warning {
 	var out []Warning
 	seen := map[string]bool{}
 	previous := ""
@@ -185,20 +146,20 @@ func ShapeProblems(t Task, format int) []Warning {
 		switch {
 		case !strings.HasPrefix(line, "## "):
 			out = append(out, Warning{i + 1, fmt.Sprintf("見出し「%s」の書式が違います。task.md の見出しは「## 」で始めてください。", name)})
-		case !allowed[name]:
-			out = append(out, Warning{i + 1, fmt.Sprintf("「%s」という見出しは task.md では使いません。背景や条件は notes.md に、%s。", name, history)})
+		case !allowedHeadings[name]:
+			out = append(out, Warning{i + 1, fmt.Sprintf("「%s」という見出しは task.md では使いません。背景や条件は notes.md に、経過は lacia task note で履歴に書いてください。", name)})
 		case seen[name]:
 			out = append(out, Warning{i + 1, fmt.Sprintf("見出し「%s」が2回あります。", name)})
-		case format >= 1 && name == "このタスクを作ったわけ" && (previous != "ひとことで" || seen["次にすること"]):
+		case name == "このタスクを作ったわけ" && (previous != "ひとことで" || seen["次にすること"]):
 			out = append(out, Warning{i + 1, "「このタスクを作ったわけ」は、「ひとことで」の直後、「次にすること」の前に置いてください。"})
 		}
 		seen[name] = true
 		previous = name
 	}
-	// A task written before format 1 has no summary yet, only the state;
-	// either says what the task is.
-	if !seen["いまの状況"] && (format < 1 || !seen["ひとことで"]) {
-		out = append(out, Warning{0, "「## " + Summary(format) + "」がありません。"})
+	// A task written before 「ひとことで」 has only the state; either says
+	// what the task is.
+	if !seen["いまの状況"] && !seen["ひとことで"] {
+		out = append(out, Warning{0, "「## ひとことで」がありません。"})
 	}
 	if !t.Status.Closed() && !seen["次にすること"] {
 		out = append(out, Warning{0, "「## 次にすること」がありません。だれが次に何をするのかを書いてください。"})
@@ -261,7 +222,6 @@ func onlyAsksToLook(next string) bool {
 	return false
 }
 
-// namesReviewer reports whether the text says who is to look at the task.
 func namesReviewer(text string) bool {
 	names := reviewers
 	if names == nil {

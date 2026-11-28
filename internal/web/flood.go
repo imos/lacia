@@ -132,7 +132,7 @@ func (s *Server) floodWrote(ref string, sess caller.Session, known bool, what, c
 	}
 	why := fmt.Sprintf("%s%s からこのタスクへの書き込みを、%s まで止めます。スクリプトや定期実行の設定（launchctl など）を確かめてください。",
 		reason, actorFor("", sess, known), until.In(s.Store.Location()).Format("15:04"))
-	if _, _, err := s.Store.Stop(id, why); err == nil && s.Changed != nil {
-		s.Changed()
+	if _, _, err := s.Store.Stop(id, why); err == nil {
+		s.changed()
 	}
 }

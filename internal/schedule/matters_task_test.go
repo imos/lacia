@@ -20,10 +20,10 @@ func TestMattersTaskNamesAnotherRoutine(t *testing.T) {
 		{name: "other output", source: "output: task\nmatters_task: S1012\n", want: "output: matters"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			root := t.TempDir()
-			putDefinition(t, root, "routines/S1012/routine.md", definition("S1012", c.target))
-			putDefinition(t, root, "routines/S1013/routine.md", definition("S1013", c.source))
-			putDefinition(t, root, "routines/S1014/routine.md", definition("S1014", ""))
+			root := newRecords(t)
+			putDefinition(t, root, "areas/work/routines/S1012/routine.md", definition("S1012", c.target))
+			putDefinition(t, root, "areas/work/routines/S1013/routine.md", definition("S1013", c.source))
+			putDefinition(t, root, "areas/work/routines/S1014/routine.md", definition("S1014", ""))
 			jobs := Load(root)
 			if len(jobs) != 3 || jobs[1].ID != "S1013" {
 				t.Fatalf("jobs: %+v", jobs)
@@ -40,11 +40,6 @@ func TestMattersTaskNamesAnotherRoutine(t *testing.T) {
 				t.Fatalf("a routine without the field changed: %+v", jobs[2])
 			}
 		})
-	}
-	root := t.TempDir()
-	putDefinition(t, root, "schedules/mail.md", "---\nmatters_task: S1012\ndaily: 09:00\n---\n確認します。")
-	if jobs := Load(root); len(jobs) != 1 || !strings.Contains(jobs[0].Err, "固定IDの定期タスク") {
-		t.Fatalf("legacy schedule: %+v", jobs)
 	}
 }
 

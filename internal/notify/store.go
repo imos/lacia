@@ -18,8 +18,8 @@ var (
 )
 
 // LoadState reads the state file. A missing file is a first run.
-func LoadState(path string) (*State, error) {
-	raw, err := os.ReadFile(path)
+func LoadState(dir *disk.Dir, name string) (*State, error) {
+	raw, err := dir.ReadFile(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return NewState(), nil
 	}
@@ -28,7 +28,7 @@ func LoadState(path string) (*State, error) {
 	}
 	state := &State{}
 	if err := json.Unmarshal(raw, state); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Join(dir.Path(), name), err)
 	}
 	if state.Version != Version {
 		return nil, ErrStateVersion
@@ -38,9 +38,9 @@ func LoadState(path string) (*State, error) {
 }
 
 // SaveState writes the state file atomically with mode 0600.
-func SaveState(path string, state *State) error {
+func SaveState(dir *disk.Dir, name string, state *State) error {
 	normalize(state)
-	return writeJSON(path, state)
+	return writeJSON(dir, name, state)
 }
 
 func normalize(state *State) {
@@ -53,38 +53,34 @@ func normalize(state *State) {
 }
 
 // WriteManifest writes manifest.json atomically with mode 0600.
-func WriteManifest(path string, manifest Manifest) error {
+func WriteManifest(dir *disk.Dir, name string, manifest Manifest) error {
 	if manifest.Notices == nil {
 		// The Swift decoder rejects null where it expects an array.
 		manifest.Notices = []Notice{}
 	}
-	return writeJSON(path, manifest)
+	return writeJSON(dir, name, manifest)
 }
 
-// ReadManifest reads manifest.json back.
-func ReadManifest(path string) (Manifest, error) {
+func ReadManifest(dir *disk.Dir, name string) (Manifest, error) {
 	var manifest Manifest
-	raw, err := os.ReadFile(path)
+	raw, err := dir.ReadFile(name)
 	if err != nil {
 		return manifest, err
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return manifest, fmt.Errorf("%s: %w", path, err)
+		return manifest, fmt.Errorf("%s: %w", filepath.Join(dir.Path(), name), err)
 	}
 	return manifest, nil
 }
 
-// privateDirectory creates dir with mode 0700 and refuses one that is a
-// symlink, belongs to someone else, or is open to group or others.
-func privateDirectory(dir string) error {
-	if err := disk.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	link, err := os.Lstat(dir)
+// privateDirectory refuses a directory that is a symlink, belongs to
+// someone else, or is open to group or others.
+func privateDirectory(dir *disk.Dir) error {
+	link, err := os.Lstat(dir.Path())
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(dir)
+	info, err := os.Stat(dir.Path())
 	if err != nil {
 		return err
 	}
@@ -95,8 +91,7 @@ func privateDirectory(dir string) error {
 	return nil
 }
 
-func writeJSON(path string, value any) error {
-	dir := filepath.Dir(path)
+func writeJSON(dir *disk.Dir, name string, value any) error {
 	if err := privateDirectory(dir); err != nil {
 		return err
 	}
@@ -104,5 +99,5 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFile(path, data, 0o600)
+	return dir.WriteFile(name, data, 0o600)
 }

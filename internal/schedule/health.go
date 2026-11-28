@@ -7,10 +7,10 @@ import (
 	"github.com/imos/lacia/internal/routine"
 )
 
+// ScopeHealth is how many runs in a row could not check a scope, since when.
 type ScopeHealth struct {
-	Count                    int
-	Since, Latest            time.Time
-	Reason, CauseKey, Device string
+	Count int
+	Since time.Time
 }
 
 // Health keeps full success separate from success of an individual scope.
@@ -111,9 +111,6 @@ func HealthOf(root, name string) Health {
 				continue
 			}
 			item := h.Unverified[check.Scope]
-			if item.Count == 0 {
-				item.Latest, item.Reason, item.CauseKey, item.Device = run.At, check.Reason, check.CauseKey, run.Device
-			}
 			item.Count++
 			item.Since = run.At
 			h.Unverified[check.Scope] = item

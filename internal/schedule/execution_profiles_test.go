@@ -20,13 +20,13 @@ func TestScheduleProfileIsOnlyAName(t *testing.T) {
 }
 
 func TestExecutionSelectionSurvivesSettlement(t *testing.T) {
-	root := t.TempDir()
-	d, err := OpenDispatch(root+"/dispatch.json", Routing{})
+	root := newRecords(t, "S1001")
+	d, err := OpenDispatch(stateFile(t, root+"/dispatch.json"), Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	d.data.Executions["run"] = Execution{ID: "run", Device: LocalDevice, Job: Job{Name: "runtime"}, Status: QueuedLocal}
+	d.data.Executions["run"] = Execution{ID: "run", Device: LocalDevice, Job: Job{Name: "S1001"}, Status: QueuedLocal}
 	if err := d.SelectLocal("run", "mac", "cluster-read", "work"); err != nil {
 		t.Fatal(err)
 	}
@@ -37,18 +37,18 @@ func TestExecutionSelectionSurvivesSettlement(t *testing.T) {
 	if e.Result.Profile != "cluster-read" || e.Result.Device != "mac" || e.Result.Login != "work" {
 		t.Fatalf("lost selection: %+v", e.Result)
 	}
-	log := &RunLog{Root: root, State: root + "/pending.json", Execution: d.Get}
-	if err := log.Begin(Job{Name: "runtime", Slot: now}, "run", now); err != nil {
+	log := &RunLog{Root: root, State: stateFile(t, root+"/pending.json"), Execution: d.Get}
+	if err := log.Begin(Job{Name: "S1001", Slot: now}, "run", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := log.Settle(d.Result, now); err != nil {
 		t.Fatal(err)
 	}
-	runs := ReadRuns(root, "runtime", now.In(taskLocation()).Format("2006-01"))
+	runs := ReadRuns(root, "S1001", now.In(taskLocation()).Format("2006-01"))
 	if len(runs) != 1 || runs[0].Profile != "cluster-read" || runs[0].Device != "mac" || runs[0].Login != "work" {
 		t.Fatalf("runs: %+v", runs)
 	}
-	reopened, err := OpenDispatch(root+"/dispatch.json", Routing{})
+	reopened, err := OpenDispatch(stateFile(t, root+"/dispatch.json"), Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestWorkerRecordsProfileAndRejectsUnknownWithoutLaunching(t *testing.T) {
 		drop := false
 		server := workerServer(t, d, &drop)
 		count := 0
-		w := &Worker{Config: WorkerConfig{URL: server.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: filepath.Join(t.TempDir(), "worker.json"),
+		w := &Worker{Config: WorkerConfig{URL: server.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: stateFile(t, filepath.Join(t.TempDir(), "worker.json")),
 			SelectProfile: func(e Execution) (string, string, error) {
 				if e.Job.Profile != "restricted" {
 					t.Fatal("lost profile during delivery")
@@ -132,7 +132,7 @@ func TestIntervalHistoryKeepsProfileChangesAndUnverifiedRuns(t *testing.T) {
 	for _, field := range []string{"profile", "login", "device", "checks", "failed"} {
 		t.Run(field, func(t *testing.T) {
 			now := time.Now()
-			l := &RunLog{Root: t.TempDir()}
+			l := &RunLog{Root: newRecords(t, "S1001")}
 			first := Run{ID: "one", At: now, Finished: now, Outcome: RunNothing, Profile: "default", Login: "work", Device: "desk"}
 			next := first
 			next.ID = "two"
@@ -152,13 +152,13 @@ func TestIntervalHistoryKeepsProfileChangesAndUnverifiedRuns(t *testing.T) {
 				first.Outcome = RunFailed
 				next.Outcome = RunFailed
 			}
-			if err := l.write("runtime", first, true); err != nil {
+			if err := l.write("S1001", first, true); err != nil {
 				t.Fatal(err)
 			}
-			if err := l.write("runtime", next, true); err != nil {
+			if err := l.write("S1001", next, true); err != nil {
 				t.Fatal(err)
 			}
-			runs := ReadRuns(l.Root, "runtime", now.In(taskLocation()).Format("2006-01"))
+			runs := ReadRuns(l.Root, "S1001", now.In(taskLocation()).Format("2006-01"))
 			if len(runs) != 2 {
 				t.Fatalf("suppressed %s: %+v", field, runs)
 			}

@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/claudecode"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/schedule"
@@ -29,9 +30,12 @@ type agentScheduleConfig struct {
 	AuthCheck  []string `json:"auth_check,omitempty"`
 }
 
+// scheduleConversations keeps each conversation's files under
+// schedule-conversations/ in state.
 type scheduleConversations struct {
-	root, state, base, place string
-	logins                   *login.List
+	root, base, place string
+	state             *disk.Dir
+	logins            *login.List
 }
 
 func (r scheduleConversations) run(ctx context.Context, execution schedule.Execution, prompt string) (string, error) {
@@ -58,13 +62,15 @@ func (r scheduleConversations) run(ctx context.Context, execution schedule.Execu
 	if execution.Job.Side {
 		conversation = "side"
 	}
-	dir := filepath.Join(r.state, place, kind, name, conversation)
+	where := filepath.Join("schedule-conversations", place, kind, name, conversation)
 	if execution.Job.Profile != "" {
-		dir = filepath.Join(dir, "profiles", execution.Job.Profile)
+		where = filepath.Join(where, "profiles", execution.Job.Profile)
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	dir, err := r.state.MakeSub(where, 0o700)
+	if err != nil {
 		return "", err
 	}
+	defer dir.Close()
 	instructions, err := launchPrompt(r.root, time.Now())
 	if err != nil {
 		return "", err
@@ -83,7 +89,7 @@ func (r scheduleConversations) run(ctx context.Context, execution schedule.Execu
 		env = append(env, "LACIA_BIN="+path)
 	}
 	if kind == caller.Claude {
-		config := claudecode.Config{Command: command, Workspace: r.root, StateDir: dir, Env: env,
+		config := claudecode.Config{Command: command, Workspace: r.root, State: dir, Env: env,
 			Ephemeral: execution.Job.Side, Instructions: instructions + claudecode.Note}
 		reply, _, err := claudecode.New(config).Run(ctx, prompt)
 		return reply[:min(len(reply), scheduleReplyLimit)], err
@@ -95,11 +101,10 @@ const scheduleReplyLimit = 1 << 20
 
 var scheduleThreadID = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
-func (r scheduleConversations) codex(ctx context.Context, dir string, command, env []string, instructions, prompt string, side bool) (string, error) {
-	threadFile := filepath.Join(dir, "thread")
+func (r scheduleConversations) codex(ctx context.Context, dir *disk.Dir, command, env []string, instructions, prompt string, side bool) (string, error) {
 	var threadID string
 	if !side {
-		data, err := os.ReadFile(threadFile)
+		data, err := dir.ReadFile("thread")
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
@@ -108,19 +113,18 @@ func (r scheduleConversations) codex(ctx context.Context, dir string, command, e
 			return "", errors.New("保存してある予約の会話IDを読み取れませんでした。正しい形式のIDか確かめてください")
 		}
 	}
-	out, err := os.CreateTemp(dir, "reply-*")
-	if err != nil {
+	replyName := "reply-" + rand.Text()
+	if err := dir.CreateNew(replyName, nil, 0o600); err != nil {
 		return "", err
 	}
-	defer os.Remove(out.Name())
-	if err := out.Close(); err != nil {
-		return "", err
-	}
+	defer dir.Remove(replyName)
+	// Codex writes its last message here itself.
+	reply := filepath.Join(dir.Path(), replyName)
 	args := []string{"exec"}
 	if threadID != "" {
 		args = append(args, "resume")
 	}
-	args = append(args, "--json", "--output-last-message", out.Name(), "--skip-git-repo-check")
+	args = append(args, "--json", "--output-last-message", reply, "--skip-git-repo-check")
 	if side {
 		args = append(args, "--ephemeral")
 	}
@@ -146,20 +150,11 @@ func (r scheduleConversations) codex(ctx context.Context, dir string, command, e
 		}
 		// A single worker holds the state lock. Rename keeps an interrupted
 		// write from leaving a partly written conversation ID.
-		tmp, err := os.CreateTemp(dir, "thread-*")
-		if err != nil {
-			return "", err
-		}
-		defer os.Remove(tmp.Name())
-		_, writeErr := fmt.Fprintln(tmp, events.threadID)
-		if err := errors.Join(writeErr, tmp.Close()); err != nil {
-			return "", err
-		}
-		if err := os.Rename(tmp.Name(), threadFile); err != nil {
+		if err := dir.WriteFileNoSync("thread", []byte(events.threadID+"\n"), 0o600); err != nil {
 			return "", err
 		}
 	}
-	f, err := os.Open(out.Name())
+	f, err := dir.Open(replyName)
 	if err != nil {
 		return "", err
 	}

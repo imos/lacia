@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -33,7 +32,7 @@ func TestStamp(t *testing.T) {
 func TestBackdate(t *testing.T) {
 	k := keeper(t)
 	version := func(day, text string) {
-		if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", day+".md"), []byte(text), 0o600); err != nil {
+		if err := k.State.WriteFileNoSync(filepath.Join("versions", day+".md"), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,10 +51,10 @@ func TestBackdate(t *testing.T) {
 // and the checks do not count them.
 func TestSleepKeepsDates(t *testing.T) {
 	k := keeper(t)
-	if err := disk.WriteFileNoSync(k.Path, []byte(first), 0o644); err != nil {
+	if err := k.Records.WriteFileNoSync(k.Name, []byte(first), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", "2026-11-15.md"), []byte(first), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync(filepath.Join("versions", "2026-11-15.md"), []byte(first), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	prompt := ""
@@ -150,7 +149,7 @@ func TestImprovements(t *testing.T) {
 	if len(notices) != 2 {
 		t.Error("a notice went out with nothing open")
 	}
-	if _, err := os.Stat(k.improvePath()); err != nil {
+	if _, err := os.Stat(filepath.Join(k.State.Path(), improveFile)); err != nil {
 		t.Error(err)
 	}
 }
@@ -168,7 +167,7 @@ func TestDateStampsNowAndKeepsText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "versions", "2026-11-20.md"), []byte("- 古い項目です。\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	k := &Keeper{Path: path, Dir: filepath.Join(dir, "state"), Now: func() time.Time { return time.Date(2026, 11, 27, 3, 0, 0, 0, time.UTC) }}
+	k := &Keeper{Records: testDir(t, dir), Name: "self.md", State: testDir(t, filepath.Join(dir, "state")), Now: func() time.Time { return time.Date(2026, 11, 27, 3, 0, 0, 0, time.UTC) }}
 	changed, err := k.Date()
 	if err != nil || !changed {
 		t.Fatalf("changed=%v err=%v", changed, err)

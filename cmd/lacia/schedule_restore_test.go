@@ -35,7 +35,7 @@ func TestScheduleRestorePinsDeviceAcrossRoutingChanges(t *testing.T) {
 				return routing
 			}
 			routing := makeRouting(initial, "claude")
-			d, err := schedule.OpenDispatch(filepath.Join(dir, "dispatch.json"), routing)
+			d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(dir, "dispatch.json")), routing)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -55,11 +55,11 @@ func TestScheduleRestorePinsDeviceAcrossRoutingChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			q, err := request.Open(filepath.Join(dir, "requests"))
+			q, err := request.Open(testDir(t, filepath.Join(dir, "requests")))
 			if err != nil {
 				t.Fatal(err)
 			}
-			runs := &schedule.RunLog{Root: dir, State: filepath.Join(dir, "runs.json")}
+			runs := &schedule.RunLog{Root: dir, State: stateFile(t, filepath.Join(dir, "runs.json"))}
 			for range 2 {
 				restored, err := restoreScheduledExecution(q, d, runs, id, time.Now())
 				if !restored || err != nil {
@@ -82,29 +82,29 @@ func TestScheduleRestorePinsDeviceAcrossRoutingChanges(t *testing.T) {
 }
 
 func TestScheduleRestoreDoesNotReplayStartedLocalWithoutQueueRecord(t *testing.T) {
-	dir := t.TempDir()
+	dir := routineRecords(t, "S1001")
 	routing, err := schedule.LoadRouting("", "", "work", "", "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := schedule.OpenDispatch(filepath.Join(dir, "dispatch.json"), routing)
+	d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(dir, "dispatch.json")), routing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
 	id := "sched-local-2026-11-24-0600"
-	job := schedule.Job{Name: "local", Daily: "06:00", Slot: now}
+	job := schedule.Job{Name: "S1001", Daily: "06:00", Slot: now}
 	if err := d.Enqueue(id, job, "prompt", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.SyncLocal(id, request.Running, schedule.Result{Started: now}); err != nil {
 		t.Fatal(err)
 	}
-	q, err := request.Open(filepath.Join(dir, "requests"))
+	q, err := request.Open(testDir(t, filepath.Join(dir, "requests")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := &schedule.RunLog{Root: dir, State: filepath.Join(dir, "runs.json")}
+	runs := &schedule.RunLog{Root: dir, State: stateFile(t, filepath.Join(dir, "runs.json"))}
 	found, err := restoreScheduledExecution(q, d, runs, id, now)
 	if !found || err != nil {
 		t.Fatal(found, err)
@@ -119,13 +119,13 @@ func TestScheduleRestoreDoesNotReplayStartedLocalWithoutQueueRecord(t *testing.T
 	if err := runs.Settle(d.Result, now); err != nil {
 		t.Fatal(err)
 	}
-	if got := schedule.ReadRuns(dir, "local", now.In(task.JST).Format("2006-01")); len(got) != 1 || got[0].Outcome != schedule.RunFailed {
+	if got := schedule.ReadRuns(dir, "S1001", now.In(task.JST).Format("2006-01")); len(got) != 1 || got[0].Outcome != schedule.RunFailed {
 		t.Fatalf("restore must record the uncertain outcome: %+v", got)
 	}
 }
 
 func TestScheduleRunnerUsesPinnedConversationKind(t *testing.T) {
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

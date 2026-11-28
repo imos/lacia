@@ -127,7 +127,6 @@ func (h Handover) RequestedAction() string {
 	return h.OwnerAction
 }
 
-// Store keeps the handovers in a directory.
 type Store struct {
 	dir *disk.Dir
 	Now func() time.Time
@@ -136,17 +135,11 @@ type Store struct {
 	items map[string]*Handover
 }
 
-// ErrNotFound is returned for an unknown ID.
 var ErrNotFound = errors.New("その申し送りは見つかりません")
 
-// Open loads the handovers saved in dir.
-func Open(dir string) (*Store, error) {
-	files, err := disk.OpenTools(dir)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{dir: files, Now: time.Now, items: map[string]*Handover{}}
-	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
+func Open(dir *disk.Dir) (*Store, error) {
+	s := &Store{dir: dir, Now: time.Now, items: map[string]*Handover{}}
+	paths, err := filepath.Glob(filepath.Join(dir.Path(), "*.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +204,6 @@ func (s *Store) Add(w Handover) (Handover, bool, error) {
 	return w, true, nil
 }
 
-// Get returns one handover.
 func (s *Store) Get(id string) (Handover, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

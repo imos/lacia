@@ -71,11 +71,11 @@ func TestMeetingCheckFailureSurvivesRestart(t *testing.T) {
 	s.Meetings = []Notice{{ID: "a", Expires: 2000, Fire: 1940}}
 	// Even a failed request is an attempt; delivery stays in the plan.
 	RecordMeetingRechecks(s, MeetingRechecks(s, time.Unix(1940, 0)))
-	path := filepath.Join(t.TempDir(), "private", "state.json")
-	if err := SaveState(path, s); err != nil {
+	files := testDir(t, filepath.Join(t.TempDir(), "private"))
+	if err := SaveState(files, "state.json", s); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadState(path)
+	loaded, err := LoadState(files, "state.json")
 	if err != nil {
 		t.Fatal(err)
 	}

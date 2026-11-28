@@ -72,7 +72,6 @@ func setupRecords(ctx context.Context, o *setupOptions, a *asker) (string, error
 	return dir, nil
 }
 
-// repoName is the last part of the URL, without .git.
 func repoName(repo string) string {
 	repo = strings.TrimSuffix(strings.TrimRight(repo, "/"), ".git")
 	if i := strings.LastIndexAny(repo, "/:"); i >= 0 {

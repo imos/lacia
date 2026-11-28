@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,12 +23,8 @@ var RoutineStatuses = []Status{Doing, Waiting, Review}
 // RoutineStatusNames lists them the way messages name them.
 const RoutineStatusNames = "doing, waiting, review"
 
-// ErrRoutineStatus is returned when a routine's task is asked to move to a
-// status it cannot have.
 var ErrRoutineStatus = errors.New("定期タスクのタスクの状態は、進行中（doing）、待機（waiting）、確認待ち（review）のどれかにしてください。定期タスクを止めるときは、routine.md の enabled を false にします")
 
-// ErrRoutineField is returned for a front matter field that a routine's
-// task does not have.
 var ErrRoutineField = errors.New("定期タスクのタスクでは、冒頭の項目を変えられません。題名と止めるかどうかは routine.md の title と enabled で、状態は lacia task set で変えます")
 
 // RoutineStatus reports whether a routine's task may have the status.
@@ -73,13 +70,13 @@ func routineTitle(root, dir, id string) string {
 }
 
 // routineDirOf finds the directory of the routine id, relative to the root,
-// and its area. Only a repository of format 2 keeps routines in areas.
+// and its area.
 func (s *Store) routineDirOf(id string) (area, dir string, ok bool) {
-	if s.format < AreaRoutineFormat || !ValidRoutineID(id) {
+	if !ValidRoutineID(id) {
 		return "", "", false
 	}
 	for _, a := range s.areas {
-		d := filepath.ToSlash(filepath.Join(RoutineBase(s.format, a), id))
+		d := filepath.ToSlash(filepath.Join(RoutineBase(a), id))
 		if info, err := os.Stat(filepath.Join(s.root, d, "routine.md")); err == nil && info.Mode().IsRegular() {
 			return a, d, true
 		}
@@ -138,24 +135,15 @@ func (s *Store) createRoutineTask(id, content, actor string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if problems := ShapeProblems(t, s.format); len(problems) > 0 {
+	if problems := ShapeProblems(t); len(problems) > 0 {
 		return Task{}, shapeError(problems)
 	}
-	path := filepath.Join(s.root, dir, TaskFile)
-	// O_EXCL keeps a task.md that another writer made in the meantime.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		if os.IsExist(err) {
-			return Task{}, fmt.Errorf("%s の task.md が、ほかの書き込みで先に作られました。lacia task show %s で読み直してから、もう1度保存してください", id, id)
-		}
-		return Task{}, err
-	}
-	_, err = f.WriteString(doc.String())
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(path)
+	// CreateNew keeps a task.md that another writer made in the meantime.
+	name := filepath.Join(dir, TaskFile)
+	if err := s.records.CreateNew(name, []byte(doc.String()), 0o644); errors.Is(err, fs.ErrExist) {
+		return Task{}, fmt.Errorf("%s の task.md が、ほかの書き込みで先に作られました。lacia task show %s で読み直してから、もう1度保存してください", id, id)
+	} else if err != nil {
+		s.records.Remove(name)
 		return Task{}, err
 	}
 	created := Event{Type: EventCreated, By: actor, Status: string(Waiting), Text: fmt.Sprintf("定期タスクのタスクを作りました。状態は「%s」です。", Waiting.Label())}

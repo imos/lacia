@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -56,19 +56,24 @@ const (
 type Registry struct {
 	Now func() time.Time // replaceable in tests
 
-	path     string
+	// dir is nil for a registry kept in memory only.
+	dir      *disk.Dir
+	name     string
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
 
-// OpenRegistry reads the file at path. An empty path keeps the registry in
-// memory only.
-func OpenRegistry(path string) (*Registry, error) {
-	r := &Registry{Now: time.Now, path: path, sessions: map[string]*Session{}}
-	if path == "" {
-		return r, nil
-	}
-	data, err := os.ReadFile(path)
+// NewRegistry keeps the registry in memory only.
+func NewRegistry() *Registry {
+	return &Registry{Now: time.Now, sessions: map[string]*Session{}}
+}
+
+// OpenRegistry reads the file of that name in dir, and keeps the registry
+// there.
+func OpenRegistry(dir *disk.Dir, name string) (*Registry, error) {
+	r := NewRegistry()
+	r.dir, r.name = dir, name
+	data, err := dir.ReadFile(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return r, nil
 	}
@@ -77,7 +82,7 @@ func OpenRegistry(path string) (*Registry, error) {
 	}
 	var list []*Session
 	if err := json.Unmarshal(data, &list); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Join(dir.Path(), name), err)
 	}
 	for _, s := range list {
 		r.sessions[s.Key] = s
@@ -119,7 +124,6 @@ func (r *Registry) Seen(c Caller) (Session, bool) {
 	return *s, true
 }
 
-// Get returns the session with the key.
 func (r *Registry) Get(key string) (Session, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -148,7 +152,7 @@ func (r *Registry) List() []Session {
 }
 
 func (r *Registry) save() error {
-	if r.path == "" {
+	if r.dir == nil {
 		return nil
 	}
 	list := make([]*Session, 0, len(r.sessions))
@@ -160,5 +164,5 @@ func (r *Registry) save() error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFileNoSync(r.path, data, 0o600)
+	return r.dir.WriteFileNoSync(r.name, data, 0o600)
 }

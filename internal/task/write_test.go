@@ -9,7 +9,7 @@ import (
 )
 
 func TestWriteDocReplacesTheBodyAndKeepsTheFrontMatter(t *testing.T) {
-	s := newFormat1Store(t)
+	s := newLayoutStore(t)
 	got, err := s.Create(NewTask{Area: "work", Title: "本文を直接保存する", Status: Review, Actor: "work-codex"})
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestWriteDocReplacesTheBodyAndKeepsTheFrontMatter(t *testing.T) {
 }
 
 func TestWriteDocRefusesTextThatBreaksTheShape(t *testing.T) {
-	s := newFormat1Store(t)
+	s := newLayoutStore(t)
 	got, _ := s.Create(NewTask{Area: "work", Title: "形を守る"})
 	before, _ := os.ReadFile(filepath.Join(s.Root(), got.Dir, TaskFile))
 	good := "## ひとことで\n\n形を確かめます。\n\n## 次にすること\n\nわたしが確かめます。\n"
@@ -83,7 +83,7 @@ func TestWriteDocRefusesTextThatBreaksTheShape(t *testing.T) {
 }
 
 func TestWriteDocWritesNotes(t *testing.T) {
-	s := newFormat1Store(t)
+	s := newLayoutStore(t)
 	got, _ := s.Create(NewTask{Area: "work", Title: "補足を書く", Status: Done})
 	notes := "# " + got.ID + " の補足\n\n## ここまでできたら完了\n\n確かめたら完了です。\n"
 	written, err := s.WriteDoc(got.ID, NotesFile, notes, "local-claude")

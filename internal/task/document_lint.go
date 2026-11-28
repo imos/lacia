@@ -31,7 +31,7 @@ func proseLines(body string) []string {
 	return lines
 }
 
-// LintContent checks the additional format-1 writing advice.
+// LintContent checks the length of the sections and the links of いまの資料.
 func LintContent(body string) []Warning {
 	var out []Warning
 	summary := strings.Join(proseLines(Section(body, "ひとことで")), "\n")

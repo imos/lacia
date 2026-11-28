@@ -201,7 +201,7 @@ func TestNightAgent(t *testing.T) {
 	}
 	// A night without either is recorded with why, and opens nothing.
 	os.Remove(installed)
-	if think, _, err := (nightAgent{claude: filepath.Join(dir, "missing")}).open("m", dir, false, dir)(t.Context()); err == nil || think != nil {
+	if think, _, err := (nightAgent{claude: filepath.Join(dir, "missing")}).open("m", dir, false, nil)(t.Context()); err == nil || think != nil {
 		t.Errorf("opened without Claude Code or Codex: %v", err)
 	}
 }

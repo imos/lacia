@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -34,24 +35,24 @@ func TestWhenPreservesSeconds(t *testing.T) {
 }
 
 func TestTick(t *testing.T) {
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, "schedules"), 0o755)
-	write := func(name, content string) {
-		os.WriteFile(filepath.Join(root, "schedules", name), []byte(content), 0o644)
+	root := newRecords(t)
+	// The routines keep the names of the schedules they replaced, which the
+	// IDs of their requests still use.
+	write := func(id, name, content string) {
+		putDefinition(t, root, "areas/work/routines/"+id+"/routine.md", "---\nid: "+id+"\nlegacy_name: "+name+"\n"+strings.TrimPrefix(content, "---\n"))
 	}
-	write("calendar.md", "---\ntitle: 予定の取得\nevery: 30m\nconversation: side\n---\n\n予定を取得してください。\n")
-	write("github.md", "---\ndaily: \"09:00\"\n---\n\nGitHubを確認してください。\n")
-	write("renewal.md", "---\nat: 2026-11-30 09:00\n---\n\n契約の更新を案内してください。\n")
-	write("off.md", "---\nevery: 1h\nenabled: false\n---\n\n止めてある仕事。\n")
-	write("broken.md", "---\nevery: 7m\n---\n\n割り切れない間隔。\n")
-	write("README.md", "説明\n")
+	write("S1001", "calendar", "---\ntitle: 予定の取得\nevery: 30m\nconversation: side\n---\n\n予定を取得してください。\n")
+	write("S1002", "github", "---\ndaily: \"09:00\"\n---\n\nGitHubを確認してください。\n")
+	write("S1003", "renewal", "---\nat: 2026-11-30 09:00\n---\n\n契約の更新を案内してください。\n")
+	write("S1004", "off", "---\nevery: 1h\nenabled: false\n---\n\n止めてある仕事。\n")
+	write("S1005", "broken", "---\nevery: 7m\n---\n\n割り切れない間隔。\n")
 
 	jobs := Load(root)
 	if len(jobs) != 5 {
 		t.Fatalf("loaded %d jobs", len(jobs))
 	}
 	for _, j := range jobs {
-		switch j.Name {
+		switch j.LegacyName {
 		case "broken", "renewal": // a job that runs once is a task, not a schedule
 			if j.Err == "" || j.Enabled {
 				t.Errorf("broken definition was accepted: %+v", j)
@@ -65,7 +66,7 @@ func TestTick(t *testing.T) {
 
 	var got []string
 	late := map[string]string{}
-	r := &Runner{Root: root, State: filepath.Join(t.TempDir(), "state", "schedules.json"), Submit: func(id string, job Job) error {
+	r := &Runner{Root: root, State: stateFile(t, filepath.Join(t.TempDir(), "state", "schedules.json")), Submit: func(id string, job Job) error {
 		got = append(got, id)
 		late[id] = job.Late
 		return nil
@@ -117,11 +118,11 @@ func TestTick(t *testing.T) {
 		t.Errorf("ran again: %s", s)
 	}
 	// A job newly written with a time long past does not start at once.
-	write("evening.md", "---\ndaily: \"20:00\"\n---\n\n夜の確認。\n")
+	write("S1006", "evening", "---\ndaily: \"20:00\"\n---\n\n夜の確認。\n")
 	if s := step("2026-11-17 07:02"); s != "" {
 		t.Errorf("a job written with a past time ran: %s", s)
 	}
-	os.Remove(filepath.Join(root, "schedules", "evening.md"))
+	os.RemoveAll(filepath.Join(root, "areas", "work", "routines", "S1006"))
 	if s := step("2026-11-30 09:00"); s != "sched-calendar-2026-11-30-0900 sched-github-2026-11-30-0900" {
 		t.Errorf("the definition with at ran: %s", s)
 	}
@@ -144,7 +145,7 @@ func TestTick(t *testing.T) {
 
 	// State written before the time of the last look was kept: as before,
 	// a job more than six hours late is skipped.
-	os.WriteFile(r.State, []byte(`{"github": "2026-12-01T09:00"}`), 0o600)
+	os.WriteFile(filepath.Join(r.State.Dir.Path(), r.State.Name), []byte(`{"github": "2026-12-01T09:00"}`), 0o600)
 	old := &Runner{Root: root, State: r.State, Submit: r.Submit}
 	got = nil
 	old.Tick(at("2026-12-02 16:00"))
@@ -204,7 +205,7 @@ func TestBundledRoutineKeepsPreviousOccurrenceName(t *testing.T) {
 		t.Fatalf("ResolveWait old ID = %q, %v", resolved, err)
 	}
 	r := Runner{
-		Root: root, State: filepath.Join(root, "state.json"),
+		Root: root, State: stateFile(t, filepath.Join(root, "state.json")),
 		Submit: func(id string, job Job) error {
 			if id != "sched-S1016-2026-11-28-1000" || job.ID != "S0002" {
 				t.Errorf("submission = %s (%s)", id, job.ID)
@@ -225,4 +226,15 @@ func TestBundledRoutineKeepsPreviousOccurrenceName(t *testing.T) {
 			t.Errorf("accepted colliding definition: %+v", job)
 		}
 	}
+}
+
+// stateFile opens the directory of path, and names the file in it.
+func stateFile(t *testing.T, path string) StateFile {
+	t.Helper()
+	dir, err := disk.OpenTools(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dir.Close() })
+	return StateFile{Dir: dir, Name: filepath.Base(path)}
 }

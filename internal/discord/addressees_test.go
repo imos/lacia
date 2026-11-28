@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,7 +30,7 @@ func TestSendAddressees(t *testing.T) {
 		w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
-	b := New(Config{api: server.URL, State: filepath.Join(t.TempDir(), "state.json"), Members: []Member{
+	b := New(Config{api: server.URL, State: testDir(t, t.TempDir()), StateName: "state.json", Members: []Member{
 		{ID: "1", Name: "美咲さん"}, {ID: "2", Name: "直人さん"}, {ID: "3", Name: "同名さん"}, {ID: "4", Name: "同名さん"}, {Username: "unbound", Name: "未確定さん"},
 	}})
 	text := "[[to:直人]] [[to:美咲]]\n直人さん、美咲さん、説明します。\n" + strings.Repeat("続きの本文です。", 500) + "\n[[to:直人]]\n<@2> 続きです。\n[[to:同名]] [[to:未確定]] [[to:知らない人]] [[to:everyone]] [[to:<@&5>]]\n@everyone @here <@&5> <@99>\n```\n[[to:美咲]]\n```"
@@ -72,7 +71,7 @@ func TestSendAddressees(t *testing.T) {
 }
 
 func TestResolveAddresseeDoesNotGuess(t *testing.T) {
-	b := New(Config{State: filepath.Join(t.TempDir(), "state.json"), Members: []Member{
+	b := New(Config{State: testDir(t, t.TempDir()), StateName: "state.json", Members: []Member{
 		{ID: "1", Name: "同名さん"}, {Username: "other", Name: "同名さん"}, {Username: "unbound", Name: "未確定さん"},
 	}})
 	for _, who := range []string{"同名", "未確定", "unknown", "@everyone", "@here", "<@&1>", "9"} {

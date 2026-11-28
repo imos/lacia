@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/routine"
 	"github.com/imos/lacia/internal/schedule"
@@ -20,14 +20,14 @@ import (
 // The work server first prepares tasks while the existing screen is still
 // visible. Each request sees the same mode as the run-settlement loop.
 type routineActionRuntime struct {
-	stateDir string
+	state    *disk.Dir
 	tasks    *task.Store
 	receipts *routine.Store
 	queue    *request.Queue
 }
 
 func (a routineActionRuntime) mode() string {
-	raw, err := os.ReadFile(filepath.Join(a.stateDir, "routine-actions-mode"))
+	raw, err := a.state.ReadFile("routine-actions-mode")
 	if err != nil {
 		return ""
 	}
@@ -115,8 +115,8 @@ func (a routineActionRuntime) applyBaseline() error {
 	if !a.tasks.KeepsTasks() || a.mode() != "prepare" {
 		return nil
 	}
-	p := filepath.Join(a.stateDir, "routine-actions-baseline.json")
-	data, err := os.ReadFile(p)
+	const baseline = "routine-actions-baseline.json"
+	data, err := a.state.ReadFile(baseline)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -133,7 +133,7 @@ func (a routineActionRuntime) applyBaseline() error {
 		}
 	}
 	// Remove the input atomically and retain it beside the runtime state.
-	return os.Rename(p, p+".applied")
+	return a.state.Rename(baseline, baseline+".applied")
 }
 
 func runReference(id string, run schedule.Run, loc *time.Location) string {

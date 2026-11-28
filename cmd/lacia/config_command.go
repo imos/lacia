@@ -83,8 +83,6 @@ func runConfig(args []string) error {
 	return nil
 }
 
-// oldPlacesText tells that settings are read from the place of older
-// versions, and how to bring them over.
 func oldPlacesText(moves []string) string {
 	return "端末の設定を、以前の版の置き場所から読んでいます。いまのままでも動きます。次のコマンドで、新しい置き場所（~/.lacia）へ移せます。\n  " + strings.Join(moves, "\n  ")
 }
@@ -117,7 +115,6 @@ func noticeOldPlaces(args []string, out io.Writer, terminal bool) {
 	fmt.Fprintln(out, oldPlacesText(moves)+"\n  この知らせは、1度だけ出します。lacia config でも読めます。")
 }
 
-// isTerminal reports whether the file is a terminal a person reads.
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0

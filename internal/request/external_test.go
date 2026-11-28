@@ -9,7 +9,7 @@ import (
 
 func TestExternalResultNeverRunsAndDeliveryIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	q, err := Open(dir)
+	q, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestExternalResultNeverRunsAndDeliveryIsIdempotent(t *testing.T) {
 	if err = q.RecordExternal(r); err != nil {
 		t.Fatal(err)
 	}
-	q, err = Open(dir)
+	q, err = Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestExternalResultNeverRunsAndDeliveryIsIdempotent(t *testing.T) {
 	if sent != 1 || stored.Reply != "done" || stored.ReplyTo != "discord:trusted" {
 		t.Fatalf("sent=%d stored=%+v", sent, stored)
 	}
-	q, err = Open(dir)
+	q, err = Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +65,13 @@ func TestExternalResultNeverRunsAndDeliveryIsIdempotent(t *testing.T) {
 }
 func TestExternalResultDoesNotRetryUnknownDelivery(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := Open(dir)
+	q, _ := Open(testDir(t, dir))
 	r := Request{ID: "sched-daily-2026-11-24-0600", Status: Done, ReplyTo: "discord:trusted", Finished: time.Now()}
 	q.RecordExternal(r)
 	if ok, err := q.ClaimDelivery(r.ID); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	q, _ = Open(dir)
+	q, _ = Open(testDir(t, dir))
 	q.Finished = func(Request) { t.Error("unknown POST retried") }
 	if err := q.RecordExternal(r); err != nil {
 		t.Fatal(err)

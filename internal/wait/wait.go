@@ -59,7 +59,6 @@ const (
 	NextNone   = "none" // nobody: the task is shown to the user
 )
 
-// Wait is one thing being waited for.
 type Wait struct {
 	Version    int    `json:"schema_version"`
 	HandoverID string `json:"handover_id,omitempty"`
@@ -186,7 +185,6 @@ func (w Wait) Validate(now time.Time) error {
 	return nil
 }
 
-// Store keeps the waits in a directory.
 type Store struct {
 	dir *disk.Dir
 	Now func() time.Time
@@ -195,17 +193,11 @@ type Store struct {
 	items map[string]*Wait
 }
 
-// ErrNotFound is returned for an unknown ID.
 var ErrNotFound = errors.New("その待ちは見つかりません")
 
-// Open loads the waits saved in dir.
-func Open(dir string) (*Store, error) {
-	files, err := disk.OpenTools(dir)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{dir: files, Now: time.Now, items: map[string]*Wait{}}
-	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
+func Open(dir *disk.Dir) (*Store, error) {
+	s := &Store{dir: dir, Now: time.Now, items: map[string]*Wait{}}
+	paths, err := filepath.Glob(filepath.Join(dir.Path(), "*.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +267,6 @@ func (s *Store) Add(w Wait) (Wait, bool, error) {
 	return w, true, nil
 }
 
-// Get returns one wait.
 func (s *Store) Get(id string) (Wait, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

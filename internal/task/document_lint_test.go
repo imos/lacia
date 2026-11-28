@@ -51,10 +51,10 @@ func TestRelatedDocumentAdvice(t *testing.T) {
 }
 
 func TestContentAdviceDoesNotBlockSave(t *testing.T) {
-	s := newFormat1Store(t)
+	s := newLayoutStore(t)
 	task, _ := s.Create(NewTask{Area: "work", Title: "助言"})
 	body := "## ひとことで\n\n1。2。3。4。\n\n## 次にすること\n\n" + strings.Repeat("あ", 141) + "\n"
-	if len(LintFormat(body, 1)) < 2 {
+	if len(Lint(body)) < 2 {
 		t.Fatal("missing advice")
 	}
 	if _, err := s.WriteDoc(task.ID, TaskFile, body, "test"); err != nil {

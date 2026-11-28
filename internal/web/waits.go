@@ -54,12 +54,6 @@ func nextLabel(next string) string {
 	return ""
 }
 
-func (s *Server) changed() {
-	if s.Changed != nil {
-		s.Changed()
-	}
-}
-
 func (s *Server) waitDestination(next string, who caller.Caller) (string, error) {
 	if next == "" || next == "owner" {
 		if !who.Known() {

@@ -23,6 +23,8 @@ import (
 	"syscall"
 
 	"github.com/imos/lacia/internal/codex"
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/program"
 )
 
 // DefaultDropTo is the user and group a start by root drops to where the
@@ -50,13 +52,11 @@ type Config struct {
 	rules string // the text of WorkerRules
 }
 
-// Paths are the directories of one login.
 type Paths struct {
 	CodexHome string `json:"codex_home"`
 	Home      string `json:"home"`
 }
 
-// loginName is the name of a login.
 var loginName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 // Load reads the file LACIA_LOGINS names. Without the variable there are no
@@ -153,7 +153,6 @@ func trusted(path string) error {
 	}
 }
 
-// readOnlyFS reports whether a path lies on a file system mounted read-only.
 func readOnlyFS(path string) bool {
 	var stat syscall.Statfs_t
 	// ST_RDONLY on Linux and MNT_RDONLY on macOS are both 1.
@@ -309,10 +308,7 @@ func privateDirectory(path string) error {
 	if hasSymlink(path) {
 		return errors.New("login_symlink_rejected")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-		return err
-	}
-	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := disk.MakeLoginDir(path); err != nil {
 		return err
 	}
 	info, err := os.Stat(path)
@@ -613,15 +609,7 @@ func writeNewConfig(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := file.WriteString(newConfig); err != nil {
-		file.Close()
-		return err
-	}
-	return file.Close()
+	return disk.WriteLoginConfig(path, []byte(newConfig))
 }
 
 // linkGit makes ~/git of the started Codex point at the durable checkouts.
@@ -638,14 +626,13 @@ func linkGit(homeGit, durableGit string) error {
 			return errors.New("login_git_path_conflict")
 		}
 	case errors.Is(err, os.ErrNotExist):
-		return os.Symlink(durableGit, homeGit)
+		return disk.LinkLoginGit(durableGit, homeGit)
 	default:
 		return err
 	}
 	return nil
 }
 
-// Environ turns the process environment into a map.
 func Environ() map[string]string {
 	env := map[string]string{}
 	for _, entry := range os.Environ() {
@@ -690,5 +677,5 @@ func Run(args []string) error {
 	for key, value := range child {
 		environ = append(environ, key+"="+value)
 	}
-	return syscall.Exec(command[0], command, environ)
+	return program.Codex(command[0]).Replace(command[1:], environ)
 }

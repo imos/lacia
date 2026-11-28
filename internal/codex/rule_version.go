@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 )
 
@@ -15,13 +13,9 @@ type threadRecord struct {
 	Rules    rules.Revision `json:"rules,omitempty"`
 }
 
-func (b *Bridge) threadFile() string {
-	return filepath.Join(b.cfg.StateDir, "thread.json")
-}
-
 func (b *Bridge) loadThread() (threadRecord, error) {
 	var record threadRecord
-	data, err := os.ReadFile(b.threadFile())
+	data, err := b.cfg.State.ReadFile("thread.json")
 	if errors.Is(err, os.ErrNotExist) {
 		return record, nil
 	}
@@ -45,5 +39,5 @@ func (b *Bridge) writeThread(record threadRecord) error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFileNoSync(b.threadFile(), append(data, '\n'), 0o600)
+	return b.cfg.State.WriteFileNoSync("thread.json", append(data, '\n'), 0o600)
 }

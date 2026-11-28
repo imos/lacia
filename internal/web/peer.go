@@ -136,11 +136,9 @@ func (s *Server) apiInbox(w http.ResponseWriter, r *http.Request) {
 // apiInboxStatus tells the task side's server how far a message has come.
 func (s *Server) apiInboxStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if s.Inbox != nil && s.Requests != nil {
-		if saved, ok := s.Requests.Get(inboxPrefix + id); ok {
-			writeJSON(w, http.StatusOK, stateOf(id, saved))
-			return
-		}
+	if saved, ok := s.findRequest(inboxPrefix + id); ok && s.Inbox != nil {
+		writeJSON(w, http.StatusOK, stateOf(id, saved))
+		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "その伝言は見つかりません"})
 }
@@ -187,9 +185,7 @@ func (s *Server) apiReply(w http.ResponseWriter, r *http.Request) {
 	s.Peer.Sent.Resolve(in.ID, in.Status, in.Reply, in.Error, in.Add)
 	if before.TaskID != "" && (before.Finished.IsZero() || in.Add) {
 		s.Store.Log(before.TaskID, task.Event{Type: task.EventPeer, Text: s.peerLabel() + "から返事が届きました（" + in.ID + "）。"})
-		if s.Changed != nil {
-			s.Changed()
-		}
+		s.changed()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"id": in.ID})
 }
@@ -274,9 +270,7 @@ func (s *Server) tell(ctx context.Context, m message) (request.Request, error) {
 	rec, _ = s.Peer.Sent.Resolve(rec.ID, got.Status, got.Reply, got.Error, false)
 	if rec.TaskID != "" {
 		s.Store.Log(rec.TaskID, task.Event{Type: task.EventPeer, Text: s.peerLabel() + "へ伝えました（" + rec.Source + "、" + rec.ID + "）。"})
-		if s.Changed != nil {
-			s.Changed()
-		}
+		s.changed()
 	}
 	return rec, nil
 }

@@ -54,7 +54,6 @@ type SessionRow struct {
 	Details string        `json:"details"` // where it runs, for people
 }
 
-// OwnedTask is a task in a SessionRow.
 type OwnedTask struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -108,7 +107,6 @@ func sessionDetails(sess caller.Session) string {
 	return strings.Join(parts, "、")
 }
 
-// ownerOf describes the owner of a task for its page.
 type ownerInfo struct {
 	Label   string
 	Details string
@@ -116,6 +114,7 @@ type ownerInfo struct {
 	Known   bool // the registry still remembers the conversation
 }
 
+// ownerOf describes the owner of a task for its page.
 func (s *Server) ownerOf(t task.Task) *ownerInfo {
 	if t.Status != task.Doing || t.Owner == "" {
 		return nil

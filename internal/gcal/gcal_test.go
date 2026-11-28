@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/calendar"
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func TestCalendarSourceNeedsAllPagesAndDistinguishesPermissions(t *testing.T) {
@@ -141,18 +142,40 @@ func fakeGoogle(t *testing.T, failFamily *bool) *httptest.Server {
 	return srv
 }
 
+// testState opens dir as the server's state directory.
+func testState(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	state, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { state.Close() })
+	return state
+}
+
+// publishTo writes each snapshot to path, as the server's guarded writer does
+// once it accepts one.
+func publishTo(path string) func([]byte) error {
+	return func(data []byte) error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+}
+
 func TestFetchWritesAReadableSnapshot(t *testing.T) {
 	failFamily := false
 	srv := fakeGoogle(t, &failFamily)
 	client := &Client{Endpoints: Endpoints{Auth: srv.URL + "/auth", Token: srv.URL + "/token", API: srv.URL + "/api"}}
 	dir := t.TempDir()
-	store := &Store{Path: filepath.Join(dir, "secrets", "gcal.json")}
+	store := &Store{Dir: testState(t, dir), Name: "secrets/gcal.json"}
 	ctx := context.Background()
 
 	if _, _, err := client.Exchange(ctx, "work", "wrong", "http://x/cb", "good-code", "verifier"); err == nil {
 		t.Error("a wrong client secret was accepted")
 	}
-	f := &Fetcher{Store: store, Client: client, Path: filepath.Join(dir, "calendar", "snapshot.json"), Overrides: filepath.Join(dir, "overrides.json"),
+	f := &Fetcher{Store: store, Client: client, Path: filepath.Join(dir, "calendar", "snapshot.json"), Publish: publishTo(filepath.Join(dir, "calendar", "snapshot.json")), Overrides: filepath.Join(dir, "overrides.json"),
 		Now: func() time.Time { return time.Date(2026, 11, 12, 0, 30, 0, 0, time.UTC) }}
 	for i, id := range []string{"work", "home"} {
 		if f.Ready() {
@@ -169,7 +192,7 @@ func TestFetchWritesAReadableSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if info, _ := os.Stat(store.Path); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(filepath.Join(dir, "secrets", "gcal.json")); info.Mode().Perm() != 0o600 {
 		t.Errorf("credentials file mode = %v", info.Mode().Perm())
 	}
 	os.WriteFile(f.Overrides, []byte(`{"events":[{"id":"school","display_basis":"user_confirmed_day","display_markers":[{"time":"13:30","title":"下校","basis":"lacia_interpretation"}]}]}`), 0o644)
@@ -246,8 +269,8 @@ func TestSharedCalendarIsReadThroughAnotherAccount(t *testing.T) {
 	srv := fakeGoogle(t, &failFamily)
 	client := &Client{Endpoints: Endpoints{Auth: srv.URL + "/auth", Token: srv.URL + "/token", API: srv.URL + "/api"}}
 	dir := t.TempDir()
-	store := &Store{Path: filepath.Join(dir, "gcal.json")}
-	f := &Fetcher{Store: store, Client: client, Path: filepath.Join(dir, "snapshot.json"),
+	store := &Store{Dir: testState(t, dir), Name: "gcal.json"}
+	f := &Fetcher{Store: store, Client: client, Path: filepath.Join(dir, "snapshot.json"), Publish: publishTo(filepath.Join(dir, "snapshot.json")),
 		Now: func() time.Time { return time.Date(2026, 11, 12, 0, 30, 0, 0, time.UTC) }}
 	if f.Ready() {
 		t.Fatal("ready with nothing connected")

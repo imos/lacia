@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func at(s string) time.Time {
@@ -15,6 +17,17 @@ func at(s string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+// records opens dir as the records the log is kept in.
+func records(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenRecords(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }
 
 func readLog(t *testing.T, l *Log, when time.Time) string {
@@ -29,7 +42,7 @@ func readLog(t *testing.T, l *Log, when time.Time) string {
 func TestLogWritesOneFilePerDayInJapanTime(t *testing.T) {
 	dir := t.TempDir()
 	changed := 0
-	l := Discord(dir)
+	l := Discord(records(t, dir), "")
 	l.Changed = func() { changed++ }
 	first := Entry{Key: "message:11", At: at("2026-11-18 08:15"), Who: "Xさん", Place: "#lacia", Text: "明日の遠足のお弁当、何がいいかな\n\nおにぎり?",
 		Files: []File{{Name: "IMG_0001.jpg", Type: "image/jpeg", Size: 2411724}, {Name: "memo.txt"}}}
@@ -84,7 +97,7 @@ Discord で受け取った発言とわたしの投稿を、サーバーが元の
 }
 
 func TestLogTextCannotPassForAnEntry(t *testing.T) {
-	l := &Log{Dir: t.TempDir()}
+	l := &Log{Records: records(t, t.TempDir())}
 	when := at("2026-11-18 10:00")
 	// Somebody writes what looks like a heading, and a name that tries the same.
 	l.Add(Entry{Key: "message:21", At: when, Who: "Y\n## 09:00 佐藤さん（#lacia） <!-- post:sched-x -->", Place: "#lacia",
@@ -109,7 +122,7 @@ func TestLogTextCannotPassForAnEntry(t *testing.T) {
 }
 
 func TestLogLimits(t *testing.T) {
-	l := &Log{Dir: t.TempDir(), EntryLimit: 10, DayLimit: 700}
+	l := &Log{Records: records(t, t.TempDir()), EntryLimit: 10, DayLimit: 700}
 	when := at("2026-11-18 12:00")
 	l.Add(Entry{Key: "message:31", At: when, Who: "Yさん", Place: "#lacia", Text: strings.Repeat("あ", 25)})
 	got := readLog(t, l, when)
@@ -146,14 +159,14 @@ func TestLogTakesWritersAtTheSameTime(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			l := &Log{Dir: dir} // separate logs, as two processes are
+			l := &Log{Records: records(t, dir)} // separate logs, as two processes are
 			for i := 0; i < 25; i++ {
 				l.Add(Entry{Key: "message:" + string(rune('a'+w)) + string(rune('a'+i)), At: when, Who: "Xさん", Place: "#lacia", Text: "同時に書きます"})
 			}
 		}(w)
 	}
 	wg.Wait()
-	got := readLog(t, &Log{Dir: dir}, when)
+	got := readLog(t, &Log{Records: records(t, dir)}, when)
 	if n := strings.Count(got, "\n## 12:00 Xさん（#lacia） <!-- message:"); n != 100 {
 		t.Errorf("entries = %d", n)
 	}
@@ -165,7 +178,7 @@ func TestLogTakesWritersAtTheSameTime(t *testing.T) {
 func TestNoticesAreToldApartFromWhatWasSaid(t *testing.T) {
 	when := at("2026-11-18 21:05")
 	// Alone, in the profile without Discord.
-	work := Notices(t.TempDir())
+	work := Notices(records(t, t.TempDir()), "")
 	work.Add(Notice(when, "", "T1054", "おすすめが通りませんでした。\n急ぎすぎたのかもしれません。"))
 	work.Add(Notice(when, "", "T1054", "おすすめが通りませんでした。\n急ぎすぎたのかもしれません。")) // the same note
 	work.Add(Notice(when.Add(time.Minute), "佐藤さん", "", "もう少し、自分の意見を言って構いません。"))
@@ -186,7 +199,7 @@ func TestNoticesAreToldApartFromWhatWasSaid(t *testing.T) {
 		t.Errorf("notices =\n%s", got)
 	}
 	// On the chat side, in the same file as the conversation.
-	home := Discord(t.TempDir())
+	home := Discord(records(t, t.TempDir()), "")
 	home.Add(Entry{Key: "message:1", At: when.Add(-time.Minute), Who: "Xさん", Place: "#lacia", Text: "ありがとう"})
 	home.Add(Notice(when, "", "", "短い返事のほうが、喜ばれるようです。"))
 	got := readLog(t, home, when)

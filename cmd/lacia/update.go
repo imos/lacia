@@ -12,7 +12,6 @@ import (
 	"github.com/imos/lacia/internal/home"
 )
 
-// installScript is the way in of a machine set up by the script.
 const installScript = "https://raw.githubusercontent.com/imos/lacia/main/install.sh"
 
 // runUpdate runs the way in that set this machine up once more: make install

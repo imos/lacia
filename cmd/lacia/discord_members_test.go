@@ -21,7 +21,7 @@ func (p *recordingPauser) Pause(who string, d time.Duration) (discord.Member, ti
 }
 
 func TestReceiveDiscordTellsWhoAndStopsAFlood(t *testing.T) {
-	q, err := request.Open(t.TempDir())
+	q, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestStageFollowsTheSchoolYear(t *testing.T) {
 
 func TestReceiveDiscordPreservesOriginalImagesThroughMergeAndRestart(t *testing.T) {
 	dir := t.TempDir()
-	q, err := request.Open(dir)
+	q, err := request.Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestReceiveDiscordPreservesOriginalImagesThroughMergeAndRestart(t *testing.
 			t.Fatal(err)
 		}
 	}
-	q, err = request.Open(dir)
+	q, err = request.Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}

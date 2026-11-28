@@ -2,10 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/imos/lacia/internal/testrecords"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/imos/lacia/internal/testrecords"
 
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
@@ -22,7 +23,7 @@ func TestAskKeepStatusEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	queue, err := request.Open(dir)
+	queue, err := request.Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestAskKeepStatusEndToEnd(t *testing.T) {
 	if err := runAsk(args); err != nil {
 		t.Fatal(err)
 	}
-	queue, err = request.Open(dir)
+	queue, err = request.Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestAskResumeEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, _ := store.Create(task.NewTask{Area: "work", Title: "再開", Status: task.Review})
-	q, _ := request.Open(t.TempDir())
+	q, _ := request.Open(testDir(t, t.TempDir()))
 	q.Add(request.Request{ID: "original-request", TaskID: record.ID, Text: "private-original"})
 	q.Resolve("original-request", request.Unknown, "partial-result", "interrupted", false)
 	handler, _ := (&web.Server{Store: store, Requests: q}).Handler()

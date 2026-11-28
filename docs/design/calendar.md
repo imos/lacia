@@ -126,7 +126,7 @@ Macの会議通知は引き続き通知用のスナップショットを使い�
 - `display_markers` は、その日の中の目安の時刻です。`time` は `HH:MM` の形で書き、`basis` には `lacia_interpretation` と書きます。レイシアの解釈であることが、画面で分かるように出ます。
 - `display_basis` のある予定は、会議の知らせの対象から外れます。
 
-既定の場所は、記録の形式1では `.lacia/calendar-overrides.json`、形式0では `personal/knowledge/calendar-display-overrides.json` です。形式0で領域の名前を変えているリポジトリーでは、設定で場所を指定します。
+既定の場所は `.lacia/calendar-overrides.json` です。設定の `calendar-overrides` で変えられます。
 
 ### 決まった題名の予定を出さない規則
 

@@ -22,8 +22,27 @@ func mustAccept(t *testing.T, s *Store, r Result) Receipt {
 	return got
 }
 
+// newRoot is a repository with the routine S1001 in the area work.
+func newRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, text := range map[string]string{
+		".lacia/config.json":                   `{"format":2,"areas":["work"]}`,
+		"areas/work/routines/S1001/routine.md": "---\nid: S1001\ntitle: 確認\ndaily: 09:00\n---\n",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
 func TestDedupAndBatch(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(newRoot(t))
 	r := result("run1", "issue1", "v1")
 	r.Matters = append(r.Matters, Matter{Key: "issue2", Revision: "v1"}, r.Matters[0])
 	got := mustAccept(t, s, r)
@@ -54,7 +73,7 @@ func TestDedupAndBatch(t *testing.T) {
 }
 
 func TestCompletionBoundaryRestoreAndNotification(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(newRoot(t))
 	date := time.Date(2026, 11, 30, 23, 50, 0, 0, time.FixedZone("JST", 9*3600))
 	s.Now = func() time.Time { return date }
 	first := mustAccept(t, s, result("run1", "a", "1"))
@@ -87,7 +106,7 @@ func TestCompletionBoundaryRestoreAndNotification(t *testing.T) {
 }
 
 func TestClockMovesBackwards(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(newRoot(t))
 	date := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	s.Now = func() time.Time { return date }
 	mustAccept(t, s, result("1", "a", "1"))
@@ -100,7 +119,7 @@ func TestClockMovesBackwards(t *testing.T) {
 }
 
 func TestConcurrentInstances(t *testing.T) {
-	root := t.TempDir()
+	root := newRoot(t)
 	const n = 24
 	var wg sync.WaitGroup
 	errs := make(chan error, n)
@@ -141,15 +160,15 @@ func TestConcurrentInstances(t *testing.T) {
 }
 
 func TestFailedWriteCanRetry(t *testing.T) {
-	root := t.TempDir()
+	root := newRoot(t)
 	s := NewStore(root)
-	if err := os.WriteFile(filepath.Join(root, "routines"), []byte("blocked"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "areas", "work", "routines", "S1001", "runs"), []byte("blocked"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Accept("S1001", result("1", "a", "1")); err == nil {
 		t.Fatal("write should fail")
 	}
-	if err := os.Remove(filepath.Join(root, "routines")); err != nil {
+	if err := os.Remove(filepath.Join(root, "areas", "work", "routines", "S1001", "runs")); err != nil {
 		t.Fatal(err)
 	}
 	got := mustAccept(t, s, result("1", "a", "1"))
@@ -157,8 +176,8 @@ func TestFailedWriteCanRetry(t *testing.T) {
 		t.Fatal(got)
 	}
 	// Rebuild using only the Git-managed files, with no local cached state.
-	copyRoot := t.TempDir()
-	paths, _ := filepath.Glob(filepath.Join(root, "routines", "S1001", "runs", "*", "reviews.jsonl"))
+	copyRoot := newRoot(t)
+	paths, _ := filepath.Glob(filepath.Join(root, "areas", "work", "routines", "S1001", "runs", "*", "reviews.jsonl"))
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -178,10 +197,10 @@ func TestFailedWriteCanRetry(t *testing.T) {
 }
 
 func TestInvalidHistoryFailsClosed(t *testing.T) {
-	root := t.TempDir()
+	root := newRoot(t)
 	s := NewStore(root)
 	mustAccept(t, s, result("1", "a", "1"))
-	paths, _ := filepath.Glob(filepath.Join(root, "routines", "S1001", "runs", "*", "reviews.jsonl"))
+	paths, _ := filepath.Glob(filepath.Join(root, "areas", "work", "routines", "S1001", "runs", "*", "reviews.jsonl"))
 	f, err := os.OpenFile(paths[0], os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +216,7 @@ func TestInvalidHistoryFailsClosed(t *testing.T) {
 }
 
 func TestValidationAndJSON(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(newRoot(t))
 	if _, _, err := s.Accept("../bad", Result{RunID: "1"}); err == nil {
 		t.Fatal("bad ID")
 	}
@@ -227,7 +246,7 @@ func TestValidationAndJSON(t *testing.T) {
 }
 
 func TestRecordKeepsEveryFailureAndOldReceiptLinks(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(newRoot(t))
 	old := mustAccept(t, s, result("old", "issue", "1"))
 	if _, err := s.Complete("S1001", Completion{OperationID: "legacy", Actor: "owner", Through: old.Sequence}); err != nil {
 		t.Fatal(err)

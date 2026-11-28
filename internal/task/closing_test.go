@@ -123,7 +123,7 @@ func TestCheckTellsTheTwoWaysOfAskingApart(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			warnings := CheckFormat(Task{ID: "T1001", Title: "表示を直す", Status: test.status, Body: body(test.next)}, nil, 1)
+			warnings := Check(Task{ID: "T1001", Title: "表示を直す", Status: test.status, Body: body(test.next)}, nil)
 			var messages []string
 			for _, w := range warnings {
 				messages = append(messages, w.Message)

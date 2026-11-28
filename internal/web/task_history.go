@@ -210,9 +210,6 @@ func (s *Server) taskReviewSince(t task.Task, lines []task.Line) string {
 	if !t.Status.AwaitsUser() {
 		return ""
 	}
-	if s.Store.Format() < 1 {
-		return "日時不明"
-	}
 	return statusSince(lines, t.Status, s.Store.Location())
 }
 

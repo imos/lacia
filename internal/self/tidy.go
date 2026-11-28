@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -51,11 +49,11 @@ type tidyState struct {
 	LastAt  time.Time `json:"last_at,omitzero"`
 }
 
-func (k *Keeper) tidyPath() string { return filepath.Join(k.Dir, "tidy.json") }
+const tidyFile = "tidy.json"
 
 func (k *Keeper) readTidy() tidyState {
 	var s tidyState
-	if data, err := os.ReadFile(k.tidyPath()); err == nil {
+	if data, err := k.State.ReadFile(tidyFile); err == nil {
 		json.Unmarshal(data, &s)
 	}
 	return s
@@ -67,7 +65,7 @@ func (k *Keeper) updateTidy(change func(*tidyState)) tidyState {
 	s := k.readTidy()
 	change(&s)
 	data, _ := json.MarshalIndent(s, "", "  ")
-	if err := disk.WriteFileNoSync(k.tidyPath(), append(data, '\n'), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync(tidyFile, append(data, '\n'), 0o600); err != nil {
 		slog.Error("tidy state", "error", err)
 	}
 	return s
@@ -79,7 +77,7 @@ func (k *Keeper) TidyDay(day string) (TidyDay, bool) {
 	if parsed, err := time.Parse(time.DateOnly, day); err != nil || parsed.Format(time.DateOnly) != day {
 		return record, false
 	}
-	data, err := os.ReadFile(filepath.Join(k.Dir, "tidy-days", day+".json"))
+	data, err := k.State.ReadFile(filepath.Join("tidy-days", day+".json"))
 	if err != nil || json.Unmarshal(data, &record) != nil || record.Day != day {
 		return TidyDay{}, false
 	}
@@ -246,8 +244,7 @@ func (k *Keeper) tidyOnce(ctx context.Context, think Think, started time.Time, e
 		if err != nil {
 			return TidyDay{}, err
 		}
-		file := filepath.Join(k.Dir, "tidy-days", day.Day+".json")
-		if err := disk.WriteFileNoSync(file, append(data, '\n'), 0o600); err != nil {
+		if err := k.State.WriteFileNoSync(filepath.Join("tidy-days", day.Day+".json"), append(data, '\n'), 0o600); err != nil {
 			return TidyDay{}, errors.New("夜の整理の記録を保存できませんでした。" + err.Error())
 		}
 	}
@@ -338,9 +335,9 @@ func tidyNotice(pending []TidyDay, weekly bool) string {
 func (k *Keeper) tidyPrompt(now time.Time, exchanges []Exchange, weekly bool, week []TidyDay) string {
 	// Only the names of the documents are told; their text stays here.
 	files := ""
-	if paths, _ := filepath.Glob(filepath.Join(filepath.Dir(k.Path), "*.md")); len(paths) > 0 {
+	if paths, _ := filepath.Glob(filepath.Join(filepath.Dir(k.Path()), "*.md")); len(paths) > 0 {
 		for _, p := range paths {
-			if name := filepath.Base(p); p != k.Path && name != "now.md" {
+			if name := filepath.Base(p); p != k.Path() && name != "now.md" {
 				files += "- `memory/" + name + "`\n"
 			}
 		}

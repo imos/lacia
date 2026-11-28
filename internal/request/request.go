@@ -132,7 +132,7 @@ var ErrUncertain = errors.New("uncertain")
 
 // Queue stores requests and feeds them to a Runner.
 type Queue struct {
-	dir string
+	dir *disk.Dir
 	now func() time.Time
 	// Finished is called after a request reaches a final status.
 	Finished func(Request)
@@ -155,19 +155,16 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{5,80}$`)
 
 // Open loads the requests saved in dir. Requests that were running when the
 // previous process stopped become Unknown: they may have been processed.
-func Open(dir string) (*Queue, error) { return open(dir, true) }
+func Open(dir *disk.Dir) (*Queue, error) { return open(dir, true) }
 
 // OpenRecords loads requests that another server processes. Here they are
 // only a record, filled in with Resolve, so one that was running when this
 // process stopped is still running.
-func OpenRecords(dir string) (*Queue, error) { return open(dir, false) }
+func OpenRecords(dir *disk.Dir) (*Queue, error) { return open(dir, false) }
 
-func open(dir string, interrupted bool) (*Queue, error) {
-	if err := disk.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
+func open(dir *disk.Dir, interrupted bool) (*Queue, error) {
 	q := &Queue{dir: dir, now: time.Now, items: map[string]*Request{}, merged: map[string]string{}, served: map[string]time.Time{}, wake: make(chan struct{})}
-	paths, err := filepath.Glob(filepath.Join(dir, "*", "*.json"))
+	paths, err := filepath.Glob(filepath.Join(dir.Path(), "*", "*.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -199,8 +196,8 @@ func open(dir string, interrupted bool) (*Queue, error) {
 	return q, nil
 }
 
-func (q *Queue) path(r *Request) string {
-	return filepath.Join(q.dir, r.Created.UTC().Format("2006-01"), r.ID+".json")
+func (q *Queue) name(r *Request) string {
+	return filepath.Join(r.Created.UTC().Format("2006-01"), r.ID+".json")
 }
 
 func (q *Queue) save(r *Request) error {
@@ -208,7 +205,7 @@ func (q *Queue) save(r *Request) error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFile(q.path(r), append(data, '\n'), 0o600)
+	return q.dir.WriteFile(q.name(r), append(data, '\n'), 0o600)
 }
 
 // Add queues a request. A request with an ID that already exists is not
@@ -374,7 +371,6 @@ func (q *Queue) woken() <-chan struct{} {
 	return q.wake
 }
 
-// Get returns one request.
 func (q *Queue) Get(id string) (Request, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

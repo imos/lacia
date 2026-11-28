@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func TestMonitorAllChannelsReviewsOnlyHumanPosts(t *testing.T) {
 		json.NewEncoder(w).Encode(Channel{ID: "200", GuildID: "90", Type: typeText})
 	}))
 	defer server.Close()
-	b := New(Config{GuildID: "90", Channels: []string{"100"}, MonitorAllChannels: true, Members: []Member{{ID: "20"}, {ID: "21", Role: Child}}, State: filepath.Join(t.TempDir(), "state"), api: server.URL})
+	b := New(Config{GuildID: "90", Channels: []string{"100"}, MonitorAllChannels: true, Members: []Member{{ID: "20"}, {ID: "21", Role: Child}}, State: testDir(t, t.TempDir()), StateName: "state", api: server.URL})
 	b.botID = "1"
 	var received []Incoming
 	b.Receive = func(in Incoming) (bool, error) { received = append(received, in); return true, nil }
@@ -101,7 +100,7 @@ func TestHistoryRevalidatesAnchorAndFiltersWithPagination(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	b := New(Config{GuildID: "90", MonitorAllChannels: true, Members: []Member{{ID: "20"}}, State: filepath.Join(t.TempDir(), "state"), api: server.URL})
+	b := New(Config{GuildID: "90", MonitorAllChannels: true, Members: []Member{{ID: "20"}}, State: testDir(t, t.TempDir()), StateName: "state", api: server.URL})
 	b.botID = "1"
 	page, err := b.History(context.Background(), "200", "500", "", 8)
 	if err != nil || len(page.Messages) != 2 || page.NextBefore != "420" || page.Messages[1].Author != "レイシア" || page.Messages[0].Attachments[0].Name != "photo.png" {
@@ -149,7 +148,7 @@ func TestMonitorCatchUpDiscoversChannelsAndSkipsFirstHistory(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	b := New(Config{GuildID: "90", MonitorAllChannels: true, Authors: []string{"20"}, State: filepath.Join(t.TempDir(), "state"), api: server.URL})
+	b := New(Config{GuildID: "90", MonitorAllChannels: true, Authors: []string{"20"}, State: testDir(t, t.TempDir()), StateName: "state", api: server.URL})
 	var received []Incoming
 	b.Receive = func(in Incoming) (bool, error) { received = append(received, in); return true, nil }
 	b.catchUp(context.Background())

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,7 +27,11 @@ type Config struct {
 	Authors            []string // who may ask, unless AnyHuman
 	AnyHuman           bool     // accept every human in the channels (a private server)
 	Members            []Member // when set, only these are accepted, and each has a role
-	State              string   // file remembering how far each channel was read
+	// StateName, in State, is the file remembering how far each channel
+	// was read. The ledger of attachments sent and the images being looked
+	// at are kept beside it.
+	State     *disk.Dir
+	StateName string
 
 	api     string // REST base, for tests
 	gateway string // gateway URL, for tests
@@ -79,15 +82,16 @@ type state struct {
 	Paused map[string]time.Time `json:"paused,omitempty"`
 }
 
-// New prepares a bot.
 func New(cfg Config) *Bot {
 	if cfg.api == "" {
 		cfg.api = defaultAPI
 	}
 	b := &Bot{cfg: cfg, rest: &rest{api: cfg.api, token: cfg.Token, http: network.Internet(30 * time.Second)},
 		kinds: map[string]Channel{}}
-	if data, err := os.ReadFile(cfg.State); err == nil {
-		json.Unmarshal(data, &b.state)
+	if cfg.State != nil {
+		if data, err := cfg.State.ReadFile(cfg.StateName); err == nil {
+			json.Unmarshal(data, &b.state)
+		}
 	}
 	if b.state.Cursors == nil {
 		b.state.Cursors = map[string]string{}
@@ -104,7 +108,7 @@ func New(cfg Config) *Bot {
 
 func (b *Bot) save() {
 	data, _ := json.MarshalIndent(b.state, "", "  ")
-	disk.WriteFileNoSync(b.cfg.State, append(data, '\n'), 0o600)
+	b.cfg.State.WriteFileNoSync(b.cfg.StateName, append(data, '\n'), 0o600)
 }
 
 // Run stays connected until ctx ends.
@@ -193,7 +197,6 @@ var (
 	threadDenied = regexp.MustCompile(`(スレッド|thread).{0,14}(不要|なし|使わない|作らない|しない|ではなく|じゃなく|やめ)`)
 )
 
-// wantsThread reports whether the message asks for the answer in a thread.
 func wantsThread(text string) bool {
 	lower := strings.ToLower(text)
 	return threadWanted.MatchString(lower) && !threadDenied.MatchString(lower)

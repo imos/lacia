@@ -3,7 +3,6 @@
 package effect
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -63,46 +62,14 @@ var madeTypes = map[string]map[string]kind{
 // readFlags are the os.OpenFile flags that do not write.
 var readFlags = []string{"O_RDONLY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK"}
 
+// TestBoundary fails on any act outside its home package.
 func TestBoundary(t *testing.T) {
 	found := scanModule(t, "../..")
 	for _, k := range []kind{command, write, network} {
-		compare(t, k, found[k], exceptions[k])
-	}
-}
-
-// compare fails both when a file acts more than its exception allows and
-// when it acts less: a list that is not lowered would hide the next one.
-func compare(t *testing.T, k kind, found, allowed map[string]int) {
-	t.Helper()
-	files := map[string]bool{}
-	for file := range found {
-		files[file] = true
-	}
-	for file := range allowed {
-		files[file] = true
-	}
-	wrong := false
-	for _, file := range slices.Sorted(maps.Keys(files)) {
-		switch n, max := found[file], allowed[file]; {
-		case n > max:
-			t.Errorf("%s: %s が %d か所あります。%s のパッケージを使ってください", file, k, n-max, home[k])
-			wrong = true
-		case n < max:
-			t.Errorf("%s: %s が %d か所に減りました。exceptions_test.go の数を %d にしてください", file, k, n, n)
-			wrong = true
+		for _, file := range slices.Sorted(maps.Keys(found[k])) {
+			t.Errorf("%s: %s が %d か所あります。%s のパッケージを使ってください", file, k, found[k][file], home[k])
 		}
 	}
-	if wrong {
-		t.Logf("いまの %s の数です。\n%s", k, literal(found))
-	}
-}
-
-func literal(counts map[string]int) string {
-	var b strings.Builder
-	for _, file := range slices.Sorted(maps.Keys(counts)) {
-		fmt.Fprintf(&b, "\t\t%q: %d,\n", file, counts[file])
-	}
-	return b.String()
 }
 
 // scanModule counts the acts in each non-test file of the module, outside

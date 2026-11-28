@@ -14,11 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/rules"
 )
 
@@ -35,12 +35,11 @@ Claude Code は依頼ごとに起動し、返事を出すと終了します。�
 - 長くかかる作業は、区切りごとにタスクの記録へ書いてから進めます。
 `
 
-// Config describes the Claude Code to run.
 type Config struct {
-	Command   []string // how to start Claude Code, e.g. ["claude"]
-	Workspace string   // the task repository; Claude Code works here
-	StateDir  string   // where the session ID is kept
-	Env       []string // extra environment, as KEY=value
+	Command   []string  // how to start Claude Code, e.g. ["claude"]
+	Workspace string    // the task repository; Claude Code works here
+	State     *disk.Dir // where the session ID is kept; unused when Ephemeral
+	Env       []string  // extra environment, as KEY=value
 	// Instructions are appended to Claude Code's own system prompt.
 	Instructions        string
 	CurrentInstructions func(context.Context) (string, rules.Revision)
@@ -60,7 +59,7 @@ type Runner struct {
 	mu  sync.Mutex
 }
 
-// New prepares a runner; nothing starts until Run.
+// Nothing starts until Run.
 func New(cfg Config) *Runner {
 	if len(cfg.Command) == 0 {
 		cfg.Command = []string{"claude"}
@@ -71,14 +70,12 @@ func New(cfg Config) *Runner {
 	return &Runner{cfg: cfg}
 }
 
-func (r *Runner) sessionFile() string { return filepath.Join(r.cfg.StateDir, "session") }
-
 // Session returns the conversation that the next run resumes, if any.
 func (r *Runner) Session() string {
 	if r.cfg.Ephemeral {
 		return ""
 	}
-	data, _ := os.ReadFile(r.sessionFile())
+	data, _ := r.cfg.State.ReadFile("session")
 	return strings.TrimSpace(string(data))
 }
 
@@ -106,10 +103,9 @@ func (r *Runner) Run(ctx context.Context, text string) (reply, turn string, err 
 		instructions, current = r.cfg.CurrentInstructions(ctx)
 	}
 	message := text
-	versionFile := filepath.Join(r.cfg.StateDir, "rules.json")
 	if session != "" && len(current) > 0 {
 		var previous rules.Revision
-		data, _ := os.ReadFile(versionFile)
+		data, _ := r.cfg.State.ReadFile("rules.json")
 		_ = json.Unmarshal(data, &previous)
 		if note := current.Notice(previous); note != "" {
 			message = note + "\n\n" + message
@@ -119,20 +115,18 @@ func (r *Runner) Run(ctx context.Context, text string) (reply, turn string, err 
 	if errors.Is(err, errNoSession) && session != "" {
 		// The conversation was cleared away. Losing its memory is better
 		// than refusing every request from here on.
-		os.Remove(r.sessionFile())
+		r.cfg.State.Remove("session")
 		res, err = r.run(ctx, text, "", instructions)
 	}
 	if err != nil {
 		return "", "", err
 	}
 	if !r.cfg.Ephemeral && res.SessionID != "" && res.SessionID != session {
-		if err := os.MkdirAll(r.cfg.StateDir, 0o700); err == nil {
-			os.WriteFile(r.sessionFile(), []byte(res.SessionID+"\n"), 0o600)
-		}
+		r.cfg.State.WriteFileNoSync("session", []byte(res.SessionID+"\n"), 0o600)
 	}
 	if !r.cfg.Ephemeral && len(current) > 0 && res.SessionID != "" {
 		if data, err := json.Marshal(current); err == nil {
-			_ = os.WriteFile(versionFile, data, 0o600)
+			_ = r.cfg.State.WriteFileNoSync("rules.json", data, 0o600)
 		}
 	}
 	return res.Result, res.UUID, nil
@@ -154,7 +148,7 @@ func (r *Runner) args(session, instructions string) []string {
 }
 
 func (r *Runner) run(ctx context.Context, text, session, instructions string) (result, error) {
-	cmd := exec.CommandContext(ctx, r.cfg.Command[0], r.args(session, instructions)...)
+	cmd := program.ClaudeCode(r.cfg.Command[0]).Command(ctx, r.args(session, instructions)...)
 	cmd.Dir = r.cfg.Workspace
 	cmd.Env = WithMemoryDefault(append(os.Environ(), r.cfg.Env...))
 	// The message goes in on standard input: it can be long, and arguments

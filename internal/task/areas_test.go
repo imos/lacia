@@ -10,7 +10,7 @@ func TestAreaLabelsAndHandoffArea(t *testing.T) {
 	open := func(config string) *Store {
 		root := t.TempDir()
 		if config == "" {
-			config = `{"format":1}`
+			config = `{"format":2}`
 		}
 		if config != "" {
 			os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
@@ -24,16 +24,16 @@ func TestAreaLabelsAndHandoffArea(t *testing.T) {
 	}
 	// The list of names alone is read as before; an area without a label
 	// is shown by its name.
-	s := open(`{"format":1,"areas":["work","personal","family"],"area_labels":{"work":"仕事","family":"家族"}}`)
+	s := open(`{"format":2,"areas":["work","personal","family"],"area_labels":{"work":"仕事","family":"家族"}}`)
 	if s.AreaLabel("work") != "仕事" || s.AreaLabel("personal") != "personal" || s.AreaLabel("family") != "家族" {
 		t.Errorf("labels = %q %q %q", s.AreaLabel("work"), s.AreaLabel("personal"), s.AreaLabel("family"))
 	}
 	// Handed-over tasks go where the repository says; without a word, to
 	// the first area.
 	for config, want := range map[string]string{
-		`{"format":1,"areas":["work","personal","family"]}`:                       "work",
-		`{"format":1,"areas":["work","personal","family"],"handoff_area":"work"}`: "work",
-		`{"format":1,"areas":["job","private"]}`:                                  "job",
+		`{"format":2,"areas":["work","personal","family"]}`:                       "work",
+		`{"format":2,"areas":["work","personal","family"],"handoff_area":"work"}`: "work",
+		`{"format":2,"areas":["job","private"]}`:                                  "job",
 		``:                                                                        "work",
 	} {
 		if got := open(config).HandoffArea(); got != want {

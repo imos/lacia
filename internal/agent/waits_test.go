@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/imos/lacia/internal/testrecords"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/testrecords"
+
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/task"
@@ -113,11 +115,11 @@ func server(t *testing.T) (*task.Store, *wait.Store, *handover.Store, *httptest.
 	if err := store.Refresh(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	waits, err := wait.Open(t.TempDir())
+	waits, err := wait.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	handovers, err := handover.Open(t.TempDir())
+	handovers, err := handover.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +143,12 @@ func TestTheWatcherReportsTheEndAndStartsTheContinuation(t *testing.T) {
 	dir := t.TempDir()
 	writeWatcherOwner(t, dir, "設定名さん")
 	k := &kubectl{out: `{"status":{"active":1}}`}
-	w := &Watcher{Kubectl: "kubectl", Base: func() string { return srv.URL }, Client: &http.Client{Timeout: 5 * time.Second}, Host: "mac", Dir: dir, LogDir: filepath.Join(dir, "logs"),
+	logs, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logs.Close()
+	w := &Watcher{Kubectl: "kubectl", Base: func() string { return srv.URL }, Client: &http.Client{Timeout: 5 * time.Second}, Host: "mac", Dir: dir, Logs: logs, LogDir: "logs",
 		Every: time.Nanosecond, Exec: k.exec,
 		// The stand-in for a new conversation keeps what it was told.
 		Runners: map[string][]string{wait.NextClaude: {"sh", "-c", `cat > "{dir}/prompt.txt"; echo "$LACIA_WAIT in $PWD"; exit 3`}}}
@@ -183,7 +190,12 @@ func TestTheWatcherReportsTheEndAndStartsTheContinuation(t *testing.T) {
 	if out, _ := os.ReadFile(filepath.Join(dir, "logs", hid+".log")); !strings.Contains(string(out), item.ID+" in "+real) && !strings.Contains(string(out), item.ID+" in "+dir) {
 		t.Fatalf("log of the continuation = %q", out)
 	}
-	data, _ := readTestHistory(t, filepath.Join(store.Root(), store.List()[0].Dir))
+	// The server records the end in the handover before it writes the
+	// task's log, so the log may lag the handover a little.
+	var data []byte
+	for data, _ = readTestHistory(t, filepath.Join(store.Root(), store.List()[0].Dir)); !strings.Contains(string(data), "終了コード 3 で終わりました") && time.Now().Before(deadline); data, _ = readTestHistory(t, filepath.Join(store.Root(), store.List()[0].Dir)) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	for _, want := range []string{"申し送り " + hid + " の届け方を記録しました。\nmac で Claude の新しい会話を起動します", "終了コード 3 で終わりました"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("the task's log lacks %q:\n%s", want, data)
@@ -453,7 +465,7 @@ func TestHandoversAreDeliveredWhenWatchingIsDisabled(t *testing.T) {
 
 func readTestHistory(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
-	lines, err := task.ReadHistory(dir, 1, 0)
+	lines, err := task.ReadHistory(dir, 0)
 	return []byte(strings.Join(lines, "\n")), err
 }
 
@@ -472,4 +484,15 @@ func TestDormantConversationWithLiveSharedProcessIsNotQueued(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

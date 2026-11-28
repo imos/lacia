@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // Store is the in-memory index of every task under a repository root. The
@@ -19,8 +21,8 @@ import (
 // first, so text that Codex edited in the meantime is kept.
 type Store struct {
 	root     string
+	records  *disk.Dir
 	location *time.Location
-	format   int // the shape of the repository; see Config.Format
 	areas    []string
 	labels   map[string]string // how the pages call an area
 	handoff  string            // the area for tasks a peer hands over
@@ -44,7 +46,6 @@ type Problem struct {
 	Err  string
 }
 
-// ErrNotFound is returned when no task has the requested ID.
 var ErrNotFound = errors.New("タスクが見つかりません")
 
 // DefaultAreas are the top-level directories that hold tasks in a
@@ -59,31 +60,22 @@ const (
 )
 
 // AliasFile maps former IDs to current ones, one "old<TAB>new" per line.
-// AliasFile1 is where a repository of format 1 keeps it.
-const (
-	AliasFile  = "migration/id-map.tsv"
-	AliasFile1 = ".lacia/id-map.tsv"
-)
+const AliasFile = ".lacia/id-map.tsv"
 
-// LatestFormat is the newest shape of a record repository this binary
-// reads and writes. Format 0 keeps the areas at the top and the history in
-// log.md; format 1 keeps the areas under areas/ and the history in
-// log.jsonl. Format 2 also puts routines inside their areas.
-const LatestFormat = AreaRoutineFormat
+// LatestFormat is the shape of a record repository this binary reads and
+// writes: the areas under areas/, the history in log.jsonl, and the routines
+// inside their areas.
+const LatestFormat = 2
 
 // AreaDir is the directory of an area, relative to the repository root.
-func AreaDir(format int, area string) string {
-	if format >= 1 {
-		return "areas/" + area
-	}
-	return area
-}
+func AreaDir(area string) string { return "areas/" + area }
 
 // Config is the optional .lacia/config.json of a task repository. A
 // repository without one holds work and personal tasks numbered T1001 up.
 type Config struct {
 	// Format is the shape of the repository. A repository that does not
-	// say is of format 0, the shape before areas/ and log.jsonl.
+	// say is of format 0. Only LatestFormat is opened; it is read to tell
+	// an older one.
 	Format int `json:"format"`
 	// Timezone is the IANA name of the zone the repository lives in.
 	Timezone string   `json:"timezone,omitempty"`
@@ -199,7 +191,7 @@ func LoadConfig(root string) (Config, error) {
 }
 
 // RequireCurrentFormat refuses the older layouts before anything is written.
-// lacia doctor still reads them, to tell what it finds.
+// lacia doctor tells it instead of checking their shape.
 func (c Config) RequireCurrentFormat() error {
 	if c.Format < LatestFormat {
 		return fmt.Errorf("この記録は形式%dです。この lacia は形式%dの記録だけを扱います。形式%dへ移すには、lacia migrate が入っている 2026-11-28 より前の版を使ってください", c.Format, LatestFormat, LatestFormat)
@@ -207,21 +199,24 @@ func (c Config) RequireCurrentFormat() error {
 	return nil
 }
 
-// Open reads the modern task layout shared by formats 1 and 2. Normal
-// runtime entry points require the latest format before opening a store.
-// Areas given here override the repository's own settings.
+// Open reads the tasks of a repository of the latest format. Areas given
+// here override the repository's own settings.
 func Open(root string, areas ...string) (*Store, error) {
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Format == 0 {
-		return nil, cfg.RequireCurrentFormat()
+	if err := cfg.RequireCurrentFormat(); err != nil {
+		return nil, err
 	}
 	if len(areas) == 0 {
 		areas = cfg.Areas
 	}
-	s := &Store{root: root, location: cfg.Location(), format: cfg.Format, areas: areas, labels: cfg.AreaLabels, handoff: cfg.HandoffArea, prefix: cfg.IDPrefix, noTasks: !cfg.KeepsTasks(), now: time.Now}
+	records, err := disk.OpenRecords(root)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{root: root, records: records, location: cfg.Location(), areas: areas, labels: cfg.AreaLabels, handoff: cfg.HandoffArea, prefix: cfg.IDPrefix, noTasks: !cfg.KeepsTasks(), now: time.Now}
 	return s, s.Reload()
 }
 
@@ -255,10 +250,11 @@ func (s *Store) hasLiveCondition(ref string) bool {
 	return ok && s.live != nil && s.live(id)
 }
 
-// Root returns the repository root.
 func (s *Store) Root() string { return s.root }
 
-// Location is the local time zone of this repository.
+// Records is the repository root, opened for writing inside it.
+func (s *Store) Records() *disk.Dir { return s.records }
+
 func (s *Store) Location() *time.Location {
 	if s.location == nil {
 		return JST
@@ -274,16 +270,12 @@ func (c Config) Location() *time.Location {
 	return JST
 }
 
-// Format returns the shape of the repository (Config.Format).
-func (s *Store) Format() int { return s.format }
-
 // AreaDir is the directory of an area, relative to the repository root.
-func (s *Store) AreaDir(area string) string { return AreaDir(LatestFormat, area) }
+func (s *Store) AreaDir(area string) string { return AreaDir(area) }
 
 // LogName is the file of a task that holds its history.
 func (s *Store) LogName() string { return HistoryFile }
 
-// Areas returns the configured areas.
 func (s *Store) Areas() []string { return s.areas }
 
 // Reload rescans the repository. Unreadable tasks are recorded as problems.
@@ -295,13 +287,11 @@ func (s *Store) Reload() error {
 		if err != nil {
 			return err
 		}
-		if s.format >= AreaRoutineFormat {
-			routines, err := filepath.Glob(filepath.Join(s.root, filepath.FromSlash(RoutineBase(s.format, area)), "*", "task.md"))
-			if err != nil {
-				return err
-			}
-			paths = append(paths, routines...)
+		routines, err := filepath.Glob(filepath.Join(s.root, filepath.FromSlash(RoutineBase(area)), "*", "task.md"))
+		if err != nil {
+			return err
 		}
+		paths = append(paths, routines...)
 		for _, path := range paths {
 			rel, _ := filepath.Rel(s.root, path)
 			t, err := s.read(area, filepath.ToSlash(filepath.Dir(rel)))
@@ -316,7 +306,7 @@ func (s *Store) Reload() error {
 		}
 	}
 	aliases := map[string]string{}
-	if data, err := os.ReadFile(filepath.Join(s.root, AliasFile1)); err == nil {
+	if data, err := os.ReadFile(filepath.Join(s.root, AliasFile)); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if old, id, ok := strings.Cut(strings.TrimSpace(line), "\t"); ok {
 				aliases[old] = id
@@ -359,7 +349,6 @@ func (s *Store) read(area, dir string) (*Task, error) {
 	return &t, nil
 }
 
-// Problems returns the task files that failed to load.
 func (s *Store) Problems() []Problem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -431,7 +420,6 @@ func (s *Store) List() []Task {
 	return out
 }
 
-// Children returns the tasks whose parent is id.
 func (s *Store) Children(id string) []Task {
 	var out []Task
 	for _, t := range s.List() {
@@ -451,7 +439,6 @@ func idLess(a, b string) bool {
 	return x < y
 }
 
-// NewTask describes a task to create.
 type NewTask struct {
 	Area   string
 	Title  string
@@ -509,7 +496,7 @@ func (s *Store) Create(n NewTask) (Task, error) {
 	dir := filepath.ToSlash(filepath.Join(s.AreaDir(n.Area), "tasks", now.Format("2006-01"), name))
 	doc := Doc{Body: n.Body}
 	if strings.TrimSpace(doc.Body) == "" {
-		doc.Body = Body(s.format, Placeholder, Placeholder)
+		doc.Body = Body(Placeholder, Placeholder)
 	}
 	doc.Set("id", id)
 	doc.Set("title", title)
@@ -519,20 +506,8 @@ func (s *Store) Create(n NewTask) (Task, error) {
 	if n.Status.Closed() {
 		doc.Set("done", now.Format(time.DateOnly))
 	}
-	abs := filepath.Join(s.root, dir)
-	if err := os.MkdirAll(abs, 0o755); err != nil {
-		return Task{}, err
-	}
-	// O_EXCL guards against a second process that allocated the same ID.
-	f, err := os.OpenFile(filepath.Join(abs, "task.md"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return Task{}, err
-	}
-	_, err = f.WriteString(doc.String())
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
+	// CreateNew guards against a second process that allocated the same ID.
+	if err := s.records.CreateNew(filepath.Join(dir, "task.md"), []byte(doc.String()), 0o644); err != nil {
 		return Task{}, err
 	}
 	created := Event{Type: EventCreated, By: n.Actor, Status: string(n.Status), Text: fmt.Sprintf("タスクを作りました。状態は「%s」です。", n.Status.Label())}
@@ -610,7 +585,6 @@ func (s *Store) SetStatus(ref string, status Status, actor, note string) (Task, 
 	})
 }
 
-// Owner names a conversation that works on a task.
 type Owner struct {
 	Label   string // shown to people, such as "local-claude"
 	Session string // key in the registry of conversations
@@ -982,8 +956,6 @@ func (s *Store) DependencyProblems() []string {
 	return out
 }
 
-// Log adds an event to the task's history. In log.md it becomes one line,
-// the sentence followed by who wrote it in brackets.
 func (s *Store) Log(ref string, e Event) error {
 	id, ok := s.Resolve(ref)
 	if !ok {
@@ -1021,8 +993,8 @@ func (s *Store) update(ref string, change func(*Doc, time.Time) (Event, error)) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current := s.tasks[id]
-	path := filepath.Join(s.root, current.Dir, "task.md")
-	data, err := os.ReadFile(path)
+	name := filepath.Join(current.Dir, "task.md")
+	data, err := os.ReadFile(filepath.Join(s.root, name))
 	if err != nil {
 		return Task{}, false, err
 	}
@@ -1047,13 +1019,13 @@ func (s *Store) update(ref string, change func(*Doc, time.Time) (Event, error)) 
 		if _, err := parseTask(doc, current.Routine); err != nil {
 			return Task{}, false, err
 		}
-		if err := writeAtomic(path, doc.String()); err != nil {
+		if err := s.records.WriteFileNoSync(name, []byte(doc.String()), 0o644); err != nil {
 			return Task{}, false, err
 		}
 		if err := s.record(current.Dir, now, entry); err != nil {
 			return Task{}, false, err
 		}
-		// Format 1 keeps the body as it stood when the work changed hands,
+		// The history keeps the body as it stood when the work changed hands,
 		// so that what a conversation left can be read later.
 		if after := Status(doc.Get("status")); before == Doing && after != Doing {
 			if err := s.record(current.Dir, now, handover(before, after, doc.Body)); err != nil {
@@ -1069,29 +1041,12 @@ func (s *Store) update(ref string, change func(*Doc, time.Time) (Event, error)) 
 	return s.annotated(t), changed, nil
 }
 
-// record writes an event to the task's JSON history.
 func (s *Store) record(dir string, now time.Time, e Event) error {
-	return AppendEvent(filepath.Join(s.root, dir, HistoryFile), now, e)
-}
-
-func writeAtomic(path, content string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".task-*.tmp")
+	line, err := eventLine(now, e)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return s.records.Append(filepath.Join(dir, HistoryFile), line, 0o644)
 }
 
 func contains(list []string, v string) bool {

@@ -31,7 +31,7 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 				logPath := filepath.Join(store.Root(), before.Dir, task.HistoryFile)
 				logBefore, _ := os.ReadFile(logPath)
 				dir := t.TempDir()
-				q, err := request.Open(dir)
+				q, err := request.Open(testDir(t, dir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -65,7 +65,7 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 					t.Fatal("accept wrote a status transition")
 				}
 				// Simulate restarting the worker before it processes the persisted request.
-				q, err = request.Open(dir)
+				q, err = request.Open(testDir(t, dir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -108,7 +108,7 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 				if q.Pending() != 0 || len(q.Recent(10, "T1002", false)) != 1 {
 					t.Fatal("retry created work")
 				}
-				q, err = request.Open(dir)
+				q, err = request.Open(testDir(t, dir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -130,7 +130,7 @@ func TestKeepStatusThroughRequestLifecycle(t *testing.T) {
 
 func TestKeepStatusValidationAndNotificationGeneration(t *testing.T) {
 	store, _ := setup(t)
-	q, _ := request.Open(t.TempDir())
+	q, _ := request.Open(testDir(t, t.TempDir()))
 	h, _ := (&Server{Store: store, Requests: q}).Handler()
 	send := func(body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()

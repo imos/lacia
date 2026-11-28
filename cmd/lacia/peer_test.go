@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/imos/lacia/internal/testrecords"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/imos/lacia/internal/testrecords"
 
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/self"
@@ -20,7 +21,7 @@ func TestPeerCommand(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		queue, err := request.Open(t.TempDir())
+		queue, err := request.Open(testDir(t, t.TempDir()))
 		if err != nil {
 			t.Fatal(err)
 		}

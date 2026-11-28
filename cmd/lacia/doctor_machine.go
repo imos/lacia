@@ -99,9 +99,9 @@ func guide(section string) string {
 	return installGuide + "#" + guideSections[section]
 }
 
-// registeredPath is the PATH the definition of the server gives it.
 var registeredPathPattern = regexp.MustCompile(`<key>PATH</key><string>([^<]*)</string>`)
 
+// registeredPath is the PATH the definition of the server gives it.
 func registeredPath() string {
 	data, err := os.ReadFile(launchAgentPath(serveLabel()))
 	if err != nil {
@@ -113,7 +113,6 @@ func registeredPath() string {
 	return ""
 }
 
-// findIn reports whether the command can be started with the PATH given.
 func findIn(command, path string) bool {
 	if strings.Contains(command, "/") {
 		return executable(command)

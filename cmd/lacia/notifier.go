@@ -41,7 +41,6 @@ func withNotifierSource(tools *disk.Dir, f func(dir string) error) error {
 	return f(filepath.Join(tools.Path(), build))
 }
 
-// manage runs manage.py of the source, showing what it prints.
 func manage(ctx context.Context, dir string, args ...string) error {
 	cmd := program.Python3().Command(ctx, append([]string{filepath.Join(dir, "manage.py")}, args...)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr

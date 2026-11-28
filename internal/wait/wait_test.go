@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func open(t *testing.T) (*Store, *time.Time) {
 	t.Helper()
-	s, err := Open(t.TempDir())
+	s, err := Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +85,7 @@ func TestAnObservedEndClosesTheWaitOnce(t *testing.T) {
 		t.Fatalf("a later report changed the end: %+v", got)
 	}
 	// The waits survive a restart.
-	reopened, err := Open(s.dir.Path())
+	reopened, err := Open(s.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ func TestUpgradeIgnoresClosedLegacyAndRefusesActiveLegacy(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "Wold.json"), []byte(c.body), 0600); err != nil {
 			t.Fatal(err)
 		}
-		s, err := Open(dir)
+		s, err := Open(testDir(t, dir))
 		if (err != nil) != c.active {
 			t.Fatalf("%s: %v", c.body, err)
 		}
@@ -132,4 +134,15 @@ func TestUpgradeIgnoresClosedLegacyAndRefusesActiveLegacy(t *testing.T) {
 			t.Fatal("legacy wait was reopened")
 		}
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

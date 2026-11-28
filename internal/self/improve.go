@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -46,11 +43,11 @@ type Improvement struct {
 	Notice  string    `json:"notice,omitempty"` // the notice that last carried it
 }
 
-func (k *Keeper) improvePath() string { return filepath.Join(k.Dir, "improvements.json") }
+const improveFile = "improvements.json"
 
 func (k *Keeper) readImprovements() []Improvement {
 	var out []Improvement
-	if data, err := os.ReadFile(k.improvePath()); err == nil {
+	if data, err := k.State.ReadFile(improveFile); err == nil {
 		json.Unmarshal(data, &out)
 	}
 	return out
@@ -61,7 +58,7 @@ func (k *Keeper) updateImprovements(change func([]Improvement) []Improvement) []
 	defer k.mu.Unlock()
 	list := change(k.readImprovements())
 	data, _ := json.MarshalIndent(list, "", "  ")
-	if err := disk.WriteFileNoSync(k.improvePath(), append(data, '\n'), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync(improveFile, append(data, '\n'), 0o600); err != nil {
 		slog.Error("self improvements", "error", err)
 	}
 	return list
@@ -74,7 +71,6 @@ func (k *Keeper) Improvements() []Improvement {
 	return k.readImprovements()
 }
 
-// DecideImprovement records what the conversation made of a candidate.
 func (k *Keeper) DecideImprovement(id, outcome, taskID, note string) (Improvement, error) {
 	note = strings.TrimSpace(note)
 	switch outcome {

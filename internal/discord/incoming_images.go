@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"crypto/rand"
+
 	"github.com/imos/lacia/internal/effect/network"
 )
 
@@ -38,19 +40,22 @@ var snowflake = regexp.MustCompile(`^[0-9]{1,20}$`)
 // keep the files through the turn and invoke cleanup, including on failure.
 func (b *Bot) PrepareImages(ctx context.Context, refs []ImageRef) (paths []string, remarks string, cleanup func()) {
 	cleanup = func() {}
-	root := b.cfg.State + ".incoming-images"
-	if err := os.MkdirAll(root, 0700); err != nil {
+	root := b.imagesName()
+	images, err := b.cfg.State.MakeSub(root, 0o700)
+	if err != nil {
 		return nil, "\n添付画像の保存場所を用意できませんでした。依頼の本文を読んで、作業を続けてください。", cleanup
 	}
-	info, err := os.Lstat(root)
+	info, err := b.cfg.State.Lstat(root)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
+		images.Close()
 		return nil, "\n添付画像を安全な場所に保存できませんでした。依頼の本文を読んで、作業を続けてください。", cleanup
 	}
-	dir, err := os.MkdirTemp(root, "turn-")
-	if err != nil {
+	turn := "turn-" + rand.Text()
+	if err := images.MkdirAll(turn); err != nil {
+		images.Close()
 		return nil, "\n添付画像を保存できませんでした。依頼の本文を読んで、作業を続けてください。", cleanup
 	}
-	cleanup = func() { os.RemoveAll(dir) }
+	cleanup = func() { images.RemoveAll(turn); images.Close() }
 	for i, ref := range refs {
 		if i >= MaxIncomingImages {
 			remarks += "\n添付ファイルが4件を超えたので、最初の4件まで確認しました。"
@@ -61,13 +66,13 @@ func (b *Bot) PrepareImages(ctx context.Context, refs []ImageRef) (paths []strin
 			remarks += "\n" + strconv.Itoa(i+1) + "件目の添付ファイル：" + err.Error()
 			continue
 		}
-		path := filepath.Join(dir, strconv.Itoa(i+1)+"."+format)
-		if err := os.WriteFile(path, data, 0600); err != nil {
-			os.Remove(path)
+		name := filepath.Join(turn, strconv.Itoa(i+1)+"."+format)
+		if err := images.CreateNew(name, data, 0o600); err != nil {
+			images.Remove(name)
 			remarks += "\n" + strconv.Itoa(i+1) + "件目の添付画像を保存できませんでした。"
 			continue
 		}
-		paths = append(paths, path)
+		paths = append(paths, filepath.Join(images.Path(), name))
 		remarks += "\n" + strconv.Itoa(i+1) + "件目の添付ファイルを、この会話に画像として渡しました。"
 	}
 	if remarks != "" {
@@ -218,21 +223,32 @@ func (b *Bot) fetchImage(ctx context.Context, ref ImageRef) ([]byte, string, err
 	return fail("元の投稿に、指定された添付ファイルが見つかりませんでした。")
 }
 
+func (b *Bot) imagesName() string { return b.cfg.StateName + ".incoming-images" }
+
 // cleanIncomingImages removes only this bot's previous per-turn directories.
 // It runs before the bot starts accepting work after a restart.
 func (b *Bot) cleanIncomingImages() {
-	root := b.cfg.State + ".incoming-images"
-	info, err := os.Lstat(root)
+	if b.cfg.State == nil {
+		return
+	}
+	root := b.imagesName()
+	info, err := b.cfg.State.Lstat(root)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
 		return
 	}
-	entries, err := os.ReadDir(root)
+	images, err := b.cfg.State.Sub(root)
 	if err != nil {
 		return
 	}
+	entries, err := os.ReadDir(images.Path())
+	if err != nil {
+		images.Close()
+		return
+	}
+	defer images.Close()
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), "turn-") {
-			os.RemoveAll(filepath.Join(root, entry.Name()))
+			images.RemoveAll(entry.Name())
 		}
 	}
 }

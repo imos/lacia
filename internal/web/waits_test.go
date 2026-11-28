@@ -17,13 +17,13 @@ import (
 func setupWaits(t *testing.T) (*task.Store, *Server, http.Handler, *time.Time) {
 	t.Helper()
 	store, _ := setup(t)
-	waits, err := wait.Open(t.TempDir())
+	waits, err := wait.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 11, 19, 1, 0, 0, 0, task.JST)
 	waits.Now = func() time.Time { return now }
-	handovers, err := handover.Open(t.TempDir())
+	handovers, err := handover.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func TestChildRepliesKeepOriginalDestination(t *testing.T) {
 	for _, destination := range []string{"discord:channel-a", "discord:thread-a", ""} {
 		t.Run(destination, func(t *testing.T) {
 			dir := t.TempDir()
-			q, err := request.Open(dir)
+			q, err := request.Open(testDir(t, dir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -36,7 +36,7 @@ func TestChildRepliesKeepOriginalDestination(t *testing.T) {
 			enqueueChild(q, child)
 			child.Kind = "shutdown"
 			enqueueChild(q, child)
-			q, err = request.Open(dir)
+			q, err = request.Open(testDir(t, dir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,7 +79,7 @@ func TestChildRepliesKeepOriginalDestination(t *testing.T) {
 
 func TestChildSuppressionMissingRouteAndUncertainSend(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := request.Open(dir)
+	q, _ := request.Open(testDir(t, dir))
 	parent, _, _ := q.Add(request.Request{ID: "parent-a", Text: "調べてください", ReplyTo: "discord:channel-a"})
 	enqueueChild(q, codex.Child{ThreadID: "missing", Kind: "completed"})
 	var missing request.Request
@@ -114,7 +114,7 @@ func TestChildSuppressionMissingRouteAndUncertainSend(t *testing.T) {
 	if ok, err := q.ClaimDelivery(claimed.ID); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	q, _ = request.Open(dir)
+	q, _ = request.Open(testDir(t, dir))
 	claimed.Status, claimed.Reply = request.Done, "結果です"
 	deliverDiscord(context.Background(), bot, q, claimed)
 	if len(bot.sent) != 1 {
@@ -133,7 +133,7 @@ func TestChildSuppressionMissingRouteAndUncertainSend(t *testing.T) {
 // Exercise the production queue, completion enqueue and delivery path without
 // an LLM or a real Discord POST. A child remains active across the next turn.
 func TestDelegatedWorkLeavesQueueFreeAndReturnsToOrigin(t *testing.T) {
-	q, err := request.Open(t.TempDir())
+	q, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

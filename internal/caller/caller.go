@@ -53,7 +53,6 @@ type Agent struct {
 	Above []Proc `json:"above,omitempty"`
 }
 
-// Proc is one process of an agent.
 type Proc struct {
 	PID     int   `json:"pid"`
 	Started int64 `json:"started,omitempty"`
@@ -76,7 +75,6 @@ type Caller struct {
 	Agents []Agent `json:"agents,omitempty"`
 }
 
-// Known reports whether an agent was found.
 func (c Caller) Known() bool { return len(c.Agents) > 0 }
 
 func (c Caller) name(a Agent) string { return c.Place + "-" + a.Kind }
@@ -116,7 +114,6 @@ func (c Caller) Key() string {
 	return hex.EncodeToString(sum[:4])
 }
 
-// Encode packs the caller for the header.
 func (c Caller) Encode() string {
 	data, _ := json.Marshal(c)
 	return base64.StdEncoding.EncodeToString(data)
@@ -157,7 +154,6 @@ type process struct {
 // maxDepth bounds the walk in case the parents form a loop.
 const maxDepth = 64
 
-// Detect finds the caller of the running command.
 func Detect() Caller {
 	return detect(os.Getppid(), lookup, os.Getenv)
 }

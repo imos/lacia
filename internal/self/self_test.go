@@ -59,10 +59,21 @@ func TestCore(t *testing.T) {
 	}
 }
 
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
 func keeper(t *testing.T) *Keeper {
 	root := t.TempDir()
 	now := time.Date(2026, 11, 17, 4, 0, 0, 0, task.JST) // a Tuesday
-	return &Keeper{Path: filepath.Join(root, "repo", "memory", "self.md"), Dir: filepath.Join(root, "state"), Label: "仕事モード",
+	return &Keeper{Records: testDir(t, filepath.Join(root, "repo")), Name: "memory/self.md", State: testDir(t, filepath.Join(root, "state")), Label: "仕事モード",
 		Now: func() time.Time { return now }}
 }
 
@@ -146,7 +157,7 @@ func TestSleep(t *testing.T) {
 		long += fmt.Sprintf("- 見立ての%d行目です。\n", i)
 	}
 	long += "\n## 仕事モードで\n\n- 仕事の見立てです。\n"
-	os.WriteFile(k.Path, []byte(long), 0o644)
+	os.WriteFile(k.Path(), []byte(long), 0o644)
 	k.AddNote(Note{Text: "きょうも1つ、気づきました。"})
 	reply = answer(first, "ほとんど書き換えました。")
 	night, _ = k.Sleep(context.Background(), false)
@@ -199,8 +210,8 @@ func TestSleep(t *testing.T) {
 
 func TestSharingTheCore(t *testing.T) {
 	work := keeper(t)
-	os.MkdirAll(filepath.Dir(work.Path), 0o755)
-	os.WriteFile(work.Path, []byte(first), 0o644)
+	os.MkdirAll(filepath.Dir(work.Path()), 0o755)
+	os.WriteFile(work.Path(), []byte(first), 0o644)
 	work.PeerLabel, work.People = "家庭モード", "ご家族"
 	home := keeper(t)
 	home.Label, home.PeerLabel, home.ChatSide, home.People = "家庭モード", "仕事モード", true, "ご家族"
@@ -314,9 +325,9 @@ func TestWeeklyLooksBack(t *testing.T) {
 	k := keeper(t)
 	sunday := time.Date(2026, 11, 22, 4, 0, 0, 0, task.JST)
 	k.Now = func() time.Time { return sunday }
-	os.MkdirAll(filepath.Join(k.Dir, "versions"), 0o755)
-	os.WriteFile(filepath.Join(k.Dir, "versions", "2026-11-15.md"), []byte("# わたしのこと\n\n1週間前の版です。\n"), 0o600)
-	os.WriteFile(filepath.Join(k.Dir, "versions", "2026-11-20.md"), []byte("# わたしのこと\n\nおとといの版です。\n"), 0o600)
+	os.MkdirAll(filepath.Join(k.State.Path(), "versions"), 0o755)
+	os.WriteFile(filepath.Join(k.State.Path(), "versions", "2026-11-15.md"), []byte("# わたしのこと\n\n1週間前の版です。\n"), 0o600)
+	os.WriteFile(filepath.Join(k.State.Path(), "versions", "2026-11-20.md"), []byte("# わたしのこと\n\nおとといの版です。\n"), 0o600)
 	prompt := ""
 	k.Think = func(_ context.Context, p string) (string, error) { prompt = p; return answer(first, ""), nil }
 	night, _ := k.Sleep(context.Background(), true)
@@ -327,7 +338,7 @@ func TestWeeklyLooksBack(t *testing.T) {
 
 func TestNotedIsToldEachNoteThatWasSaved(t *testing.T) {
 	var got []Note
-	k := &Keeper{Dir: t.TempDir(), Noted: func(n Note) { got = append(got, n) }}
+	k := &Keeper{State: testDir(t, t.TempDir()), Noted: func(n Note) { got = append(got, n) }}
 	if _, err := k.AddNote(Note{Text: "  "}); err == nil {
 		t.Fatal("an empty note was taken")
 	}
@@ -359,8 +370,8 @@ type tidier struct {
 func newTidier(t *testing.T) *tidier {
 	k := keeper(t)
 	k.Label, k.ChatSide = "家庭モード", true
-	os.MkdirAll(filepath.Dir(k.Path), 0o755)
-	os.WriteFile(filepath.Join(filepath.Dir(k.Path), "family.md"), []byte("ご家族の名前と誕生日です。外へは出しません。\n"), 0o644)
+	os.MkdirAll(filepath.Dir(k.Path()), 0o755)
+	os.WriteFile(filepath.Join(filepath.Dir(k.Path()), "family.md"), []byte("ご家族の名前と誕生日です。外へは出しません。\n"), 0o644)
 	x := &tidier{Keeper: k, notices: map[string]string{}}
 	k.Think = func(_ context.Context, prompt string) (string, error) {
 		if strings.Contains(prompt, "<覚えておく候補>") {
@@ -520,7 +531,7 @@ func TestTidyStaysOffWhenDisabledOrWithoutExchanges(t *testing.T) {
 		return []Exchange{{At: k.now().Add(-time.Hour), Text: "依頼です。", Reply: "承知しました。"}}
 	}
 	k.Sleep(context.Background(), false)
-	if _, err := os.Stat(k.tidyPath()); calls != 1 || !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(k.State.Path(), tidyFile)); calls != 1 || !os.IsNotExist(err) {
 		t.Errorf("task side: %d calls, tidy state %v", calls, err)
 	}
 	// --self-exchanges=false: the exchanges are not sent for tidying either.
@@ -566,8 +577,8 @@ func TestSleepTriesOnceMore(t *testing.T) {
 		long += fmt.Sprintf("- 見立ての%d行目です。\n", i)
 	}
 	long += "\n## 仕事モードで\n\n- 仕事の見立てです。\n"
-	os.MkdirAll(filepath.Dir(k.Path), 0o755)
-	os.WriteFile(k.Path, []byte(long), 0o644)
+	os.MkdirAll(filepath.Dir(k.Path()), 0o755)
+	os.WriteFile(k.Path(), []byte(long), 0o644)
 	mended := answer(strings.Replace(long, "- 見立ての3行目です。", "- 3行目を、少し直しました。", 1), "1行だけ直しました。")
 	replies := []string{answer(first, "ほとんど書き換えました。"), mended}
 	var prompts []string
@@ -631,7 +642,7 @@ func TestCheckCountsSentences(t *testing.T) {
 }
 
 func TestTidyPromptNamesNobodyOfItsOwn(t *testing.T) {
-	k := &Keeper{Path: filepath.Join(t.TempDir(), "memory", "self.md")}
+	k := &Keeper{Records: testDir(t, t.TempDir()), Name: "memory/self.md"}
 	old := task.OwnerName
 	defer func() { task.OwnerName = old }()
 	task.OwnerName = "田中さん"
@@ -670,7 +681,7 @@ func TestRenamedDocumentContract(t *testing.T) {
 			if _, _, err := parse(strings.ReplaceAll(answer(doc, "そのままです。"), "わたしのこと>", "見立て>")); err == nil {
 				t.Fatal("old model output marker was accepted")
 			}
-			if err := disk.WriteFileNoSync(k.Path, []byte(doc), 0o644); err != nil {
+			if err := k.Records.WriteFileNoSync(k.Name, []byte(doc), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			body := "- 共有した本文です。"
@@ -680,7 +691,7 @@ func TestRenamedDocumentContract(t *testing.T) {
 			if Core(k.Document()) != body || !strings.Contains(k.Document(), "## "+label+"で") {
 				t.Fatal(k.Document())
 			}
-			if err := disk.WriteFileNoSync(k.Path, []byte(old), 0o644); err != nil {
+			if err := k.Records.WriteFileNoSync(k.Name, []byte(old), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := k.SetCore(body); err == nil {

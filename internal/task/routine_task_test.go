@@ -169,7 +169,7 @@ func TestRoutineTaskWrittenDirectlyIsFoundAndChecked(t *testing.T) {
 		t.Fatalf("got = %+v, %v", got, err)
 	}
 	// The definition, procedure and runs next to task.md are not stray files.
-	for _, w := range CheckFormat(got, s.Files(got), s.Format()) {
+	for _, w := range Check(got, s.Files(got)) {
 		if strings.Contains(w.Message, "タスクのディレクトリーに置くファイルではありません") {
 			t.Errorf("warning = %s", w)
 		}
@@ -186,18 +186,5 @@ func TestRoutineTaskWrittenDirectlyIsFoundAndChecked(t *testing.T) {
 	}
 	if problems := s.Problems(); len(problems) != 1 || !strings.Contains(problems[0].Err, "定期タスクのタスクでは使えません") {
 		t.Fatalf("problems = %+v", problems)
-	}
-}
-
-func TestRoutineTaskNeedsTheAreaLayout(t *testing.T) {
-	s := newFormat1Store(t)
-	dir := filepath.Join(s.Root(), "routines", "S1001")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "routine.md"), []byte("---\nid: S1001\ntitle: 確認\n---\n"), 0o644)
-	if _, err := s.WriteDoc("S1001", TaskFile, routineBody, "local-claude"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("format 1: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, TaskFile)); !os.IsNotExist(err) {
-		t.Fatalf("task.md was written in format 1: %v", err)
 	}
 }

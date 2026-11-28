@@ -80,11 +80,12 @@ const (
 // Keeper owns the document of one profile.
 type Keeper struct {
 	Location  *time.Location
-	Path      string // the document, inside the repository
-	Dir       string // notes and history, outside Git
-	Label     string // the label of this profile, which names its section of the document
-	PeerLabel string // the label of the profile the core is shared with
-	ChatSide  bool   // the side that answers its peer, whose core the other side merges
+	Records   *disk.Dir
+	Name      string    // the document, relative to Records
+	State     *disk.Dir // notes and history, outside Git
+	Label     string    // the label of this profile, which names its section of the document
+	PeerLabel string    // the label of the profile the core is shared with
+	ChatSide  bool      // the side that answers its peer, whose core the other side merges
 	// People is what the texts call those she talks with besides the owner.
 	People string
 	// TidyPrompt replaces the prompt of the nightly tidying that travels in
@@ -126,7 +127,7 @@ type Keeper struct {
 	Now   func() time.Time
 
 	run sync.Mutex // one rewrite at a time
-	mu  sync.Mutex // guards the files in Dir, for a moment each time
+	mu  sync.Mutex // guards the files in State, for a moment each time
 }
 
 type state struct {
@@ -148,13 +149,14 @@ func (k *Keeper) limit() int {
 	return 120
 }
 
+func (k *Keeper) Path() string { return filepath.Join(k.Records.Path(), k.Name) }
+
 // Document returns the current text, or "" before the first night.
 func (k *Keeper) Document() string {
-	data, _ := os.ReadFile(k.Path)
+	data, _ := os.ReadFile(k.Path())
 	return string(data)
 }
 
-// AddNote jots one thing down.
 func (k *Keeper) AddNote(n Note) (Note, error) {
 	n.Text = strings.TrimSpace(n.Text)
 	if n.Text == "" {
@@ -179,7 +181,7 @@ func (k *Keeper) appendNote(n Note) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	data, _ := json.Marshal(n)
-	return disk.Append(filepath.Join(k.Dir, "notes.jsonl"), append(data, '\n'), 0o600)
+	return k.State.Append("notes.jsonl", append(data, '\n'), 0o600)
 }
 
 // Notes returns what was jotted down since the last rewrite, oldest first.
@@ -191,7 +193,7 @@ func (k *Keeper) Notes() []Note {
 
 func (k *Keeper) notes() []Note {
 	var out []Note
-	readLines(filepath.Join(k.Dir, "notes.jsonl"), func(line []byte) {
+	readLines(filepath.Join(k.State.Path(), "notes.jsonl"), func(line []byte) {
 		var n Note
 		if json.Unmarshal(line, &n) == nil && n.Text != "" {
 			out = append(out, n)
@@ -205,7 +207,7 @@ func (k *Keeper) History(limit int) []Night {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	var out []Night
-	readLines(filepath.Join(k.Dir, "history.jsonl"), func(line []byte) {
+	readLines(filepath.Join(k.State.Path(), "history.jsonl"), func(line []byte) {
 		var n Night
 		if json.Unmarshal(line, &n) == nil {
 			out = append(out, n)
@@ -245,10 +247,9 @@ func (k *Keeper) dropNotes(until time.Time) {
 			keep = append(append(keep, data...), '\n')
 		}
 	}
-	path := filepath.Join(k.Dir, "notes.jsonl")
 	if len(keep) == 0 {
-		disk.Remove(path)
-	} else if err := disk.WriteFileNoSync(path, keep, 0o600); err != nil {
+		k.State.Remove("notes.jsonl")
+	} else if err := k.State.WriteFileNoSync("notes.jsonl", keep, 0o600); err != nil {
 		slog.Error("self notes", "error", err)
 	}
 }
@@ -261,7 +262,7 @@ func (k *Keeper) loadState() state {
 
 func (k *Keeper) readState() state {
 	var s state
-	if data, err := os.ReadFile(filepath.Join(k.Dir, "state.json")); err == nil {
+	if data, err := k.State.ReadFile("state.json"); err == nil {
 		json.Unmarshal(data, &s)
 	}
 	return s
@@ -275,7 +276,7 @@ func (k *Keeper) updateState(change func(*state)) state {
 	after := before
 	change(&after)
 	data, _ := json.MarshalIndent(after, "", "  ")
-	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "state.json"), append(data, '\n'), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync("state.json", append(data, '\n'), 0o600); err != nil {
 		slog.Error("self state", "error", err)
 	}
 	return before
@@ -413,11 +414,11 @@ func (k *Keeper) Sleep(ctx context.Context, force bool) (Night, error) {
 		k.record(night)
 		return night, nil
 	}
-	if err := disk.WriteFileNoSync(k.Path, []byte(next+"\n"), 0o644); err != nil {
+	if err := k.Records.WriteFileNoSync(k.Name, []byte(next+"\n"), 0o644); err != nil {
 		return night, err
 	}
 	night.Accepted, night.Summary = true, summary
-	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", today+".md"), []byte(next+"\n"), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync(filepath.Join("versions", today+".md"), []byte(next+"\n"), 0o600); err != nil {
 		slog.Error("self version", "error", err)
 	}
 	// Digested: the notes go, and the next night looks only at what follows.
@@ -440,7 +441,7 @@ func (k *Keeper) record(n Night) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	data, _ := json.Marshal(n)
-	if err := disk.Append(filepath.Join(k.Dir, "history.jsonl"), append(data, '\n'), 0o600); err != nil {
+	if err := k.State.Append("history.jsonl", append(data, '\n'), 0o600); err != nil {
 		slog.Error("self history", "error", err)
 	}
 }
@@ -453,7 +454,7 @@ func (k *Keeper) keepDraft(at time.Time, out string) string {
 		return ""
 	}
 	day := at.In(k.Zone()).Format("2006-01-02")
-	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "rejected", day+".md"), []byte(out+"\n"), 0o600); err != nil {
+	if err := k.State.WriteFileNoSync(filepath.Join("rejected", day+".md"), []byte(out+"\n"), 0o600); err != nil {
 		slog.Error("self draft", "error", err)
 		return ""
 	}
@@ -465,13 +466,13 @@ func (k *Keeper) Draft(day string) string {
 	if _, err := time.Parse("2006-01-02", day); err != nil {
 		return ""
 	}
-	data, _ := os.ReadFile(filepath.Join(k.Dir, "rejected", day+".md"))
+	data, _ := k.State.ReadFile(filepath.Join("rejected", day+".md"))
 	return string(data)
 }
 
 // versionBefore returns the newest saved version from before t.
 func (k *Keeper) versionBefore(t time.Time) string {
-	paths, _ := filepath.Glob(filepath.Join(k.Dir, "versions", "*.md"))
+	paths, _ := filepath.Glob(filepath.Join(k.State.Path(), "versions", "*.md"))
 	limit, best := t.In(k.Zone()).Format("2006-01-02"), ""
 	for _, p := range paths { // Glob sorts, and the names are dates
 		if strings.TrimSuffix(filepath.Base(p), ".md") <= limit {
@@ -509,7 +510,7 @@ func (k *Keeper) SetCore(core string) (bool, error) {
 	if !ok {
 		return false, errors.New("「わたしのこと」の文書に「わたし自身」の節がありません")
 	}
-	if err := disk.WriteFileNoSync(k.Path, []byte(strings.TrimSpace(next)+"\n"), 0o644); err != nil {
+	if err := k.Records.WriteFileNoSync(k.Name, []byte(strings.TrimSpace(next)+"\n"), 0o644); err != nil {
 		return false, err
 	}
 	night := Night{At: k.now(), Accepted: true, Summary: k.peerLabel() + "でまとめた「わたし自身」の節を取り込みました。"}
@@ -552,7 +553,6 @@ func Core(doc string) string {
 	return strings.TrimSpace(doc[from:to])
 }
 
-// WithCore returns doc with the shared part replaced.
 func WithCore(doc, core string) (string, bool) {
 	from, to, ok := coreSpan(doc)
 	if !ok {
@@ -574,7 +574,6 @@ func between(s, open, end string) (string, bool) {
 	return strings.TrimSpace(s[i+len(open) : j]), true
 }
 
-// parse takes the document and the summary out of the model's answer.
 func parse(out string) (doc, summary string, err error) {
 	doc, ok := between(out, "<わたしのこと>", "</わたしのこと>")
 	if !ok || doc == "" {

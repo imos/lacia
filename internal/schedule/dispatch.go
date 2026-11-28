@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"reflect"
 	"sort"
@@ -117,7 +118,7 @@ type dispatchState struct {
 	Devices    map[string]DeviceStatus `json:"devices"`
 }
 type Dispatch struct {
-	State           string
+	State           StateFile
 	Routing         Routing
 	Active          func(Job) bool
 	HandoffTaskOpen func(string) bool // checks that the exact destination is open; the reporter has already read back the saved finding
@@ -127,10 +128,10 @@ type Dispatch struct {
 	data            dispatchState
 }
 
-func OpenDispatch(path string, cfg Routing) (*Dispatch, error) {
-	d := &Dispatch{State: path, Routing: cfg, data: dispatchState{Executions: map[string]Execution{}, Devices: map[string]DeviceStatus{}}}
-	raw, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
+func OpenDispatch(state StateFile, cfg Routing) (*Dispatch, error) {
+	d := &Dispatch{State: state, Routing: cfg, data: dispatchState{Executions: map[string]Execution{}, Devices: map[string]DeviceStatus{}}}
+	raw, err := state.read()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	if err == nil {
@@ -143,12 +144,21 @@ func OpenDispatch(path string, cfg Routing) (*Dispatch, error) {
 	}
 	return d, nil
 }
-func atomicJSON(path string, v any) error {
+
+// StateFile is a file of the scheduler's state: Name inside Dir.
+type StateFile struct {
+	Dir  *disk.Dir
+	Name string
+}
+
+func (f StateFile) read() ([]byte, error) { return f.Dir.ReadFile(f.Name) }
+
+func (f StateFile) writeJSON(v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return disk.WriteFile(path, append(data, '\n'), 0o600)
+	return f.Dir.WriteFile(f.Name, append(data, '\n'), 0o600)
 }
 
 // update rolls memory back if persistence fails. No delivery precedes a durable write.
@@ -160,7 +170,7 @@ func (d *Dispatch) update(fn func()) error {
 	}
 	old, _ := json.Marshal(d.data)
 	fn()
-	if err := atomicJSON(d.State, d.data); err != nil {
+	if err := d.State.writeJSON(d.data); err != nil {
 		var restored dispatchState
 		json.Unmarshal(old, &restored)
 		d.data = restored

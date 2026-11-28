@@ -121,8 +121,6 @@ var serveSettings = []setting{
 	{name: "discord-log-day", group: groupPeers, def: daylog.DefaultDayLimit, help: "1日分のログに本文を残す上限（バイト）です。上限を超える発言は、見出しと、本文を省いたことだけを書きます"},
 }
 
-// settingNamed returns the option of the name, or false for a name the
-// table does not know.
 func settingNamed(name string) (setting, bool) {
 	for _, s := range serveSettings {
 		if s.name == name {

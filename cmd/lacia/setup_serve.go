@@ -141,7 +141,6 @@ func keepServing(ctx context.Context, c *serveConfig, bin string, autostart, rep
 	return waitServing(addr)
 }
 
-// stopServing takes the server out of the login items and stops it.
 func stopServing(ctx context.Context, label string) error {
 	if !fileExists(launchAgentPath(label)) {
 		return nil

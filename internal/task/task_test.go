@@ -151,7 +151,7 @@ func TestReloadReportsProblems(t *testing.T) {
 	os.MkdirAll(bad, 0o755)
 	os.WriteFile(filepath.Join(bad, "task.md"), []byte("---\nid: T1002\ntitle: 状態が変\nstatus: finished\ncreated: 2026-11-12\n---\n"), 0o644)
 	os.MkdirAll(filepath.Join(s.Root(), ".lacia"), 0o755)
-	os.WriteFile(filepath.Join(s.Root(), AliasFile1), []byte("work-20261112-01\tT1001\n"), 0o644)
+	os.WriteFile(filepath.Join(s.Root(), AliasFile), []byte("work-20261112-01\tT1001\n"), 0o644)
 	if err := s.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -182,8 +182,8 @@ func TestLint(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	good := Task{ID: "T1001", Status: Review, Body: "## いまの状況\n\n終わりました。\n\n## 次にすること\n\nオーナーさんに、結果を見ていただきます。\n\n## 見ていただくもの\n\n- [結果](artifacts/a.md)\n"}
-	if w := Check(good, []string{"task.md", "log.md", "notes.md", "artifacts/a.md"}); len(w) != 0 {
+	good := Task{ID: "T1001", Status: Review, Body: "## いまの状況\n\n終わりました。\n\n## 次にすること\n\nオーナーさんに、結果を見ていただきます。\n\n## いまの資料\n\n- [結果](artifacts/a.md)\n"}
+	if w := Check(good, []string{"task.md", "log.jsonl", "notes.md", "artifacts/a.md"}); len(w) != 0 {
 		t.Errorf("a well-formed task got warnings: %v", w)
 	}
 	bad := Task{ID: "T1002", Status: Doing, Body: "# 題名\n\n## いまの状況\n\n（まだ書かれていません）\n\n## 2026-11-12 進捗\n\n調べました。\n\n```\n## コードの中\n```\n"}
@@ -404,7 +404,7 @@ func TestClaimRecordsTheOwner(t *testing.T) {
 
 func readTestHistory(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
-	lines, err := ReadHistory(dir, 1, 0)
+	lines, err := ReadHistory(dir, 0)
 	return []byte(strings.Join(lines, "\n")), err
 }
 

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // Defaults for Log. Both can be changed where the server is started.
@@ -55,13 +57,14 @@ type Entry struct {
 }
 
 // Log appends entries to one Markdown file per day, in a folder per month:
-// <Dir>/2026-11/2026-11-18.md. It only ever appends,
+// <Dir>/2026-11/2026-11-18.md inside the records. It only ever appends,
 // with a single write per entry, so a second process can add to the same
 // files. Saving to Git is left to whoever watches the
 // repository; Changed tells them.
 type Log struct {
 	Location   *time.Location
-	Dir        string
+	Records    *disk.Dir
+	Dir        string // relative to Records
 	Title      string // what a day's file is called, e.g. "Discordのやり取り"
 	About      string // the paragraph under the title of each new file
 	EntryLimit int    // 0 means DefaultEntryLimit
@@ -73,7 +76,9 @@ type Log struct {
 }
 
 // Path is the file an entry written at t belongs to.
-func (l *Log) Path(t time.Time) string {
+func (l *Log) Path(t time.Time) string { return filepath.Join(l.Records.Path(), l.name(t)) }
+
+func (l *Log) name(t time.Time) string {
 	t = t.In(l.Zone())
 	return filepath.Join(l.Dir, t.Format("2006-01"), t.Format("2006-01-02")+".md")
 }
@@ -82,7 +87,7 @@ func (l *Log) Path(t time.Time) string {
 // does nothing when the key is already there, so receiving a message twice
 // leaves one entry.
 func (l *Log) Add(e Entry) (bool, error) {
-	if l == nil || l.Dir == "" {
+	if l == nil || l.Records == nil {
 		return false, nil
 	}
 	if e.Key == "" || strings.ContainsAny(e.Key, " \t\r\n>") || e.At.IsZero() {
@@ -91,8 +96,8 @@ func (l *Log) Add(e Entry) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e.At = e.At.In(l.Zone())
-	path := l.Path(e.At)
-	existing, err := os.ReadFile(path)
+	name := l.name(e.At)
+	existing, err := l.Records.ReadFile(name)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
@@ -125,18 +130,7 @@ func (l *Log) Add(e Entry) (bool, error) {
 		out.Truncate(head)
 		out.WriteString(heading(e) + "\n（1日分の大きさの上限を超えたので、本文は書いていません。）\n")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
-	if err != nil {
-		return false, err
-	}
-	_, err = f.Write(out.Bytes())
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	if err := l.Records.Append(name, out.Bytes(), 0o644); err != nil {
 		return false, err
 	}
 	if l.Changed != nil {
@@ -248,14 +242,14 @@ func fileDetail(f File) string {
 }
 
 // Discord is the log of the conversation on Discord, kept under dir.
-func Discord(dir string) *Log {
-	return &Log{Dir: dir, Title: "Discordのやり取り",
+func Discord(records *disk.Dir, dir string) *Log {
+	return &Log{Records: records, Dir: dir, Title: "Discordのやり取り",
 		About: "Discord で受け取った発言とわたしの投稿を、サーバーが元の言葉で記録します。書き留めもこのログに残す設定なら、同じ日のファイルに入ります。"}
 }
 
 // Notices is the log of Lacia's notes alone, for a profile without Discord.
-func Notices(dir string) *Log {
-	return &Log{Dir: dir, Title: "書き留め",
+func Notices(records *disk.Dir, dir string) *Log {
+	return &Log{Records: records, Dir: dir, Title: "書き留め",
 		About: "サーバーは、わたしの書き留め（`lacia notice`）と、「わたしのこと」について伝えていただいた言葉を、元の文面のまま記録します。"}
 }
 

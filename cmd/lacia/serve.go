@@ -9,36 +9,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/imos/lacia/internal/calendar"
-	"github.com/imos/lacia/internal/caller"
-	"github.com/imos/lacia/internal/claudecode"
-	"github.com/imos/lacia/internal/codex"
-	"github.com/imos/lacia/internal/daylog"
 	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
-	"github.com/imos/lacia/internal/gcal"
-	"github.com/imos/lacia/internal/gitsync"
-	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/home"
-	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/request"
-	"github.com/imos/lacia/internal/routine"
-	"github.com/imos/lacia/internal/rules"
-	"github.com/imos/lacia/internal/schedule"
 	"github.com/imos/lacia/internal/self"
-	"github.com/imos/lacia/internal/task"
-	"github.com/imos/lacia/internal/todo"
-	"github.com/imos/lacia/internal/wait"
-	"github.com/imos/lacia/internal/web"
 )
 
 func runServe(args []string) error {
@@ -56,908 +39,94 @@ func runServe(args []string) error {
 	if c.stale {
 		slog.Warn("config: read from the old place", "detail", oldPlacesText(home.Moves(os.Getenv)), "file", *c.str("config"))
 	}
-	configPath := c.str("config")
-	profile := c.str("profile")
-	label := c.str("label")
-	pages := c.on("pages")
-	waits := c.on("waits")
-	peer := c.str("peer")
-	inbox := c.on("inbox")
-	addr := c.str("addr")
-	rescan := c.span("rescan")
-	calendarOverrides := c.str("calendar-overrides")
-	calendarPath := c.str("calendar")
-	calendarDirect := c.on("calendar-direct")
-	site := c.str("site")
-	googleClient := c.str("google-client")
-	calendars := c.str("calendars")
-	calendarHolidays := c.str("calendar-holidays")
-	calendarWrite := c.on("calendar-write")
-	codexCommand := c.str("codex")
-	user := c.str("user")
-	claudeCommand := c.str("claude")
-	defaultKind := c.str("default-kind")
-	claudePermission := c.str("claude-permission")
-	claudeModel := c.str("claude-model")
-	codexModel := c.str("codex-model")
-	codexEffort := c.str("codex-effort")
-	codexSandbox := c.str("codex-sandbox")
-	places := c.str("places")
-	stateDir := c.str("state")
-	useDiscord := c.on("discord")
-	discordMembers := c.str("discord-members")
-	var family members
-	if *useDiscord {
-		family, err = loadMembers(*discordMembers)
-		if err != nil {
-			return err
-		}
-	}
-	if family.Mail != nil && *codexCommand == "" {
-		return errors.New("Discordからメールを確認するときは、メール連携を使えるCodexを指定してください")
-	}
-	discordLog := c.str("discord-log")
-	noticeLog := c.str("notice-log")
-	discordLogEntry := c.num("discord-log-entry")
-	discordLogDay := c.num("discord-log-day")
-	gitSync := c.on("git-sync")
-	selfPath := c.str("self")
-	selfAt := c.str("self-at")
-	selfClaude := c.str("self-claude")
-	selfModel := c.str("self-model")
-	selfExchanges := c.on("self-exchanges")
-	people := c.str("people")
-	selfTidyPrompt := c.str("self-tidy-prompt")
-	selfTidy := c.on("self-tidy")
-	selfImprove := c.on("self-improve")
-	routineExplicitMatters := c.on("routine-explicit-matters")
-	nowPath := c.str("now")
-	instructionsPath := c.str("instructions")
-	instructionsExtra := c.str("instructions-extra")
-	peerURL, peerLabel := "", ""
-	if *peer != "" {
-		if peerURL = strings.TrimRight(c.profiles[*peer]["url"], "/"); peerURL == "" {
-			return fmt.Errorf("相手のプロファイル「%s」の url が、設定ファイルにありません", *peer)
-		}
-		// The peer is called by the label its own section gives it.
-		if peerLabel = c.profiles[*peer]["label"]; peerLabel == "" {
-			peerLabel = self.DefaultPeerLabel
-		}
-	}
-	dir := c.root
-	cfg, err := task.LoadConfig(dir)
+	s, err := openServe(c)
 	if err != nil {
 		return err
 	}
-	if err := cfg.RequireCurrentFormat(); err != nil {
+	s.openCalendarSnapshot()
+	if err := s.openState(); err != nil {
 		return err
 	}
-	if *user != "" {
-		os.Setenv("LACIA_USER", *user)
-	}
-	hideCalendarHolidays, err := calendar.HolidaySetting(*calendarHolidays)
-	if err != nil {
-		return err
-	}
-	task.SetOwner(dir)
-	if *calendars == "" {
-		// lacia init writes the list here, so that a copy of the template
-		// needs no setting to read its owner's calendar.
-		if path := filepath.Join(dir, calendarsFile); fileExists(path) {
-			*calendars = path
-		}
-	}
-	if *calendars != "" {
-		if calendar.Scope, err = calendar.LoadScope(*calendars); err != nil {
-			return fmt.Errorf("--calendars: %w", err)
-		}
-	}
-	if err := calendar.SetHidden(cfg.CalendarHidden.Always, cfg.CalendarHidden.Week); err != nil {
-		return err
-	}
-	store, err := task.Open(dir)
-	if err != nil {
-		return err
-	}
-	// What a profile is follows from its settings alone; the name carries no
-	// meaning here. answers is the side of a pair that takes messages from
-	// its peer and replies, as the profile that answers on a chat does.
-	mode, answers := *label, *inbox && peerURL != ""
-	here := *profile
-	if here == "" {
-		here = "local"
-	}
-	var kinds []string
-	if *codexCommand != "" {
-		kinds = append(kinds, caller.Codex)
-	}
-	if *claudeCommand != "" {
-		kinds = append(kinds, caller.Claude)
-	}
-	routing, err := schedule.LoadRouting(*places, filepath.Dir(*configPath), here, *defaultKind, kinds...)
-	if err != nil {
-		return err
-	}
-	// Without pages, only the doors for the peer are open from outside.
-	server := &web.Server{Store: store, Version: version(), Label: mode, PeerLabel: peerLabel, PeerURL: peerURL, People: *people, Site: *site, DoorOnly: !*pages, CalendarPath: *calendarPath,
-		HideCalendarHolidays: hideCalendarHolidays,
-		Place:                here, ResolveDestination: routing.Resolve, AuthorizeHandover: func(place, token string) bool {
-			_, device, err := routing.Route(place)
-			return err == nil && device != schedule.LocalDevice && routing.Authorized(device, token)
-		}}
-
-	if server.CalendarPath == "" {
-		for _, candidate := range []string{"calendar/snapshot.json", "results/calendar-web-snapshot.md"} {
-			if _, err := os.Stat(filepath.Join(dir, candidate)); err == nil {
-				server.CalendarPath = filepath.Join(dir, candidate)
-				break
-			}
-		}
-	}
-	// Keep the served copy under persistent server state. The checkout path
-	// remains an input for a scheduled producer that has not been replaced.
-	var snapshotState *calendar.SnapshotState
-	var snapshotInput string
-	directCalendarConfigured := *calendarDirect && (*site != "" || *googleClient != "" || len(calendar.Scope) > 0)
-	if server.CalendarPath != "" || directCalendarConfigured ||
-		fileExists(filepath.Join(*stateDir, "calendar", "snapshot.json")) ||
-		fileExists(filepath.Join(dir, "schedules", "calendar.md")) {
-		snapshotInput = server.CalendarPath
-		if snapshotInput == "" {
-			snapshotInput = filepath.Join(dir, "calendar", "snapshot.json")
-		}
-		snapshotState = &calendar.SnapshotState{Path: filepath.Join(*stateDir, "calendar", "snapshot.json"), LegacyOnly: !*calendarDirect}
-		if snapshotInput != snapshotState.Path {
-			// During the transition, prefer the last committed version over
-			// an unfinished write from the older producer.
-			if !fileExists(snapshotState.Path) {
-				if rel, err := filepath.Rel(dir, snapshotInput); err == nil {
-					if seed, err := program.Git().Output(context.Background(), dir, "show", "HEAD:"+filepath.ToSlash(rel)); err == nil {
-						if err := snapshotState.Publish(seed); err != nil {
-							slog.Warn("calendar seed", "detail", "記録に保存してあった予定を、サーバーの最初の予定一覧に取り込めませんでした。", "error", err)
-						}
-					}
-				}
-			}
-			if err := snapshotState.Import(snapshotInput); err != nil {
-				slog.Warn("calendar snapshot import", "detail", "ファイルからサーバーに予定一覧を取り込めませんでした。", "error", err)
-			}
-		}
-		server.CalendarPath = snapshotState.Path
-	}
-	// Which conversations ran commands, kept across restarts.
-	if server.Sessions, err = caller.OpenRegistry(filepath.Join(*stateDir, "sessions.json")); err != nil {
-		return err
-	}
-	if server.Handovers, err = handover.Open(filepath.Join(*stateDir, "handovers")); err != nil {
-		return err
-	}
-	if *waits {
-		// What is waited for outside a conversation, such as cluster jobs.
-		if server.Waits, err = wait.Open(filepath.Join(*stateDir, "waits")); err != nil {
-			return err
-		}
-	}
-	handler, err := server.Handler()
+	handler, err := s.server.Handler()
 	if err != nil {
 		return err
 	}
 
-	calendarIsDirect := func() bool { return false }
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	s.ctx, s.stop = ctx, stop
 	restart := &idleRestart{last: time.Now()}
-	restart.path = filepath.Join(*stateDir, restartRequestFile)
-	server.RestartWhenIdle = func() error { return requestIdleRestart(restart.path) }
-	restartBusy := func() bool { return fileExists(filepath.Join(*stateDir, "drain")) }
-	takesRequests := len(kinds) > 0
-	if takesRequests {
-		queue, err := request.Open(filepath.Join(*stateDir, "requests"))
+	restart.state = s.state
+	s.restart = restart
+	s.server.RestartWhenIdle = func() error { return requestIdleRestart(s.state) }
+	s.restartBusy = func() bool { return fileExists(filepath.Join(s.stateDir, "drain")) }
+	if s.takesRequests() {
+		requests, err := s.state.MakeSub("requests", 0o700)
 		if err != nil {
 			return err
 		}
-		// Codex and its sub-agents run the lacia command; point it at this
-		// server so their changes go through one place.
-		_, port, _ := net.SplitHostPort(*addr)
-		env := []string{"LACIA_API=http://127.0.0.1:" + port, "LACIA_TASKS=" + dir, "LACIA_PROFILE=" + here}
-		if *user != "" {
-			// The commands the conversations run use the same name.
-			env = append(env, "LACIA_USER="+*user)
+		if s.queue, err = request.Open(requests); err != nil {
+			return err
 		}
-		// A Codex started under another login (codex-work, codex-personal)
-		// runs on the same model.
-		if *codexModel != "" {
-			env = append(env, "LACIA_CODEX_MODEL="+*codexModel)
-		}
-		if *codexEffort != "" {
-			env = append(env, "LACIA_CODEX_EFFORT="+*codexEffort)
-		}
-		executable, selfErr := os.Executable()
-		if selfErr == nil {
-			// The commands that travel in the binary (shims.go) go beside the
-			// state, and in front of PATH with the binary itself.
-			bin, err := filepath.Abs(filepath.Join(*stateDir, "bin"))
-			if err == nil {
-				err = writeShims(bin, executable)
-			}
-			if err != nil {
-				return fmt.Errorf("コマンドを置けませんでした: %w", err)
-			}
-			// LACIA_BIN is the fallback for shells that reset PATH on start.
-			env = append(env, "LACIA_BIN="+executable, "PATH="+strings.Join([]string{bin, filepath.Dir(executable), os.Getenv("PATH")}, string(os.PathListSeparator)))
-			// A worker started by lacia codex-login takes its Git hooks
-			// from here: pre-push refuses every push.
-			if os.Getenv("LACIA_WORKER_GIT_HOOKS") == "" {
-				env = append(env, "LACIA_WORKER_GIT_HOOKS="+bin)
-			}
-			// And it may not resume the server's own conversation, whose
-			// ID is kept here.
-			env = append(env, "LACIA_SERVER_THREAD="+filepath.Join(*stateDir, "codex", "thread.json"))
-		}
-		instructions := codex.Instructions
-		if *instructionsPath != "" {
-			own, err := os.ReadFile(*instructionsPath)
-			if err != nil {
-				return fmt.Errorf("--instructions の文書を読めませんでした: %w", err)
-			}
-			instructions = string(own)
-		}
-		if *instructionsExtra != "" {
-			extra, err := os.ReadFile(*instructionsExtra)
-			if err != nil {
-				return fmt.Errorf("--instructions-extra の文書を読めませんでした: %w", err)
-			}
-			instructions = strings.TrimRight(instructions, "\n") + "\n\n" + strings.TrimSpace(string(extra)) + "\n"
-		}
-		instructions = rules.FillPeer(instructions, peerLabel)
-		currentInstructions := func(text string) func(context.Context) (string, rules.Revision) {
-			return func(ctx context.Context) (string, rules.Revision) {
-				current := sessionRules(ctx, dir, executable)
-				return resolveWindowInstructions(text, dir, current), current.Revision
-			}
-		}
-		// main takes what people ask; side takes the scheduled jobs marked
-		// "side", so a calendar fetch never makes a request wait. Each side
-		// run gets a fresh conversation: these jobs carry no memory.
-		mainRunners, sideRunners := map[string]request.Runner{}, map[string]request.Runner{}
-		var imageBot discordImagePreparer
-		var lookupDiscordMail func(context.Context, string, string) (bool, error)
-		closeAgents := func() {}
-		if *claudeCommand != "" {
-			claude := func(state, text string, ephemeral bool) *claudecode.Runner {
-				load := currentInstructions(text)
-				return claudecode.New(claudecode.Config{Command: strings.Fields(*claudeCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, state),
-					Env: env, CurrentInstructions: func(ctx context.Context) (string, rules.Revision) {
-						instructions, rev := load(ctx)
-						return strings.TrimRight(instructions, "\n") + "\n" + claudecode.Note, rev
-					}, Permission: *claudePermission, Model: *claudeModel, Ephemeral: ephemeral})
-			}
-			withDiscordContext := func(run request.Runner) request.Runner {
-				return func(ctx context.Context, text string) (string, string, error) {
-					r := request.Current(ctx)
-					if len(r.DiscordImages) > 0 {
-						text += "\nこの Claude Code の会話には、Discord の添付画像を渡せません。画像は見られなかったと伝え、本文への対応を続けてください。"
-					}
-					result, err := runDiscordContext(ctx, imageBot, r, text, false, func(ctx context.Context, text, _ string, _ []string) (codex.Result, error) {
-						reply, turn, err := run(ctx, text)
-						return codex.Result{Reply: reply, TurnID: turn}, err
-					})
-					return result.Reply, result.TurnID, err
-				}
-			}
-			mainRunners[caller.Claude] = withDiscordContext(claude("claude", instructions, false).Run)
-			sideRunners[caller.Claude] = withDiscordContext(claude("claude-side", codex.SideInstructions, true).Run)
-		}
-		if *codexCommand != "" {
-			codexEnv := append(append([]string(nil), env...), rulesNoticeEnvironment(dir)...)
-			disabledApp := ""
-			if family.Mail != nil {
-				disabledApp = family.Mail.Connector
-			}
-			bridge := codex.New(codex.Config{Command: strings.Fields(*codexCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, "codex"), Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, DisabledApp: disabledApp, CurrentInstructions: currentInstructions(instructions)})
-			// A sub-agent finishing is told to the main conversation as a
-			// notice, queued behind anything the user is waiting for.
-			bridge.OnChild = func(c codex.Child) { enqueueChild(queue, c) }
-			lookupDiscordMail = bridge.LookupMail
-			go bridge.Maintain(ctx)
-			sideBridge := codex.New(codex.Config{Command: strings.Fields(*codexCommand), Workspace: dir, StateDir: filepath.Join(*stateDir, "codex-side"),
-				Model: *codexModel, Effort: *codexEffort, Sandbox: *codexSandbox, Env: codexEnv, Ephemeral: true, Threads: 2, DisabledApp: disabledApp, CurrentInstructions: currentInstructions(codex.SideInstructions)})
-			runner := func(b *codex.Bridge, fresh bool) request.Runner {
-				return func(ctx context.Context, text string) (string, string, error) {
-					res, err := runDiscordTurn(ctx, imageBot, request.Current(ctx), text, b.RunForImages)
-					if errors.Is(err, codex.ErrDisconnected) {
-						err = fmt.Errorf("%w: %v", request.ErrUncertain, err)
-					}
-					if fresh {
-						b.Close()
-					}
-					return res.Reply, res.TurnID, err
-				}
-			}
-			mainRunners[caller.Codex], sideRunners[caller.Codex] = runner(bridge, false), runner(sideBridge, true)
-			closeAgents = func() { bridge.Close(); sideBridge.Close() }
-		}
-		defaultDestination, err := routing.Resolve("")
+		agents, err := s.startAgents()
 		if err != nil {
 			return err
 		}
-		main := family.withMail(routeRunner(mainRunners, defaultDestination.Kind), lookupDiscordMail)
-		side := routeRunner(sideRunners, defaultDestination.Kind)
-
-		drain := filepath.Join(*stateDir, "drain")
-		draining := func() bool { _, err := os.Stat(drain); return err == nil }
-		// The logs kept in the repository (docs/design/discord.md).
-		// Saving to Git follows within about a minute, as for any other
-		// change there.
-		for _, path := range []string{*discordLog, *noticeLog} {
-			if path != "" && !filepath.IsLocal(filepath.FromSlash(path)) {
-				return errors.New("--discord-log と --notice-log には、リポジトリーの中の相対パスを指定してください")
-			}
-		}
-		dayLog := func(path string, kind func(string) *daylog.Log) *daylog.Log {
-			l := kind(filepath.Join(dir, filepath.FromSlash(path)))
-			l.Location = store.Location()
-			l.EntryLimit, l.DayLimit = *discordLogEntry, *discordLogDay
-			l.Changed = func() {
-				if server.Changed != nil {
-					server.Changed()
-				}
-			}
-			return l
-		}
-		var chatLog *daylog.Log
-		server.Requests = queue
-		if peerURL != "" && !answers {
-			sent, err := request.OpenRecords(filepath.Join(*stateDir, "told-peer"))
-			if err != nil {
-				return err
-			}
-			server.Peer = &web.Peer{URL: peerURL, Sent: sent}
-		}
-		if answers {
-			// Replies people on the chat should also see go to the first channel.
-			server.Inbox = &web.Inbox{}
-			if channel, _, _ := strings.Cut(os.Getenv("DISCORD_CHANNEL_IDS"), ","); strings.TrimSpace(channel) != "" && *useDiscord {
-				server.Inbox.Discord = "discord:" + strings.TrimSpace(channel)
-			}
-		}
-		// A reply to a message from the task side goes back there at once.
-		replyToWork := func(r request.Request) {
-			if answers {
-				web.ReplyToPeer(ctx, nil, peerURL, queue, r)
-			}
-		}
-		queue.Finished = replyToWork
-		if *useDiscord {
-			bot, err := newDiscord(filepath.Join(*stateDir, "discord.json"), family, queue, store.Location())
-			if err != nil {
-				return err
-			}
-			if *discordLog != "" {
-				chatLog = dayLog(*discordLog, daylog.Discord)
-				bot.Log = chatLog
-			}
-			imageBot = bot
-			server.Members = bot
-			server.Attachments = bot
-			deliver := func(r request.Request) { deliverDiscordResult(ctx, bot, queue, r) }
-			queue.Finished = func(r request.Request) { deliver(r); replyToWork(r) }
-			go func() {
-				// Replies that were ready when the server last stopped.
-				for _, r := range queue.Undelivered(time.Now().Add(-2 * time.Hour)) {
-					deliver(r)
-				}
-				if err := bot.Run(ctx); err != nil {
-					slog.Error("discord stopped", "detail", "Discord から依頼を受け付ける処理が止まりました。", "error", err)
-					stop()
-				}
-			}()
-		}
-		if *selfPath != "" && *selfPath != off {
-			at := *selfAt
-			if at == off {
-				at = ""
-			}
-			keeper := &self.Keeper{Location: store.Location(), Path: filepath.Join(dir, filepath.FromSlash(*selfPath)), Dir: filepath.Join(*stateDir, "self"), Label: mode, PeerLabel: peerLabel, ChatSide: answers, At: at, People: *people}
-			// The nightly launcher owns the permission and workspace flags.
-			if len(strings.Fields(*selfClaude)) > 1 {
-				return errors.New("--self-claude には Claude Code の実行ファイルだけを指定してください。引数は付けられません")
-			}
-			night := nightAgentOf(c)
-			if err := night.checkChoice(); err != nil {
-				return err
-			}
-			keeper.OpenSession = night.open(*selfModel, dir, *selfExchanges, keeper.Dir, *stateDir, *configPath, *discordMembers)
-			slog.Info("self: nightly", "detail", nightSummary(c))
-			if *selfExchanges {
-				keeper.Exchanges = func(since time.Time) []self.Exchange { return exchangesSince(queue, since) }
-				keeper.RecordChanges = self.RecentRecords(dir, keeper.Path)
-			}
-			if server.Peer != nil {
-				keeper.PeerCore, keeper.ShareCore = server.Peer.Core, server.Peer.ShareCore
-			}
-			// The conversation runs for days and reads the document only at
-			// the start, so it is told whenever the document changed.
-			keeper.Saved = func(night self.Night) {
-				if server.Changed != nil {
-					server.Changed()
-				}
-				text := "自分についての記録（`" + *selfPath + "`）が新しくなりました。読み直して、これまでのやり取りを自分がどう受け止めてきたかを確かめてください。作業の許可については、これまでどおり決まりに従ってください。読み終えたら、「報告はありません。」とだけ答えてください。"
-				if _, _, err := queue.Add(request.Request{ID: "self-" + night.At.UTC().Format("20060102-150405"), Kind: request.System, Source: "夜の書き直し", Text: text}); err != nil {
-					slog.Error("self notice", "detail", "「わたしのこと」を書き直したことを窓口に知らせられませんでした。", "error", err)
-				}
-			}
-			if *noticeLog != "" {
-				// On the chat side the notes join the conversation's files.
-				notices := chatLog
-				if notices == nil || path.Clean(*noticeLog) != path.Clean(*discordLog) {
-					notices = dayLog(*noticeLog, daylog.Notices)
-				}
-				keeper.Noted = func(n self.Note) {
-					if _, err := notices.Add(daylog.Notice(n.At, n.From, n.Task, n.Text)); err != nil {
-						slog.Error("notice log", "detail", "書き留めを日ごとのログに保存できませんでした。", "error", err)
-					}
-				}
-			}
-			if *selfTidyPrompt != "" {
-				text, err := os.ReadFile(*selfTidyPrompt)
-				if err != nil {
-					return fmt.Errorf("--self-tidy-prompt の文書を読めませんでした: %w", err)
-				}
-				keeper.TidyPrompt = string(text)
-			}
-			if *selfTidy && *selfExchanges {
-				wireTidy(keeper, queue, chatLog, *discordLog)
-			}
-			if *selfImprove && store.KeepsTasks() {
-				keeper.ImproveTell = func(notice, text string) error {
-					_, _, err := queue.Add(request.Request{ID: notice, Kind: request.System, Source: improveSource, Text: text})
-					return err
-				}
-				keeper.TaskState = func(id string) string {
-					if t, err := store.Get(id); err == nil {
-						return t.Status.Label()
-					}
-					return ""
-				}
-			}
-			server.Self = keeper
-			go func() {
-				ticker := time.NewTicker(time.Minute)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case now := <-ticker.C:
-						if !draining() {
-							restart.runNightly(func() { keeper.Tick(ctx, now) })
-						}
-					}
-				}
-			}()
-		}
-		defer closeAgents()
-
-		dispatch, err := schedule.OpenDispatch(filepath.Join(*stateDir, "schedule-dispatch.json"), routing)
-		if err != nil {
+		if err := s.startChat(); err != nil {
 			return err
 		}
-		dispatch.Paused = draining
-		dispatch.HandoffTaskOpen = func(id string) bool {
-			t, err := store.Get(id)
-			return err == nil && t.ID == id && !t.Status.Closed()
+		if err := s.startSelf(); err != nil {
+			return err
 		}
-		dispatch.StartsPaused = restart.pending
-		restartBusy = func() bool { return draining() || queue.Working() || dispatch.RunningRemotely() }
-		dispatch.Active = func(current schedule.Job) bool {
-			for _, job := range schedule.LoadIn(dir, store.Location()) {
-				if job.ID != "" && job.OccurrenceName() == current.OccurrenceName() && job.Err == "" {
-					return job.Enabled
-				}
-			}
-			return true
+		defer agents.close()
+		if err := s.startSchedules(agents); err != nil {
+			return err
 		}
-		server.ScheduleDispatch = dispatch
-		reviews := routine.NewStore(dir)
-		server.Routines = reviews
-		routineActions := routineActionRuntime{stateDir: *stateDir, tasks: store, receipts: reviews, queue: queue}
-		server.RoutineActionsEnabled = routineActions.enabled
-		runs := &schedule.RunLog{Root: dir, Location: store.Location(), State: filepath.Join(*stateDir, "schedule-runs.json"), Execution: dispatch.Get,
-			ResolveName: func(name string) string {
-				for _, job := range schedule.LoadIn(dir, store.Location()) {
-					if job.LegacyName == name && job.ID != "" {
-						return job.ID
-					}
-				}
-				return name
-			},
-			KeepSuccess: func(name string, at time.Time) bool {
-				if routineActions.enabled() && task.ValidRoutineID(name) {
-					return true
-				}
-				for _, t := range store.List() {
-					if t.Status.Closed() || t.AfterRun == "" {
-						continue
-					}
-					since, err := time.Parse(time.RFC3339Nano, t.AfterRunSince)
-					if err != nil || !at.After(since) {
-						continue
-					}
-					if t.AfterRun == name {
-						return true
-					}
-					if job, ok := schedule.Resolve(dir, t.AfterRun); ok && job.Name == name {
-						return true
-					}
-				}
-				return false
-			},
-			Review: func(id string, _ schedule.Run, report routine.Result) error {
-				if routineActions.enabled() {
-					return nil
-				}
-				_, _, err := reviews.Accept(id, report)
-				return err
-			},
-			Observe: routineActions.observe,
-		}
-		schedules := &schedule.Runner{Root: dir, Location: store.Location(), State: filepath.Join(*stateDir, "schedules.json"), Check: routing.Check, TaskClosed: func(id string) bool {
-			t, err := store.Get(id)
-			return err == nil && t.Status.Closed()
-		}, Submit: func(id string, job schedule.Job) error {
-			job.ExplicitMatters = *routineExplicitMatters && job.ID != ""
+	}
+	if err := s.startCalendarFetcher(); err != nil {
+		return err
+	}
+	s.followCalendarSnapshot()
+	s.server.Machine = machineWatch(c)
+	s.startGitSync()
+	go s.followRecords()
+	return s.serve(handler)
+}
 
-			label := job.Title
-			if label == "" {
-				label = job.Name
-			}
-			// A run that outlasts its interval must not pile up a backlog:
-			// skip this occurrence while the previous one is unfinished.
-			// Once the server reads the calendars itself, the Codex job that
-			// used to produce the same file must not overwrite it.
-			if job.OccurrenceName() == "calendar" && calendarIsDirect() {
-				return nil
-			}
-			if restored, err := restoreScheduledExecution(queue, dispatch, runs, id, time.Now()); restored || err != nil {
-				return err
-			}
-			to, destination, err := routing.Route(job.To)
-			if err != nil {
-				return err
-			}
-			if destination != schedule.LocalDevice {
-				prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.TaskInstruction(dir, routineActions.collects(job)) + job.ReportInstruction(id, routineActions.collects(job)) + routineActions.instruction(job)
-				if err := dispatch.Enqueue(id, job, prompt, time.Now()); err != nil {
-					if errors.Is(err, schedule.ErrDispatchBusy) {
-						if err := dispatch.Skip(id, job, time.Now()); err != nil {
-							return err
-						}
-						return runs.Skip(job, time.Now())
-					}
-					return err
-				}
-				return runs.Begin(job, id, time.Now())
-			}
-			if _, exists := queue.Get(id); exists {
-				return runs.Begin(job, id, time.Now())
-			}
-			if queue.Busy("sched-" + job.OccurrenceName() + "-") {
-				if err := dispatch.Skip(id, job, time.Now()); err != nil {
-					return err
-				}
-				slog.Warn("schedule skipped; previous run unfinished", "detail", "前の回がまだ終わっていないため、今回の実行は見送りました。", "job", job.Name, "id", id)
-				if err := runs.Skip(job, time.Now()); err != nil {
-					slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "job", job.Name, "error", err)
-				}
-				return nil
-			}
-			prompt := job.Prompt + job.Late + schedule.SituationIn(dir, *nowPath, time.Now(), store.Location()) + job.TaskInstruction(dir, routineActions.collects(job)) + job.ReportInstruction(id, routineActions.collects(job)) + routineActions.instruction(job)
-			if err := dispatch.Enqueue(id, job, prompt, time.Now()); err != nil {
-				return err
-			}
-			if _, _, err := queue.Add(request.Request{ID: id, Kind: request.System, Source: "予約「" + label + "」", Side: job.Side, Agent: to.Kind, ReplyTo: job.ReplyTo, Text: prompt}); err != nil {
-				return err
-			}
-			// The log is a record of what ran; failing to write it must
-			// not stop the job itself.
-			if err := runs.Begin(job, id, time.Now()); err != nil {
-				slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "job", job.Name, "error", err)
-			}
-			return nil
-		}}
-		settle := func(now time.Time) {
-			if err := dispatch.SkipStopped(now); err != nil {
-				slog.Error("schedule stop", "detail", "停止した予約の状況を実行記録に反映できませんでした。", "error", err)
-			}
-			for _, execution := range dispatch.List("") {
-				if execution.Device != schedule.LocalDevice {
-					continue
-				}
-				r, ok := queue.Get(execution.ID)
-				if !ok {
-					continue
-				}
-				if err := dispatch.SyncLocal(execution.ID, r.Status, schedule.Result{Settled: r.Status != request.Queued && r.Status != request.Running, Failed: r.Status != request.Done, Reply: r.Reply, Error: r.Error, Started: r.Started, Finished: r.Finished}); err != nil {
-					slog.Error("schedule local result", "detail", "このサーバーで動く定期タスクの実行状況を記録できませんでした。", "id", execution.ID, "error", err)
-				}
-			}
-			// Import the durable outbox before settling its shared run log.
-			// Repetition also recovers a crash between saving and delivery.
-			for _, execution := range dispatch.List("") {
-				if execution.Device == schedule.LocalDevice || execution.Status == "missed" || execution.Status == schedule.Skipped || !execution.Result.Settled {
-					continue
-				}
-				status := request.Done
-				if execution.Result.Failed {
-					status = request.Failed
-				}
-				if execution.Status == schedule.Unknown {
-					status = request.Unknown
-				}
-				label := execution.Job.Title
-				if label == "" {
-					label = execution.Job.Name
-				}
-				if err := queue.RecordExternal(request.Request{ID: execution.ID, Kind: request.System, Source: "予約「" + label + "」", Side: execution.Job.Side, Agent: execution.Kind, ReplyTo: execution.Job.ReplyTo, Text: execution.Prompt, Status: status, Reply: execution.Result.Reply, Error: execution.Result.Error, Created: execution.Queued, Started: execution.Started, Finished: execution.Result.Finished}); err != nil {
-					slog.Error("schedule result import", "detail", "別の端末で実行した定期タスクの結果を取り込めませんでした。", "id", execution.ID, "error", err)
-				}
-			}
-			err := runs.Settle(func(id string) (schedule.Result, bool) {
-				if res, ok := dispatch.Result(id); ok {
-					return res, true
-				}
-				r, ok := queue.Get(id)
-				return schedule.Result{
-					Settled: r.Status != request.Queued && r.Status != request.Running,
-					Failed:  r.Status != request.Done,
-					Reply:   r.Reply, Error: r.Error, Started: r.Started, Finished: r.Finished,
-				}, ok
-			}, now)
-			if err != nil {
-				slog.Error("schedule run log", "detail", "定期タスクの実行履歴を記録できませんでした。", "error", err)
-			}
-			jobs := routing.Check(schedule.LoadIn(dir, store.Location()))
-			if err := routineActions.applyBaseline(); err != nil {
-				slog.Error("routine action baseline", "detail", "定期タスクで対応する用件の移行を終えられませんでした。", "error", err)
-			}
-			if err := routineActions.syncTroubles(jobs, dispatch.Devices(), now); err != nil {
-				slog.Error("routine action health", "detail", "定期タスクの実行を妨げる問題を、対応するタスクの記録に反映できませんでした。", "error", err)
-			}
-			if !routineActions.enabled() {
-				if err := syncRoutineDeliveries(reviews, jobs, queue.Get); err != nil {
-					slog.Error("routine delivery receipt", "detail", "定期タスクの用件が届いたかどうかを、受付に記録できませんでした。", "error", err)
-				}
-			}
-		}
-		server.Schedules = func() ([]schedule.Job, map[string]string) {
-			jobs, last := routing.Check(schedule.LoadIn(dir, store.Location())), schedules.Last()
-			for _, job := range jobs {
-				last[job.Name] = max(last[job.Name], last[job.OccurrenceName()])
-			}
-			return jobs, last
-		}
-		server.Runs = runs
-		jobs, _ := server.Schedules()
-		if !routineActions.enabled() {
-			if err := syncExistingRoutineProblems(reviews, jobs); err != nil {
-				slog.Error("routine failure receipt", "detail", "定期タスクの実行履歴に残っていた問題を、受付に記録できませんでした。", "error", err)
-			}
-		}
-		unlessStopped := func(run request.Runner) request.Runner {
-			return func(ctx context.Context, text string) (string, string, error) {
-				skipped, err := dispatch.SkipLocalIfStopped(request.Current(ctx).ID, time.Now())
-				if err != nil {
-					return "", "", err
-				}
-				if skipped {
-					return "報告はありません。", "", nil
-				}
-				if e, ok := dispatch.Get(request.Current(ctx).ID); ok && e.Device == schedule.LocalDevice {
-					device, _ := os.Hostname()
-					if e.Job.Profile != "" {
-						list, err := login.LoadList(login.ListPath(os.Getenv))
-						if err != nil {
-							return "", "", err
-						}
-						conversations := scheduleConversations{root: dir, state: filepath.Join(*stateDir, "schedule-conversations"), base: scheduleServerURL(*addr), place: *profile, logins: list}
-						profile, loginName, err := conversations.selection(e)
-						if err != nil {
-							return "", "", err
-						}
-						if err := dispatch.SelectLocal(e.ID, device, profile, loginName); err != nil {
-							return "", "", err
-						}
-						reply, err := conversations.run(ctx, e, text)
-						return reply, "", err
-					}
-					if err := dispatch.SelectLocal(e.ID, device, "default", ""); err != nil {
-						return "", "", err
-					}
-				}
-				return run(ctx, text)
-			}
-		}
-		deferNewWork := func() bool { return draining() || restart.pending() }
-		go queue.Work(ctx, false, unlessStopped(main), deferNewWork)
-		go queue.Work(ctx, true, unlessStopped(side), deferNewWork)
-		go func() {
-			ticker := time.NewTicker(20 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case now := <-ticker.C:
-					if draining() {
-						continue
-					}
-					// Write the runs that finished before queuing new ones.
-					settle(now)
-					if restart.pending() {
-						continue
-					}
-					if err := schedules.Tick(now); err != nil {
-						slog.Error("schedule", "detail", "定期タスクを予定どおりに実行する処理で問題が起きました。", "error", err)
-					}
-				}
-			}
-		}()
-	}
-	// With every calendar connected, the server reads Google Calendar itself.
-	var fetcher *gcal.Fetcher
-	if directCalendarConfigured {
-		clientID, clientSecret := "", ""
-		if *googleClient != "" {
-			if clientID, clientSecret, err = gcal.LoadClient(*googleClient); err != nil {
-				return err
-			}
-		}
-		// Google sends the user back to the public address, or, without
-		// one, to this server on the loopback interface.
-		_, port, _ := net.SplitHostPort(*addr)
-		gstore := &gcal.Store{Path: filepath.Join(*stateDir, "secrets", "gcal.json")}
-		gclient := &gcal.Client{Endpoints: gcal.Google}
-		if server.CalendarPath == "" {
-			server.CalendarPath = filepath.Join(dir, "calendar", "snapshot.json")
-		}
-		fetcher = &gcal.Fetcher{Location: store.Location(), Store: gstore, Client: gclient, Path: server.CalendarPath, Overrides: resolvePath(dir, filepath.FromSlash(*calendarOverrides))}
-		if snapshotState != nil {
-			fetcher.Publish = snapshotState.PublishDirect
-		}
-		kick := make(chan struct{}, 1)
-		server.Calendars = &web.Calendars{Refresh: fetcher.Once, Store: gstore, Client: gclient, Site: *site, Local: "http://127.0.0.1:" + port,
-			ClientID: clientID, ClientSecret: clientSecret, Write: *calendarWrite, Readers: func() map[[2]string]string {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				return fetcher.Readers(ctx)
-			}, Connected: func() {
-				fetcher.Forget()
-				select {
-				case kick <- struct{}{}:
-				default:
-				}
-			}}
-		go fetcher.Run(ctx, 10*time.Minute, kick)
-	}
-	calendarIsDirect = func() bool { return fetcher != nil && fetcher.Ready() }
-	if snapshotState != nil && snapshotInput != snapshotState.Path {
-		go func() {
-			ticker := time.NewTicker(20 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if !calendarIsDirect() {
-						if err := snapshotState.Import(snapshotInput); err != nil {
-							slog.Warn("calendar snapshot import", "detail", "ファイルからサーバーに予定一覧を取り込めませんでした。", "error", err)
-						}
-					}
-				}
-			}
-		}()
-	}
-
-	server.Machine = machineWatch(c)
-	var syncing sync.WaitGroup
-	if *gitSync {
-		syncer := &gitsync.Syncer{Dir: dir, Prepare: func() error {
-			if err := store.Reload(); err != nil {
-				return err
-			}
-			if snapshotState == nil {
-				guardCalendar(dir, server.CalendarPath)
-			}
-			return todo.WriteLive(store, time.Now(), server.Waits, server.Requests, server.Handovers)
-		}}
-		server.Changed, server.Notice = syncer.Kick, syncer.Notice
-		server.PublishedRevision = syncer.PublishedRevision
-		syncing.Add(1)
-		go func() {
-			defer syncing.Done()
-			syncer.Run(ctx)
-		}()
-	}
-	// Codex edits task files directly, so the index follows the disk.
-	go func() {
-		var expired time.Time
-		ticker := time.NewTicker(*rescan)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				if err := store.Reload(); err != nil {
-					slog.Error("reload", "detail", "記録のリポジトリーからタスクを読み直せませんでした。", "error", err)
-				}
-				// Files kept outside Git go away some time after their task closed.
-				if time.Since(expired) > time.Hour {
-					expired = time.Now()
-					for _, t := range store.ExpireFiles(expired) {
-						slog.Info("files expired", "id", t.ID)
-					}
-				}
-				// A wait past its deadline, or one nobody continued, goes to the user.
-				server.TickWaits()
-				// A task returns to review or starts when all its conditions are met.
-				if woken := store.WakeWithRuns(now, func(name string, since time.Time) (task.RoutineCompletion, bool) {
-					if job, ok := schedule.Resolve(dir, name); ok {
-						name = job.Name
-					}
-					return schedule.FirstCompletion(dir, name, since, now, store.Location())
-				}); len(woken) > 0 {
-					for _, t := range woken {
-						slog.Info("task woken", "id", t.ID, "on_ready", t.OnReady)
-						if t.StartsWhenReady() {
-							server.StartReady(t)
-						}
-					}
-					if server.Changed != nil {
-						server.Changed()
-					}
-				}
-				// A waiting task that is looked at again and again gets its
-				// next round, and a conversation is asked to look.
-				if server.Recheck(now) && server.Changed != nil {
-					server.Changed()
-				}
-			}
-		}
-	}()
-
-	srv := &http.Server{Addr: *addr, Handler: restart.handler(handler), ReadHeaderTimeout: 10 * time.Second}
+// serve listens until the server is told to stop, and waits for the last
+// save.
+func (s *serveRun) serve(handler http.Handler) error {
+	addr, restart := *s.c.str("addr"), s.restart
+	srv := &http.Server{Addr: addr, Handler: restart.handler(handler), ReadHeaderTimeout: 10 * time.Second}
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		<-ctx.Done()
+		<-s.ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(shutdown)
 	}()
-	listener, err := net.Listen("tcp", *addr)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	if takesRequests {
+	if s.takesRequests() {
 		// Commands run in this repository find the server through this
 		// note, so they need no environment variable to reach it.
-		removeNote := announceServer(dir, listener.Addr())
+		removeNote := announceServer(s.store.Records(), listener.Addr())
 		defer func() {
 			if !restart.stopping.Load() {
 				removeNote()
 			}
 		}()
 	}
-	go restart.run(ctx, stop, restartBusy)
-	slog.Info("serving", "detail", "Web サーバーを起動しました。", "addr", *addr, "root", dir, "tasks", len(store.List()), "version", server.Version)
+	go restart.run(s.ctx, s.stop, s.restartBusy)
+	slog.Info("serving", "detail", "Web サーバーを起動しました。", "addr", addr, "root", s.dir, "tasks", len(s.store.List()), "version", s.server.Version)
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	<-shutdownDone
-	syncing.Wait() // let the last save finish
+	s.syncing.Wait() // let the last save finish
 	return nil
 }
 
@@ -990,7 +159,7 @@ const serverNote = ".git/lacia-server"
 
 // announceServer writes the note and returns what removes it again. A
 // repository without .git gets none.
-func announceServer(root string, addr net.Addr) func() {
+func announceServer(records *disk.Dir, addr net.Addr) func() {
 	tcp, ok := addr.(*net.TCPAddr)
 	if !ok {
 		return func() {}
@@ -999,15 +168,15 @@ func announceServer(root string, addr net.Addr) func() {
 	if tcp.IP.IsUnspecified() {
 		host = "127.0.0.1"
 	}
-	path := filepath.Join(root, filepath.FromSlash(serverNote))
+	name := filepath.FromSlash(serverNote)
 	url := "http://" + net.JoinHostPort(host, strconv.Itoa(tcp.Port))
-	if err := os.WriteFile(path, []byte(url+"\n"), 0o644); err != nil {
+	if err := records.WriteFileNoSync(name, []byte(url+"\n"), 0o644); err != nil {
 		return func() {}
 	}
 	return func() {
 		// Leave a note that a newer server has already replaced.
-		if data, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(data)) == url {
-			os.Remove(path)
+		if data, err := records.ReadFile(name); err == nil && strings.TrimSpace(string(data)) == url {
+			records.Remove(name)
 		}
 	}
 }
@@ -1056,16 +225,16 @@ func version() string {
 
 // guardCalendar keeps the last saved events of a calendar when a new
 // snapshot lost most of them. See calendar.Guard.
-func guardCalendar(repo, path string) {
-	rel, err := filepath.Rel(repo, path)
-	if path == "" || err != nil {
+func guardCalendar(records *disk.Dir, path string) {
+	rel, err := filepath.Rel(records.Path(), path)
+	if path == "" || err != nil || !filepath.IsLocal(rel) {
 		return
 	}
 	current, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	previous, err := program.Git().Output(context.Background(), repo, "show", "HEAD:"+filepath.ToSlash(rel))
+	previous, err := program.Git().Output(context.Background(), records.Path(), "show", "HEAD:"+filepath.ToSlash(rel))
 	if err != nil {
 		return
 	}
@@ -1076,7 +245,7 @@ func guardCalendar(repo, path string) {
 	}
 	if changed {
 		slog.Warn("calendar guard kept the previous events", "detail", "今回の一覧に以前の予定を残して保存します。")
-		if err := os.WriteFile(path, fixed, 0o644); err != nil {
+		if err := records.WriteFileNoSync(rel, fixed, 0o644); err != nil {
 			slog.Error("calendar guard", "detail", "以前の予定を残した一覧を保存できませんでした。", "error", err)
 		}
 	}

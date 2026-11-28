@@ -383,7 +383,6 @@ func runJob(args []string) error {
 
 type jobRef struct{ Name, Namespace string }
 
-// kubectlJobs runs kubectl and returns the Jobs in its JSON output.
 func kubectlJobs(kubectl string, args []string) ([]jobRef, error) {
 	cmd := program.Kubectl(kubectl).Command(context.Background(), args...)
 	var out, errOut bytes.Buffer

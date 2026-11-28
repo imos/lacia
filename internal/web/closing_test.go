@@ -161,7 +161,7 @@ func TestTaskPageOfAClosingTask(t *testing.T) {
 
 func TestARequestReopensAClosingTask(t *testing.T) {
 	store, _ := closingSetup(t)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

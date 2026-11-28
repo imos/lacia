@@ -81,17 +81,14 @@ func findRoot(explicit string) (string, error) {
 	return "", fmt.Errorf("記録のリポジトリーが見つかりません。記録の中で実行するか、--root か LACIA_TASKS で指定してください。端末の設定（%s）に「root = 記録の場所」と書くと、記録の外でも使えます", home.Settings(os.Getenv).New)
 }
 
-// enclosingRecords finds the records that dir is in.
 func enclosingRecords(dir string) (string, bool) {
 	for {
 		if _, err := os.Stat(filepath.Join(dir, task.ConfigFile)); err == nil {
 			return dir, true
 		}
 		for _, area := range task.DefaultAreas {
-			for _, format := range []int{0, task.LatestFormat} {
-				if info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(task.AreaDir(format, area)), "tasks")); err == nil && info.IsDir() {
-					return dir, true
-				}
+			if info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(task.AreaDir(area)), "tasks")); err == nil && info.IsDir() {
+				return dir, true
 			}
 		}
 		parent := filepath.Dir(dir)
@@ -116,8 +113,8 @@ func machineRoot() (string, error) {
 	return resolvePath("", *o.str("root")), nil
 }
 
-// requireCurrentRecords leaves older layouts available to read-only tools
-// and migration while keeping normal commands on one layout.
+// requireCurrentRecords stops a command before it reads or writes records of
+// an older layout.
 func requireCurrentRecords(root string) error {
 	cfg, err := task.LoadConfig(root)
 	if err != nil {

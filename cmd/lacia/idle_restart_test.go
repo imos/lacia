@@ -12,10 +12,10 @@ import (
 
 func TestRestartWaitsForActiveWorkAndClosesHTTPAdmission(t *testing.T) {
 	dir := t.TempDir()
-	if err := requestIdleRestart(filepath.Join(dir, restartRequestFile)); err != nil {
+	if err := requestIdleRestart(testDir(t, dir)); err != nil {
 		t.Fatal(err)
 	}
-	r := &idleRestart{path: filepath.Join(dir, restartRequestFile)}
+	r := &idleRestart{state: testDir(t, dir)}
 	idle := func() bool { return false }
 	if ok, err := r.stopIfIdle(time.Now(), func() bool { return true }); ok || err != nil || !r.pending() {
 		t.Fatalf("consumed restart while working: %v %v", ok, err)
@@ -40,7 +40,7 @@ func TestRestartWaitsForActiveWorkAndClosesHTTPAdmission(t *testing.T) {
 	if ok, err := r.stopIfIdle(time.Now().Add(3*time.Second), idle); !ok || err != nil {
 		t.Fatalf("server did not stop while idle: %v %v", ok, err)
 	}
-	if _, err := os.Stat(r.path); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, restartRequestFile)); !os.IsNotExist(err) {
 		t.Fatalf("restart request was not consumed: %v", err)
 	}
 	after := httptest.NewRecorder()
@@ -52,10 +52,10 @@ func TestRestartWaitsForActiveWorkAndClosesHTTPAdmission(t *testing.T) {
 
 func TestRestartWaitsForNightlyRun(t *testing.T) {
 	dir := t.TempDir()
-	r := &idleRestart{path: filepath.Join(dir, restartRequestFile)}
+	r := &idleRestart{state: testDir(t, dir)}
 	idle := func() bool { return false }
 	r.runNightly(func() {
-		if err := requestIdleRestart(filepath.Join(dir, restartRequestFile)); err != nil {
+		if err := requestIdleRestart(testDir(t, dir)); err != nil {
 			t.Fatal(err)
 		}
 		if ok, err := r.stopIfIdle(time.Now(), idle); ok || err != nil {
@@ -76,7 +76,7 @@ func TestRestartCommandAsksTheRunningServer(t *testing.T) {
 	path := filepath.Join(dir, restartRequestFile)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/restart", func(w http.ResponseWriter, _ *http.Request) {
-		if err := requestIdleRestart(path); err != nil {
+		if err := requestIdleRestart(testDir(t, dir)); err != nil {
 			t.Error(err)
 		}
 		w.Write([]byte(`{"scheduled":true}`))

@@ -108,7 +108,7 @@ func (s *Server) apiHandoff(w http.ResponseWriter, r *http.Request) {
 	}
 	area, peer := s.Store.HandoffArea(), s.peerLabel()
 	t, err := s.Store.Create(task.NewTask{Area: area, Title: in.Title, Status: task.Doing, Actor: peer,
-		Body: task.Body(s.Store.Format(), peer+"のレイシアからこの依頼を引き継ぎました。", "引き継いだ内容を読み、"+task.OwnerName+"にしていただくことをまとめます。")})
+		Body: task.Body(peer+"のレイシアからこの依頼を引き継ぎました。", "引き継いだ内容を読み、"+task.OwnerName+"にしていただくことをまとめます。")})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -127,11 +127,9 @@ func (s *Server) apiHandoff(w http.ResponseWriter, r *http.Request) {
 // come: the title and the status, and nothing else about it.
 func (s *Server) apiHandoffStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if s.Requests != nil {
-		if saved, ok := s.Requests.Get(handoffPrefix + id); ok {
-			writeJSON(w, http.StatusOK, s.handoffReply(id, saved))
-			return
-		}
+	if saved, ok := s.findRequest(handoffPrefix + id); ok {
+		writeJSON(w, http.StatusOK, s.handoffReply(id, saved))
+		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "その引き継ぎは見つかりません"})
 }

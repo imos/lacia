@@ -10,7 +10,7 @@ import (
 
 func TestConfiguredDayAndClock(t *testing.T) {
 	loc, _ := time.LoadLocation("America/New_York")
-	log := Notices(t.TempDir())
+	log := Notices(records(t, t.TempDir()), "")
 	log.Location = loc
 	at, _ := time.Parse(time.RFC3339, "2026-12-01T02:15:00Z")
 	if _, err := log.Add(Entry{Key: "test", At: at, Who: "test", Text: "記録します。"}); err != nil {

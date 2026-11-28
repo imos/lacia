@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/calendar"
-	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -22,11 +21,11 @@ type Fetcher struct {
 	Location  *time.Location
 	Store     *Store
 	Client    *Client
-	Path      string // snapshot file to write
-	Overrides string // optional file with the user's display decisions
-	Days      int    // how many days ahead to read; default 7
+	Path      string             // the snapshot that Publish keeps, read for what to retain
+	Publish   func([]byte) error // writes the snapshot, guarded
+	Overrides string             // optional file with the user's display decisions
+	Days      int                // how many days ahead to read; default 7
 	Now       func() time.Time
-	Publish   func([]byte) error // optional guarded snapshot writer
 
 	fetchMu     sync.Mutex
 	mu          sync.Mutex
@@ -254,16 +253,7 @@ func (f *Fetcher) Once(ctx context.Context) error {
 	if _, err := calendar.Parse(data); err != nil {
 		return fmt.Errorf("作ったスナップショットが検証を通りませんでした: %w", err)
 	}
-	if f.Publish != nil {
-		if err := f.Publish(append(data, '\n')); err != nil {
-			return err
-		}
-		if direct {
-			f.direct.Store(true)
-		}
-		return firstErr
-	}
-	if err := disk.WriteFileNoSync(f.Path, append(data, '\n'), 0o644); err != nil {
+	if err := f.Publish(append(data, '\n')); err != nil {
 		return err
 	}
 	if direct {

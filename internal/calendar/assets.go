@@ -20,7 +20,6 @@ var CSS string
 //go:embed calendar.js
 var JS string
 
-// AddTemplate parses the "calendar" template into t.
 func AddTemplate(t *template.Template) (*template.Template, error) {
 	return t.Parse(TemplateText)
 }

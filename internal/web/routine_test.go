@@ -27,7 +27,7 @@ func setupRoutine(t *testing.T) (*Server, http.Handler) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(root, "routines/S1001")
+	dir := filepath.Join(root, "areas/work/routines/S1001")
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,6 @@ func TestRoutineDefinitionLinkUsesRecordedPath(t *testing.T) {
 	for _, tc := range []struct {
 		name, definition, config string
 	}{
-		{"format 1", "routines/S1001/routine.md", `{"format": 1}`},
 		{"format 2", "areas/work/routines/S1001/routine.md", `{"format": 2}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,15 +184,11 @@ func TestRoutineDefinitionLinkUsesRecordedPath(t *testing.T) {
 				t.Fatalf("definition %d: %s", code, body)
 			}
 			code, _, header := get(t, h, "/files/routines/S1001/routine.md?view=source")
-			if tc.name == "format 2" {
-				if code != http.StatusTemporaryRedirect || header.Get("Location") != link[1]+"?view=source" {
-					t.Fatalf("old definition %d, Location %q", code, header.Get("Location"))
-				}
-				if code, _, _ := get(t, h, header.Get("Location")); code != 200 {
-					t.Fatalf("redirect target %d", code)
-				}
-			} else if code != 200 {
-				t.Fatalf("format 1 direct definition %d", code)
+			if code != http.StatusTemporaryRedirect || header.Get("Location") != link[1]+"?view=source" {
+				t.Fatalf("old definition %d, Location %q", code, header.Get("Location"))
+			}
+			if code, _, _ := get(t, h, header.Get("Location")); code != 200 {
+				t.Fatalf("redirect target %d", code)
 			}
 			for _, invalid := range []string{"S9999/routine.md", "S1001/%2e%2e%2f%2e%2e%2f.lacia/config.json"} {
 				if code, _, _ := get(t, h, "/files/routines/"+invalid); code != 404 {
@@ -257,7 +252,7 @@ func TestTaskAfterRunFormAPIAndFailedResult(t *testing.T) {
 	run := schedule.Run{ID: "test-run", At: since.Add(time.Minute).In(loc), Finished: since.Add(2 * time.Minute), Outcome: schedule.RunFailed, Summary: "検証用の失敗です。"}
 	month := run.At.Format("2006-01")
 	root := s.Store.Root()
-	dir := filepath.Join(root, "routines", "S1001", "runs", month)
+	dir := filepath.Join(root, "areas", "work", "routines", "S1001", "runs", month)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +288,6 @@ func TestRoutineReceiptPageAndIndividualCompletion(t *testing.T) {
 	for _, tc := range []struct {
 		config, definition string
 	}{
-		{`{"format": 1}`, "routines/S1001/routine.md"},
 		{`{"format": 2}`, "areas/work/routines/S1001/routine.md"},
 	} {
 		t.Run(tc.definition, func(t *testing.T) {
@@ -419,7 +413,7 @@ func TestRoutineFailureUsesExistingReview(t *testing.T) {
 	base := time.Date(2026, 11, 27, 9, 0, 0, 0, task.JST)
 	var report routine.Result
 	log := &schedule.RunLog{
-		Root: s.Store.Root(), State: filepath.Join(t.TempDir(), "pending.json"),
+		Root: s.Store.Root(), State: stateFile(t, filepath.Join(t.TempDir(), "pending.json")),
 		Execution: func(string) (schedule.Execution, bool) {
 			return schedule.Execution{Job: job, Report: &report}, true
 		},
@@ -498,7 +492,7 @@ func TestRoutineFailureUsesExistingReview(t *testing.T) {
 func TestExistingReceiptDisplaysItsStoredFailure(t *testing.T) {
 	s, h := setupRoutine(t)
 	acceptRoutine(t, s, "S1001", "previously-accepted")
-	path := filepath.Join(s.Store.Root(), "routines", "S1001", "runs", "2026-11")
+	path := filepath.Join(s.Store.Root(), "areas", "work", "routines", "S1001", "runs", "2026-11")
 	if err := os.MkdirAll(path, 0755); err != nil {
 		t.Fatal(err)
 	}

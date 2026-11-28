@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -33,10 +32,10 @@ func TestDrainPreservesMigratedStateUntilRestart(t *testing.T) {
 	e := migrated.Executions["run"]
 	e.Job.Name, e.Job.LegacyName = "S1001", job.Name
 	migrated.Executions = map[string]Execution{"run": e}
-	if err := atomicJSON(d.State, migrated); err != nil {
+	if err := d.State.writeJSON(migrated); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(d.State)
+	before, _ := d.State.read()
 	if _, err := d.Poll("desk", DeviceStatus{Status: "ready", At: now}); !errors.Is(err, ErrDispatchPaused) {
 		t.Fatal(err)
 	}
@@ -50,7 +49,7 @@ func TestDrainPreservesMigratedStateUntilRestart(t *testing.T) {
 	if err := d.Report("S1001", "run", routine.Result{Summary: "確認しました。"}); !errors.Is(err, ErrDispatchPaused) {
 		t.Fatal(err)
 	}
-	after, _ := os.ReadFile(d.State)
+	after, _ := d.State.read()
 	if !bytes.Equal(before, after) {
 		t.Fatal("paused request overwrote migration")
 	}
@@ -88,7 +87,7 @@ func TestWorkerRetriesFinishedResultAcrossDrain(t *testing.T) {
 		paused.Store(true)
 		return "保存した結果です。", nil
 	}
-	w := &Worker{Config: config, State: state, RunConversation: execute}
+	w := &Worker{Config: config, State: stateFile(t, state), RunConversation: execute}
 	if err := w.Tick(context.Background()); err == nil {
 		t.Fatal("paused finish was accepted")
 	}
@@ -101,7 +100,7 @@ func TestWorkerRetriesFinishedResultAcrossDrain(t *testing.T) {
 	paused.Store(false)
 	// A restarted worker must send the durable finished result, without spawning
 	// another conversation or mistaking a temporary pause for authentication.
-	w2 := &Worker{Config: config, State: state, RunConversation: execute}
+	w2 := &Worker{Config: config, State: stateFile(t, state), RunConversation: execute}
 	if err := w2.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}

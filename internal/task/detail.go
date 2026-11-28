@@ -18,15 +18,9 @@ type Detail struct {
 	Title   string `json:",omitempty"`
 }
 
-// Detail reads the task and its front matter from the repository.
 func (s *Store) Detail(t Task) (Detail, error) {
-	repo, err := os.OpenRoot(s.root)
-	if err != nil {
-		return Detail{}, err
-	}
-	defer repo.Close()
 	root := filepath.Join(s.root, t.Dir)
-	data, err := repo.ReadFile(filepath.Join(t.Dir, "task.md"))
+	data, err := s.records.ReadFile(filepath.Join(t.Dir, "task.md"))
 	if err != nil {
 		return Detail{}, err
 	}

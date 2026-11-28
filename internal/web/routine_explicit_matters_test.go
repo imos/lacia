@@ -49,17 +49,7 @@ func TestExplicitRoutineMatters(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			routines := "routines"
-			if !tc.legacy && !tc.seeded {
-				routines = "areas/work/routines"
-				config := filepath.Join(root, task.ConfigFile)
-				if err := os.MkdirAll(filepath.Dir(config), 0755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(config, []byte(`{"format":2}`), 0644); err != nil {
-					t.Fatal(err)
-				}
-			}
+			routines := "areas/work/routines"
 			store, err := task.Open(testrecords.Init(t, root))
 			if err != nil {
 				t.Fatal(err)
@@ -91,7 +81,7 @@ func TestExplicitRoutineMatters(t *testing.T) {
 					status = task.Done
 				}
 				saved, err := s.Store.Create(task.NewTask{Area: "work", Title: "確認するPR", Status: status,
-					Body: task.Body(task.AreaRoutineFormat, "依頼が届きました。", "依頼をレビューしてください。")})
+					Body: task.Body("依頼が届きました。", "依頼をレビューしてください。")})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -103,7 +93,7 @@ func TestExplicitRoutineMatters(t *testing.T) {
 			}
 			state := filepath.Join(t.TempDir(), "dispatch.json")
 			open := func() *schedule.Dispatch {
-				dispatch, err := schedule.OpenDispatch(state, routing)
+				dispatch, err := schedule.OpenDispatch(stateFile(t, state), routing)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -132,7 +122,7 @@ func TestExplicitRoutineMatters(t *testing.T) {
 				displayJob.ExplicitMatters = tc.legacy // The running policy has since been changed.
 				return []schedule.Job{displayJob}, nil
 			}
-			log := &schedule.RunLog{Root: root, State: filepath.Join(t.TempDir(), "pending.json"),
+			log := &schedule.RunLog{Root: root, State: stateFile(t, filepath.Join(t.TempDir(), "pending.json")),
 				Execution: func(id string) (schedule.Execution, bool) { return d.Get(id) },
 				Review: func(id string, _ schedule.Run, report routine.Result) error {
 					_, _, err := s.Routines.Accept(id, report)

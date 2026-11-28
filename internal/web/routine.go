@@ -218,10 +218,8 @@ func (s *Server) routineTask(id string) (task.Task, bool) {
 func (s *Server) routineTaskPart(t task.Task, lines []task.Line) *routineTaskPart {
 	root, loc := s.Store.Root(), s.Store.Location()
 	part := &routineTaskPart{Task: t, StatusLabel: routineStatusLabel(t.Status), Body: renderMarkdown(t.Body, t.Dir), Actions: routineActions(t.Status)}
-	if s.Store.Format() >= 1 {
-		if since := statusSince(lines, t.Status, loc); since != "日時不明" {
-			part.Since = since
-		}
+	if since := statusSince(lines, t.Status, loc); since != "日時不明" {
+		part.Since = since
 	}
 	dir := filepath.Join(root, t.Dir)
 	var artifacts, stored []string
@@ -243,7 +241,7 @@ func (s *Server) routineTaskPart(t task.Task, lines []task.Line) *routineTaskPar
 	if notes, err := os.ReadFile(filepath.Join(dir, task.NotesFile)); err == nil {
 		part.Notes = renderMarkdown(string(notes), t.Dir)
 	}
-	part.Warnings = append(task.CheckFormat(t, s.Store.Files(t), s.Store.Format()), task.LintFormat(t.Body, s.Store.Format())...)
+	part.Warnings = append(task.Check(t, s.Store.Files(t)), task.Lint(t.Body)...)
 	part.Warnings = append(part.Warnings, s.Store.FileWarnings(t)...)
 	return part
 }
@@ -529,8 +527,8 @@ func (s *Server) setRoutineStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if changed && s.Changed != nil {
-		s.Changed()
+	if changed {
+		s.changed()
 	}
 	flash := "タスクを「" + routineStatusLabel(t.Status) + "」にしました。"
 	http.Redirect(w, r, schedule.RoutineURL(id)+"?flash="+url.QueryEscape(flash)+"#task", http.StatusSeeOther)
@@ -694,9 +692,7 @@ func (s *Server) completeRoutine(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, 500, "確認の履歴を保存できませんでした。")
 		return
 	}
-	if s.Changed != nil {
-		s.Changed()
-	}
+	s.changed()
 	if view.Sequence != 0 {
 		http.Redirect(w, r, routine.ReceiptURL(id, view.Sequence)+"?flash="+url.QueryEscape("この受付を確認済みにしました。"), 303)
 		return

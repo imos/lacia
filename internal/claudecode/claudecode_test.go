@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 )
 
@@ -32,7 +33,7 @@ func read(t *testing.T, path string) string {
 func TestRunKeepsOneConversation(t *testing.T) {
 	command, dir := fake(t, `echo '{"type":"result","is_error":false,"result":"はい。","session_id":"s-1","uuid":"u-1"}'`)
 	state := filepath.Join(dir, "state")
-	r := New(Config{Command: []string{command}, Workspace: dir, StateDir: state, Instructions: "指示"})
+	r := New(Config{Command: []string{command}, Workspace: dir, State: testState(t, state), Instructions: "指示"})
 
 	reply, turn, err := r.Run(context.Background(), "こんにちは")
 	if err != nil || reply != "はい。" || turn != "u-1" {
@@ -63,7 +64,7 @@ func TestRunStartsAgainWhenTheSessionIsGone(t *testing.T) {
 	state := filepath.Join(dir, "state")
 	os.MkdirAll(state, 0o700)
 	os.WriteFile(filepath.Join(state, "session"), []byte("old\n"), 0o600)
-	r := New(Config{Command: []string{command}, Workspace: dir, StateDir: state})
+	r := New(Config{Command: []string{command}, Workspace: dir, State: testState(t, state)})
 	reply, _, err := r.Run(context.Background(), "こんにちは")
 	if err != nil || reply != "新しく始めました。" || r.Session() != "s-2" {
 		t.Fatalf("reply=%q session=%q err=%v", reply, r.Session(), err)
@@ -72,12 +73,12 @@ func TestRunStartsAgainWhenTheSessionIsGone(t *testing.T) {
 
 func TestRunReportsFailures(t *testing.T) {
 	command, dir := fake(t, `echo '{"type":"result","is_error":true,"result":"利用の上限に達しました"}'`)
-	r := New(Config{Command: []string{command}, Workspace: dir, StateDir: dir, Ephemeral: true})
+	r := New(Config{Command: []string{command}, Workspace: dir, Ephemeral: true})
 	if _, _, err := r.Run(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "利用の上限") {
 		t.Errorf("err = %v", err)
 	}
 	command, dir = fake(t, `echo "boom" >&2; exit 3`)
-	r = New(Config{Command: []string{command}, Workspace: dir, StateDir: dir, Ephemeral: true})
+	r = New(Config{Command: []string{command}, Workspace: dir, Ephemeral: true})
 	if _, _, err := r.Run(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("err = %v", err)
 	}
@@ -90,7 +91,7 @@ func TestRunReloadsRulesBetweenRequests(t *testing.T) {
 	command, dir := fake(t, `echo '{"type":"result","result":"はい。","session_id":"s-1"}'`)
 	state := filepath.Join(dir, "state")
 	current := "版一"
-	config := Config{Command: []string{command}, Workspace: dir, StateDir: state, CurrentInstructions: func(context.Context) (string, rules.Revision) {
+	config := Config{Command: []string{command}, Workspace: dir, State: testState(t, state), CurrentInstructions: func(context.Context) (string, rules.Revision) {
 		return current, rules.Revision{"core": current}
 	}}
 	for i, text := range []string{"最初。", "更新後。", "再開後。"} {
@@ -109,4 +110,15 @@ func TestRunReloadsRulesBetweenRequests(t *testing.T) {
 	if args := read(t, filepath.Join(dir, "args")); strings.Count(args, "--append-system-prompt 版二") != 2 {
 		t.Fatalf("old instructions reused: %q", args)
 	}
+}
+
+// testState opens dir as the conversation's state directory.
+func testState(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	state, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { state.Close() })
+	return state
 }

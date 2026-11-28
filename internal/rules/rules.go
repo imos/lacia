@@ -37,8 +37,7 @@ const (
 	OwnerMark = chat.OwnerMark
 	// PeerMark stands for the label of the profile this one exchanges
 	// messages with (FillPeer).
-	PeerMark = "{{相手}}"
-	// DefaultOwner is used when the repository does not say.
+	PeerMark     = "{{相手}}"
 	DefaultOwner = task.DefaultOwner
 )
 
@@ -91,8 +90,8 @@ func Fit(text string, keepsTasks bool) string {
 	return strings.Join(kept, "\n")
 }
 
-// KeepsTasks reports whether the repository at root keeps tasks. Without a
-// repository, or with settings that cannot be read, it does: the default.
+// Without a repository, or with settings that cannot be read, KeepsTasks is
+// true: the default.
 func KeepsTasks(root string) bool {
 	if root == "" {
 		return true
@@ -101,7 +100,6 @@ func KeepsTasks(root string) bool {
 	return err != nil || cfg.KeepsTasks()
 }
 
-// Doc describes one document for the list.
 type Doc struct {
 	Name  string
 	Title string // the first heading
@@ -158,9 +156,9 @@ func FillPeer(text, label string) string {
 	return strings.Join(kept, "\n")
 }
 
-// Load returns one document. root may be empty when there is no repository.
-// The repository's rules/<name>.local.md follows the document, and Core
-// comes with the repository's rules/local.md after that.
+// root may be empty when there is no repository. The repository's
+// rules/<name>.local.md follows the document, and Core comes with the
+// repository's rules/local.md after that.
 func Load(root, name, owner string) (string, error) {
 	text, _, err := read(root, name)
 	if err != nil {

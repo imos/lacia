@@ -24,7 +24,7 @@ func setupDispatch(t *testing.T) (*Dispatch, string, Routing) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := OpenDispatch(filepath.Join(dir, "dispatch.json"), cfg)
+	d, err := OpenDispatch(stateFile(t, filepath.Join(dir, "dispatch.json")), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestWorkerResultOutboxAndAuthPrerequisite(t *testing.T) {
 	executed := 0
 	state := filepath.Join(t.TempDir(), "worker.json")
 	config := WorkerConfig{URL: server.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}
-	w := &Worker{Config: config, State: state, RunConversation: func(context.Context, Execution, string) (string, error) { executed++; return "done", nil }}
+	w := &Worker{Config: config, State: stateFile(t, state), RunConversation: func(context.Context, Execution, string) (string, error) { executed++; return "done", nil }}
 	// Authentication is needed before the API itself can be reached.
 	w.Config.AuthCheck = []string{"sh", "-c", "exit 77"}
 	w.Config.URL = "http://127.0.0.1:1"
@@ -189,7 +189,7 @@ func TestWorkerResultOutboxAndAuthPrerequisite(t *testing.T) {
 	if w.data.Runs["run"].Phase != "finished" {
 		t.Fatal("outbox not saved")
 	}
-	w2 := &Worker{Config: config, State: state, RunConversation: w.RunConversation}
+	w2 := &Worker{Config: config, State: stateFile(t, state), RunConversation: w.RunConversation}
 	if err := w2.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -219,9 +219,9 @@ func TestWorkerStartedIsNeverReplayed(t *testing.T) {
 	defer srv.Close()
 	state := filepath.Join(t.TempDir(), "worker.json")
 	e, _ := d.Get("run")
-	atomicJSON(state, workerState{Runs: map[string]workerRun{"run": {Execution: e, Phase: "started", Claim: strings.Repeat("c", 32)}}})
+	stateFile(t, state).writeJSON(workerState{Runs: map[string]workerRun{"run": {Execution: e, Phase: "started", Claim: strings.Repeat("c", 32)}}})
 	executed := 0
-	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: state, RunConversation: func(context.Context, Execution, string) (string, error) { executed++; return "", nil }}
+	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: stateFile(t, state), RunConversation: func(context.Context, Execution, string) (string, error) { executed++; return "", nil }}
 	if err := w.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -243,12 +243,12 @@ func TestWorkerPrepareResumesAfterStartResponseLost(t *testing.T) {
 	d.Start("desk", "run", strings.Repeat("c", 32), time.Now())
 	e, _ := d.Get("run")
 	state := filepath.Join(t.TempDir(), "worker.json")
-	atomicJSON(state, workerState{Runs: map[string]workerRun{"run": {Execution: e, Phase: "prepared", Claim: strings.Repeat("c", 32)}}})
+	stateFile(t, state).writeJSON(workerState{Runs: map[string]workerRun{"run": {Execution: e, Phase: "prepared", Claim: strings.Repeat("c", 32)}}})
 	drop := false
 	srv := workerServer(t, d, &drop)
 	defer srv.Close()
 	count := 0
-	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: state, RunConversation: func(context.Context, Execution, string) (string, error) { count++; return "", nil }}
+	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir()}, State: stateFile(t, state), RunConversation: func(context.Context, Execution, string) (string, error) { count++; return "", nil }}
 	if err := w.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -265,11 +265,11 @@ func TestWorkerPrepareResumesAfterStartResponseLost(t *testing.T) {
 func TestWorkerStateCorruptionFailsClosed(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "worker.json")
 	os.WriteFile(state, []byte("broken"), 0600)
-	w := &Worker{State: state}
+	w := &Worker{State: stateFile(t, state)}
 	if err := w.load(); err == nil {
 		t.Fatal("corruption ignored")
 	}
-	if _, err := OpenDispatch(state, Routing{}); err == nil {
+	if _, err := OpenDispatch(stateFile(t, state), Routing{}); err == nil {
 		t.Fatal("central corruption ignored")
 	}
 	// HTTP endpoints outside a secure tunnel cannot receive the credential.
@@ -322,7 +322,7 @@ func TestUnknownScheduleDestinationDoesNotRunAndNeedsAttention(t *testing.T) {
 	if got := Troubles(root, jobs, nil); len(got) != 3 {
 		t.Fatalf("invalid schedules missing from health: %#v", got)
 	}
-	runner := Runner{Root: root, State: filepath.Join(t.TempDir(), "slots"), Check: routing.Check, Submit: func(id string, job Job) error {
+	runner := Runner{Root: root, State: stateFile(t, filepath.Join(t.TempDir(), "slots")), Check: routing.Check, Submit: func(id string, job Job) error {
 		t.Fatalf("attempted to run %s", id)
 		return nil
 	}}
@@ -338,7 +338,7 @@ func TestHistoricalAssignmentRetainsItsDeviceAndDisplayName(t *testing.T) {
 	if err := os.WriteFile(state, []byte(old), 0600); err != nil {
 		t.Fatal(err)
 	}
-	d, err := OpenDispatch(state, routing)
+	d, err := OpenDispatch(stateFile(t, state), routing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestDispatchRejectsSecondWorkerClaimAndRollsBack(t *testing.T) {
 	// A failed write must remove newly inserted map keys from memory as well.
 	bad := filepath.Join(t.TempDir(), "file")
 	os.WriteFile(bad, []byte("x"), 0600)
-	d.State = filepath.Join(bad, "state.json")
+	d.State = StateFile{Dir: stateFile(t, bad).Dir, Name: filepath.Join("file", "state.json")}
 	next := testRemoteJob()
 	next.Name = "other"
 	if err := d.Enqueue("not-saved", next, "prompt", now); err == nil {
@@ -435,7 +435,7 @@ func TestAuthWaitIsSentWhenAPIIsReachable(t *testing.T) {
 	drop := false
 	srv := workerServer(t, d, &drop)
 	defer srv.Close()
-	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir(), AuthCheck: []string{"sh", "-c", "exit 77"}}, State: filepath.Join(t.TempDir(), "worker.json"), RunConversation: func(context.Context, Execution, string) (string, error) {
+	w := &Worker{Config: WorkerConfig{URL: srv.URL, Device: "desk", SecretFile: secret, Root: t.TempDir(), AuthCheck: []string{"sh", "-c", "exit 77"}}, State: stateFile(t, filepath.Join(t.TempDir(), "worker.json")), RunConversation: func(context.Context, Execution, string) (string, error) {
 		t.Fatal("auth-waiting work executed")
 		return "", nil
 	}}

@@ -51,7 +51,7 @@ func TestAgentUsesTheConfiguredScheduleLoginAndConversation(t *testing.T) {
 	for arg in "$@"; do [ "$arg" = --resume ] && echo claude-resume >>"$SCHEDULE_TEST_STARTS"; done
 	printf '%s\n' '{"type":"result","session_id":"fake-claude-session","result":"claude reply"}'
 	`)
-	runners := scheduleConversations{root: root, state: state, base: localSite, place: "local", logins: &login.List{
+	runners := scheduleConversations{root: root, state: testDir(t, state), base: localSite, place: "local", logins: &login.List{
 		Default: "one",
 		Logins: map[string]login.Entry{
 			"one": {Codex: codexCommand},
@@ -108,7 +108,7 @@ printf '%s' "$LACIA_EXECUTION_PROFILE" >"$out"
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
-	r := scheduleConversations{root: root, state: state, place: "local", logins: &login.List{
+	r := scheduleConversations{root: root, state: testDir(t, state), place: "local", logins: &login.List{
 		Default: "work", Logins: map[string]login.Entry{"work": {Codex: []string{script}}},
 		ExecutionProfiles: map[string]login.ExecutionProfile{"restricted": {Login: "work", Kind: "codex"}},
 	}}

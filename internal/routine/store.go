@@ -3,7 +3,6 @@ package routine
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -121,17 +121,9 @@ func (s *Store) locked(id string, fn func() error) error {
 	if !task.ValidRoutineID(id) {
 		return fmt.Errorf("定期タスクIDが正しくありません: %q", id)
 	}
-	root, err := filepath.Abs(s.Root)
-	if err != nil {
-		return err
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	hash := sha256.Sum256([]byte(root + "/" + id))
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("lacia-routine-%x.lock", hash))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	// The records directory itself is the lock, so that no lock file is
+	// written outside the records.
+	f, err := os.Open(s.Root)
 	if err != nil {
 		return err
 	}
@@ -252,12 +244,8 @@ func (s *Store) appendEvent(id string, e Event) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(routineDir, "runs", e.At.Format("2006-01"))
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	path := filepath.Join(dir, "reviews.jsonl")
-	data, err := os.ReadFile(path)
+	name, _ := filepath.Rel(s.Root, filepath.Join(routineDir, "runs", e.At.Format("2006-01"), "reviews.jsonl"))
+	data, err := os.ReadFile(filepath.Join(s.Root, name))
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -270,33 +258,12 @@ func (s *Store) appendEvent(id string, e Event) error {
 	}
 	data = append(data, line...)
 	data = append(data, '\n')
-	f, err := os.CreateTemp(dir, ".reviews-*")
+	records, err := disk.OpenRecords(s.Root)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
-	if err = f.Chmod(0644); err == nil {
-		_, err = f.Write(data)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	defer records.Close()
+	return records.WriteFile(name, data, 0o644)
 }
 
 func (s *Store) Snapshot(id string) (Snapshot, error) {

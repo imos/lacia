@@ -9,12 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,7 +46,7 @@ type workerState struct {
 }
 type Worker struct {
 	Config WorkerConfig
-	State  string
+	State  StateFile
 	Client *http.Client
 	// Available guards the local forwarding port while it is down.
 	Available func() bool
@@ -60,7 +59,7 @@ type Worker struct {
 var errWorkerState = errors.New("端末の実行記録を保存できませんでした")
 
 func (w *Worker) save() error {
-	if err := atomicJSON(w.State, w.data); err != nil {
+	if err := w.State.writeJSON(w.data); err != nil {
 		return fmt.Errorf("%w: %v", errWorkerState, err)
 	}
 	return nil
@@ -152,10 +151,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err := w.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(w.State), 0700); err != nil {
-		return err
-	}
-	lock, err := os.OpenFile(w.State+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := w.State.Dir.OpenLock(w.State.Name+".lock", 0o600)
 	if err != nil {
 		return err
 	}
@@ -188,8 +184,8 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 func (w *Worker) load() error {
 	w.data = workerState{Runs: map[string]workerRun{}}
-	raw, err := os.ReadFile(w.State)
-	if err != nil && !os.IsNotExist(err) {
+	raw, err := w.State.read()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if err == nil {

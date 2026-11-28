@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 const restartRequestFile = "restart-when-idle"
@@ -46,15 +48,15 @@ func askIdleRestart() error {
 }
 
 // requestIdleRestart leaves the request where the server looks for it.
-func requestIdleRestart(path string) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+func requestIdleRestart(state *disk.Dir) error {
+	err := state.CreateNew(restartRequestFile, nil, 0o600)
 	if err == nil {
-		return file.Close()
+		return nil
 	}
 	if !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	info, err := os.Lstat(path)
+	info, err := state.Lstat(restartRequestFile)
 	if err != nil {
 		return err
 	}
@@ -65,7 +67,7 @@ func requestIdleRestart(path string) error {
 }
 
 type idleRestart struct {
-	path     string
+	state    *disk.Dir
 	stopping atomic.Bool
 	mu       sync.Mutex
 	active   int
@@ -76,10 +78,10 @@ func (r *idleRestart) pending() bool {
 	if r.stopping.Load() {
 		return true
 	}
-	if r.path == "" {
+	if r.state == nil {
 		return false
 	}
-	info, err := os.Lstat(r.path)
+	info, err := r.state.Lstat(restartRequestFile)
 	return err == nil && info.Mode().IsRegular()
 }
 
@@ -131,7 +133,7 @@ func (r *idleRestart) stopIfIdle(now time.Time, busy func() bool) (bool, error) 
 	}
 	// Keep both start gates closed when the request is consumed.
 	r.stopping.Store(true)
-	if err := os.Remove(r.path); err != nil {
+	if err := r.state.RemoveFile(restartRequestFile); err != nil {
 		r.stopping.Store(false)
 		if !errors.Is(err, os.ErrNotExist) {
 			return false, err

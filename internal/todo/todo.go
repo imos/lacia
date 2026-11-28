@@ -19,7 +19,6 @@ import (
 
 var link = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 
-// Render builds the file content from the store.
 func Render(store *task.Store, now time.Time) string {
 	return render(store, now, nil, nil, nil)
 }
@@ -32,7 +31,7 @@ func render(store *task.Store, now time.Time, waits map[string]wait.TaskWaits, a
 	}
 	// Tasks of an active project that have not been started are listed under
 	// the project, which names the one to start next.
-	projects, _ := project.Load(store.Root(), store.Format(), store.Areas())
+	projects, _ := project.Load(store.Root(), store.Areas())
 	inProject := map[string]bool{}
 	var plans []project.Plan
 	for _, p := range projects {
@@ -163,5 +162,5 @@ func write(store *task.Store, content string) error {
 	if old, err := os.ReadFile(path); err == nil && string(old) == content {
 		return nil
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return store.Records().WriteFileNoSync("TODO.md", []byte(content), 0o644)
 }

@@ -12,9 +12,9 @@ import (
 
 func TestMirrorOutagePlansOneDurableNotice(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "private", "notice-state.json")
+	files := testDir(t, filepath.Join(dir, "private"))
 	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
-	poll := mirrorPoll{dir: dir, site: "https://lacia.example", statePath: path, state: notify.NewState()}
+	poll := mirrorPoll{dir: dir, site: "https://lacia.example", files: files, stateName: "notice-state.json", state: notify.NewState()}
 	notice := func(at time.Time) notify.Manifest {
 		poll.fail(at)
 		var m notify.Manifest
@@ -31,7 +31,7 @@ func TestMirrorOutagePlansOneDurableNotice(t *testing.T) {
 	if len(first.Notices) != 1 || first.Notices[0].Kind != "sync" {
 		t.Fatalf("first due notice = %+v", first)
 	}
-	restarted, err := notify.LoadState(path)
+	restarted, err := notify.LoadState(files, "notice-state.json")
 	if err != nil {
 		t.Fatal(err)
 	}

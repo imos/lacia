@@ -14,7 +14,6 @@ import (
 // The list of a machine says how each login is started: by a command of
 // one's own, by a flag, or by a variable (home.Logins says where it lies).
 
-// Entry is one login in the list.
 type Entry struct {
 	Label string `json:"label"` // for people, such as "仕事用"
 	// Codex and Claude start the agent with this login. What the caller
@@ -30,7 +29,6 @@ type Entry struct {
 	Unattended bool `json:"unattended"`
 }
 
-// List is the logins of this machine.
 type List struct {
 	// Default is the login used when none is named. Without it, the agent
 	// is started as it is installed.
@@ -84,7 +82,6 @@ type ScheduleLogins struct {
 // behind "codex-".
 var reserved = map[string]bool{"login": true, "stop": true, "probe": true}
 
-// ListPath is where the list of this machine lies.
 func ListPath(getenv func(string) string) string {
 	return home.Logins(getenv).Path()
 }

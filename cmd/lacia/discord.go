@@ -25,7 +25,8 @@ import (
 // outside the task repository, so a conversation cannot edit it by writing
 // there, and outside this code, so the binary carries nobody's names.
 type members struct {
-	Members []discord.Member `json:"members"`
+	Members []discord.Member     `json:"members"`
+	Mail    *discordMailSettings `json:"mail,omitempty"`
 	// DailyLimit is the last resort against a flood from a child: beyond
 	// it, the server stops taking that child's messages until midnight.
 	DailyLimit int `json:"daily_limit"`
@@ -58,7 +59,7 @@ func loadMembers(path string) (members, error) {
 	if f.DailyLimit <= 0 {
 		f.DailyLimit = 200
 	}
-	return f, nil
+	return f, f.validateMail()
 }
 
 // stage says how old someone is today and, for a child, which school year
@@ -110,11 +111,7 @@ func stageIn(birthday string, now time.Time, loc *time.Location) string {
 
 // newDiscord builds the bot from the environment the home Deployment has
 // always provided. The token is read from a file and never logged.
-func newDiscord(statePath, membersPath string, queue *request.Queue, zones ...*time.Location) (*discord.Bot, error) {
-	loc := task.JST
-	if len(zones) > 0 && zones[0] != nil {
-		loc = zones[0]
-	}
+func newDiscord(statePath string, fam members, queue *request.Queue, loc *time.Location) (*discord.Bot, error) {
 	token := strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN"))
 	if path := os.Getenv("DISCORD_BOT_TOKEN_FILE"); token == "" && path != "" {
 		data, err := os.ReadFile(path)
@@ -131,10 +128,6 @@ func newDiscord(statePath, membersPath string, queue *request.Queue, zones ...*t
 			}
 		}
 		return out
-	}
-	fam, err := loadMembers(membersPath)
-	if err != nil {
-		return nil, err
 	}
 	cfg := discord.Config{
 		Token: token, GuildID: os.Getenv("DISCORD_GUILD_ID"), Channels: split(os.Getenv("DISCORD_CHANNEL_IDS")),
@@ -198,6 +191,17 @@ func receiveDiscordIn(bot pauser, queue *request.Queue, fam members, in discord.
 			r.Note += "\n" + m.About
 		}
 		r.Note += fmt.Sprintf("\nこの方の発言は、この1時間で%d件目、きょう%d件目です。", hour, day)
+	}
+	if fam.Mail != nil && !in.ReviewReply && len(in.Images) == 0 {
+		text := strings.TrimSpace(in.Text)
+		if in.BotID != "" {
+			text = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "<@"+in.BotID+">"), "<@!"+in.BotID+">"))
+		}
+		if target, ok := fam.mailTarget(text); ok {
+			r.DiscordMail, r.DiscordMailTarget = true, target
+			_, created, err := queue.Add(r)
+			return created, err
+		}
 	}
 	_, created, err := queue.AddMerging(r)
 	return created, err

@@ -146,7 +146,7 @@ func TestLogTakesWritersAtTheSameTime(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			l := &Log{Dir: dir} // separate logs, as the server and the backfill are
+			l := &Log{Dir: dir} // separate logs, as two processes are
 			for i := 0; i < 25; i++ {
 				l.Add(Entry{Key: "message:" + string(rune('a'+w)) + string(rune('a'+i)), At: when, Who: "Xさん", Place: "#lacia", Text: "同時に書きます"})
 			}

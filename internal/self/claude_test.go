@@ -55,7 +55,7 @@ func TestTidyLive(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	think, closeSession := openSession(ctx)
+	think, closeSession, _ := openSession(ctx)
 	defer closeSession()
 	result := x.Keeper.tidy(ctx, think, x.now(), false)
 	if len(x.logged) != 1 {
@@ -85,7 +85,7 @@ done
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	think, closeSession := Claude(launcher, "test-model", root, true, filepath.Join(root, "private-state"))(ctx)
+	think, closeSession, _ := Claude(launcher, "test-model", root, true, filepath.Join(root, "private-state"))(ctx)
 	defer closeSession()
 	one, err := think(ctx, "整理")
 	if err != nil {
@@ -139,7 +139,7 @@ printf '{"type":"result","subtype":"success","result":"%s"}\n' "$PWD"
 	}
 	t.Setenv("LACIA_SELF_TEST_REPO", root)
 	ctx := context.Background()
-	think, closeSession := Claude(launcher, "test-model", root, false)(ctx)
+	think, closeSession, _ := Claude(launcher, "test-model", root, false)(ctx)
 	temporary, err := think(ctx, "書き直し")
 	closeSession()
 	if err != nil || temporary == root || !strings.HasPrefix(filepath.Base(temporary), "lacia-self-") {

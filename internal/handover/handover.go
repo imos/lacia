@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 const (
@@ -128,7 +129,7 @@ func (h Handover) RequestedAction() string {
 
 // Store keeps the handovers in a directory.
 type Store struct {
-	dir string
+	dir *disk.Dir
 	Now func() time.Time
 
 	mu    sync.Mutex
@@ -140,10 +141,11 @@ var ErrNotFound = errors.New("その申し送りは見つかりません")
 
 // Open loads the handovers saved in dir.
 func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	files, err := disk.OpenTools(dir)
+	if err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, Now: time.Now, items: map[string]*Handover{}}
+	s := &Store{dir: files, Now: time.Now, items: map[string]*Handover{}}
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		return nil, err
@@ -170,12 +172,7 @@ func (s *Store) save(w *Handover) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(s.dir, w.ID+".json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return s.dir.WriteFileNoSync(w.ID+".json", append(data, '\n'), 0o600)
 }
 
 // Add creates a message. A wait-derived message has a deterministic ID,

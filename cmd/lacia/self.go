@@ -44,10 +44,6 @@ type selfState struct {
 
 // runSelf shows her view, or starts the rewrite now.
 func runSelf(args []string) error {
-	// The backfill reads and writes files on the machine it runs on.
-	if len(args) > 0 && args[0] == "backfill" {
-		return runSelfBackfill(args[1:])
-	}
 	if apiBase() == "" {
 		return errors.New(apiAddressHelp)
 	}
@@ -92,7 +88,7 @@ func runSelf(args []string) error {
 		return nil
 	}
 	if args[0] != "sleep" {
-		return errors.New("使い方: lacia self [show]、lacia self tidy YYYY-MM-DD、lacia self improve [<候補のID> task <タスクのID> | <候補のID> skip \"理由\"]、lacia self sleep [--force]、lacia self dates、lacia self backfill --state <ディレクトリー>")
+		return usageError("self")
 	}
 	fs := commandFlags("self sleep")
 	force := fs.Bool("force", false, "書き留めなどの材料がない日も自分についての記録を書き直します")

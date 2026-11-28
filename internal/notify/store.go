@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 var (
@@ -75,7 +77,7 @@ func ReadManifest(path string) (Manifest, error) {
 // privateDirectory creates dir with mode 0700 and refuses one that is a
 // symlink, belongs to someone else, or is open to group or others.
 func privateDirectory(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := disk.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	link, err := os.Lstat(dir)
@@ -102,22 +104,5 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	// CreateTemp creates the file with mode 0600.
-	file, err := os.CreateTemp(dir, ".notifier-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
+	return disk.WriteFile(path, data, 0o600)
 }

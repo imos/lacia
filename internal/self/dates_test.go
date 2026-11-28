@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -32,7 +33,7 @@ func TestStamp(t *testing.T) {
 func TestBackdate(t *testing.T) {
 	k := keeper(t)
 	version := func(day, text string) {
-		if err := writeFile(filepath.Join(k.Dir, "versions", day+".md"), []byte(text), 0o600); err != nil {
+		if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", day+".md"), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -51,10 +52,10 @@ func TestBackdate(t *testing.T) {
 // and the checks do not count them.
 func TestSleepKeepsDates(t *testing.T) {
 	k := keeper(t)
-	if err := writeFile(k.Path, []byte(first), 0o644); err != nil {
+	if err := disk.WriteFileNoSync(k.Path, []byte(first), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFile(filepath.Join(k.Dir, "versions", "2026-11-15.md"), []byte(first), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(filepath.Join(k.Dir, "versions", "2026-11-15.md"), []byte(first), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	prompt := ""

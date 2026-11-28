@@ -2,15 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/task"
 	"github.com/imos/lacia/internal/wait"
@@ -384,7 +385,7 @@ type jobRef struct{ Name, Namespace string }
 
 // kubectlJobs runs kubectl and returns the Jobs in its JSON output.
 func kubectlJobs(kubectl string, args []string) ([]jobRef, error) {
-	cmd := exec.Command(kubectl, args...)
+	cmd := program.Kubectl(kubectl).Command(context.Background(), args...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {

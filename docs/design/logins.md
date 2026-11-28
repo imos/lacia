@@ -7,7 +7,7 @@
 
 ## このマシンのログインの一覧
 
-アカウントを使い分けている人は、ログインごとの起動方法を、`~/.config/lacia/logins.json` に書きます。ディレクトリーは、環境変数 `LACIA_CONFIG_DIR` で変えられます。
+アカウントを使い分けている人は、ログインごとの起動方法を、`~/.lacia/config/logins.json` に書きます。ディレクトリーは、環境変数 `LACIA_CONFIG_DIR` で変えられます。以前の版の場所（`~/.config/lacia/logins.json`）にだけファイルがあるときは、そちらを読みつづけます。移し方は、[道具の置き場所](settings.md#道具の置き場所)にあります。
 
 ```json
 {

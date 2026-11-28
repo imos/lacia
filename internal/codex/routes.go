@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // Routes are runtime state, kept outside Git. A turn is bound before any
@@ -55,33 +57,7 @@ func (b *Bridge) saveRoutes() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(b.cfg.StateDir, 0700); err != nil {
-		return err
-	}
-	path := filepath.Join(b.cfg.StateDir, "child-routes.json")
-	f, err := os.OpenFile(path+".tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	if _, err = f.Write(data); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
-		return err
-	}
-	dir, err := os.Open(b.cfg.StateDir)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return disk.WriteFile(filepath.Join(b.cfg.StateDir, "child-routes.json"), data, 0o600)
 }
 
 func (b *Bridge) awaitingTurn(awaiting bool) {

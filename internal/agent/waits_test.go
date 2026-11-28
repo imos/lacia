@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/task"
 	"github.com/imos/lacia/internal/wait"
@@ -31,7 +32,7 @@ type kubectl struct {
 	calls       [][]string
 }
 
-func (k *kubectl) exec(_ context.Context, _ string, args ...string) (string, string, int, error) {
+func (k *kubectl) exec(_ context.Context, _ program.Program, args ...string) (string, string, int, error) {
 	k.calls = append(k.calls, args)
 	return k.out, k.errOut, k.code, k.err
 }
@@ -237,14 +238,14 @@ type codexes struct {
 	messages []string
 }
 
-func (c *codexes) exec(_ context.Context, name string, args ...string) (string, string, int, error) {
+func (c *codexes) exec(_ context.Context, _ program.Program, args ...string) (string, string, int, error) {
 	// The command of a login here is `sh -c <script> <name>`; what the
 	// watcher appends starts at "queue".
 	at := 0
 	for at < len(args) && args[at] != "queue" {
 		at++
 	}
-	name, args = args[at-1], args[at:]
+	name, args := args[at-1], args[at:]
 	c.calls = append(c.calls, name+" "+strings.Join(args[:3], " "))
 	c.messages = append(c.messages, args[4])
 	for _, thread := range c.threads[name] {

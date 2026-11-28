@@ -6,14 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 )
 
 type threadRecord struct {
-	ThreadID       string         `json:"thread_id"`
-	Rules          rules.Revision `json:"rules,omitempty"`
-	RolloverNight  string         `json:"rollover_night,omitempty"`
-	RetiredThreads []string       `json:"retired_threads,omitempty"`
+	ThreadID string         `json:"thread_id"`
+	Rules    rules.Revision `json:"rules,omitempty"`
 }
 
 func (b *Bridge) threadFile() string {
@@ -42,18 +41,9 @@ func (b *Bridge) saveThread(id string, version rules.Revision) error {
 }
 
 func (b *Bridge) writeThread(record threadRecord) error {
-	file, err := os.CreateTemp(b.cfg.StateDir, ".thread-*")
+	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(file.Name())
-	writeErr := json.NewEncoder(file).Encode(record)
-	closeErr := file.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(file.Name(), b.threadFile())
+	return disk.WriteFileNoSync(b.threadFile(), append(data, '\n'), 0o600)
 }

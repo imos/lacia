@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -669,7 +670,7 @@ func TestRenamedDocumentContract(t *testing.T) {
 			if _, _, err := parse(strings.ReplaceAll(answer(doc, "そのままです。"), "わたしのこと>", "見立て>")); err == nil {
 				t.Fatal("old model output marker was accepted")
 			}
-			if err := writeFile(k.Path, []byte(doc), 0o644); err != nil {
+			if err := disk.WriteFileNoSync(k.Path, []byte(doc), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			body := "- 共有した本文です。"
@@ -679,7 +680,7 @@ func TestRenamedDocumentContract(t *testing.T) {
 			if Core(k.Document()) != body || !strings.Contains(k.Document(), "## "+label+"で") {
 				t.Fatal(k.Document())
 			}
-			if err := writeFile(k.Path, []byte(old), 0o644); err != nil {
+			if err := disk.WriteFileNoSync(k.Path, []byte(old), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := k.SetCore(body); err == nil {
@@ -702,7 +703,7 @@ func TestWorkReviewIsSavedBeforeRewriteAndSurvivesItsRetry(t *testing.T) {
 		return nil
 	}
 	var opened, closed, turns int
-	k.OpenSession = func(context.Context) (Think, func()) {
+	k.OpenSession = func(context.Context) (Think, func(), error) {
 		opened++
 		return func(_ context.Context, prompt string) (string, error) {
 			turns++
@@ -722,7 +723,7 @@ func TestWorkReviewIsSavedBeforeRewriteAndSurvivesItsRetry(t *testing.T) {
 				}
 			}
 			return "書式に合わない書き直し案です。", nil
-		}, func() { closed++ }
+		}, func() { closed++ }, nil
 	}
 	night, err := k.Sleep(context.Background(), false)
 	if err != nil || night.Accepted || night.Skipped || opened != 1 || closed != 1 || turns != 3 || len(k.PendingTidy()) != 1 {

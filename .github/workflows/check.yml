@@ -1,0 +1,63 @@
+# Runs on every push and pull request. The numbers of the code are shown in
+# the job summary; a function that newly reaches 100 lines is warned about,
+# and does not fail the check. A function that neither the program nor its
+# tests can reach fails the check.
+name: check
+
+on:
+  push:
+  pull_request:
+  # The release workflow runs the same checks before it builds.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The numbers are compared with the commit before the change.
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整えていないファイルがあります。"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: deadcode
+        # -test counts what the tests reach as used, so helpers kept for tests
+        # pass. The result depends on GOOS; this check is the Linux one.
+        run: |
+          unused=$(go run golang.org/x/tools/cmd/deadcode@v0.53.0 -test ./...)
+          if [ -n "$unused" ]; then
+            echo "どこからも呼ばれない関数があります。消すか、使うようにしてください。"
+            echo "$unused"
+            exit 1
+          fi
+      - name: go test
+        run: go test ./...
+      - name: metrics
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # The first push of a branch has no commit before it; compare
+          # with where the branch left main.
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000) BASE=$(git merge-base origin/main HEAD || true) ;;
+          esac
+          if [ -n "$BASE" ]; then
+            go run ./tools/metrics -base "$BASE"
+          else
+            go run ./tools/metrics
+          fi

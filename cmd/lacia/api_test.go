@@ -1,18 +1,12 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"syscall"
 	"testing"
-	"time"
 )
 
 func TestReadOnlyCopyGoesThroughTheServer(t *testing.T) {
@@ -32,31 +26,6 @@ func TestReadOnlyCopyGoesThroughTheServer(t *testing.T) {
 	t.Setenv("LACIA_API", "http://example.test/")
 	if got := apiBase(); got != "http://example.test" {
 		t.Errorf("explicit: %q", got)
-	}
-}
-
-func TestRestartRetriesRefusedDial(t *testing.T) {
-	dials := 0
-	client, peer := net.Pipe()
-	defer client.Close()
-	defer peer.Close()
-	got, err := dialWhileRestarting(t.Context(), func(context.Context, string, string) (net.Conn, error) {
-		dials++
-		if dials == 1 {
-			return nil, syscall.ECONNREFUSED
-		}
-		return client, nil
-	}, "tcp", "fixture", time.Second, time.Millisecond)
-	if err != nil || got != client || dials != 2 {
-		t.Fatalf("connection=%v dials=%d err=%v", got, dials, err)
-	}
-	dials = 0
-	_, err = dialWhileRestarting(t.Context(), func(context.Context, string, string) (net.Conn, error) {
-		dials++
-		return nil, io.ErrUnexpectedEOF
-	}, "tcp", "fixture", time.Second, time.Millisecond)
-	if !errors.Is(err, io.ErrUnexpectedEOF) || dials != 1 {
-		t.Fatalf("unexpected error was retried: dials=%d err=%v", dials, err)
 	}
 }
 

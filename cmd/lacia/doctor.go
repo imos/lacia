@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -67,8 +68,19 @@ func runDoctor(args []string) error {
 		fmt.Println("お知らせ: " + n)
 	}
 	fmt.Printf("点検しました。誤りは%d件、お知らせは%d件です。\n", len(report.Errors), len(report.Notes))
-	if len(report.Errors) > 0 {
+	fixes := 0
+	if setUpHere(dir) {
+		c, err := loadServeConfig([]string{"--root", dir})
+		if err != nil {
+			return err
+		}
+		fixes = machineReport(os.Stdout, c)
+	}
+	switch {
+	case len(report.Errors) > 0:
 		return fmt.Errorf("記録の形に、誤りが%d件あります", len(report.Errors))
+	case fixes > 0:
+		return fmt.Errorf("この端末に、直すことが%d件あります", fixes)
 	}
 	return nil
 }

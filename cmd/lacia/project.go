@@ -16,7 +16,7 @@ import (
 // the way `lacia task note` does for a task, in log.jsonl.
 func runProject(args []string) error {
 	if len(args) < 3 || args[0] != "note" {
-		return errors.New("使い方: lacia project note <名前> \"履歴に書く文章\"（名前は、project.md のあるディレクトリーの名前か、<領域>/<名前>）")
+		return usageError("project")
 	}
 	ref, entry := args[1], strings.TrimSpace(strings.Join(args[2:], " "))
 	if entry == "" {

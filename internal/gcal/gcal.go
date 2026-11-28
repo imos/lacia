@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -25,6 +24,8 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/calendar"
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/network"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -141,14 +142,7 @@ func (s *Store) Put(account string, c Credential) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.Path)
+	return disk.WriteFileNoSync(s.Path, append(data, '\n'), 0o600)
 }
 
 // Remove disconnects an account.
@@ -161,7 +155,7 @@ func (s *Store) Remove(account string) error {
 	}
 	delete(all, account)
 	data, _ := json.MarshalIndent(all, "", "  ")
-	return os.WriteFile(s.Path, append(data, '\n'), 0o600)
+	return disk.WriteFileNoSync(s.Path, append(data, '\n'), 0o600)
 }
 
 // Client talks to Google for one credential.
@@ -174,7 +168,7 @@ func (c *Client) http() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return network.Internet(30 * time.Second)
 }
 
 // AuthURL is where the user grants access. loginHint preselects the

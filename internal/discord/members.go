@@ -18,12 +18,13 @@ const (
 // Member is someone whose messages count as requests. When any member is
 // configured, messages from everybody else are ignored.
 type Member struct {
-	ID       string `json:"id,omitempty"`       // Discord user ID
-	Username string `json:"username,omitempty"` // used until the ID is known; see pin
-	Name     string `json:"name"`               // how people there call them, e.g. "Xさん"
-	Role     string `json:"role"`               // Adult or Child
-	Birthday string `json:"birthday,omitempty"` // YYYY-MM-DD; the age and school year told to the conversation are worked out from it
-	About    string `json:"about,omitempty"`    // one more line for the conversation
+	ID         string `json:"id,omitempty"`          // Discord user ID
+	Username   string `json:"username,omitempty"`    // used until the ID is known; see pin
+	Name       string `json:"name"`                  // how people there call them, e.g. "Xさん"
+	Role       string `json:"role"`                  // Adult or Child
+	Birthday   string `json:"birthday,omitempty"`    // YYYY-MM-DD; the age and school year told to the conversation are worked out from it
+	MailAccess string `json:"mail_access,omitempty"` // owner or family, only used for server-checked mail lookup
+	About      string `json:"about,omitempty"`       // one more line for the conversation
 }
 
 // maxPause bounds a pause the conversation asks for.

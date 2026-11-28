@@ -1,6 +1,6 @@
 // Package mdlink finds the relative links of Markdown files and works out
 // where they point inside a repository. The checks of a record repository
-// (lacia doctor) and its migration (lacia migrate) share it.
+// (lacia doctor) use it.
 package mdlink
 
 import (
@@ -55,24 +55,4 @@ func Resolve(from, dest string) (target, fragment string, ok bool) {
 		return "", "", false
 	}
 	return target, fragment, true
-}
-
-// Relative writes the link from the file at from to the repository path
-// target.
-func Relative(from, target string) string {
-	base := strings.Split(path.Dir(from), "/")
-	if path.Dir(from) == "." {
-		base = nil
-	}
-	parts := strings.Split(target, "/")
-	i := 0
-	for i < len(base) && i < len(parts)-1 && base[i] == parts[i] {
-		i++
-	}
-	up := strings.Repeat("../", len(base)-i)
-	rest := strings.Join(parts[i:], "/")
-	if up == "" && rest == "" {
-		return "."
-	}
-	return up + rest
 }

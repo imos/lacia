@@ -39,9 +39,8 @@ type activityTurn struct {
 }
 
 // recoverChildren reads activity history when there are saved child origins
-// or turns to reconcile from a disconnected reader. It also checks for
-// unfinished turns after a server restart when rollover is enabled. Unbound child
-// replies are never guessed or posted on upgrade.
+// or turns to reconcile from a disconnected reader. Unbound child replies are
+// never guessed or posted on upgrade.
 func (b *Bridge) recoverChildren(ctx context.Context, c *client, threadID string) error {
 	b.routes.mu.Lock()
 	err := b.loadRoutes()
@@ -50,7 +49,7 @@ func (b *Bridge) recoverChildren(ctx context.Context, c *client, threadID string
 	b.mu.Lock()
 	haveTurns := len(b.turns) > 0
 	b.mu.Unlock()
-	if err != nil || !haveOrigins && !haveTurns && b.cfg.RolloverDay == nil {
+	if err != nil || !haveOrigins && !haveTurns {
 		return err
 	}
 	var turns []activityTurn

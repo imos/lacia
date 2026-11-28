@@ -287,7 +287,8 @@ def main():
     upgrader.add_argument('--migrate-schedule', action='store_true', help='以前の予約用の常駐処理から、端末の登録と実行の記録を引き継ぎます。引き継ぐ前に、その常駐処理を止めてください。')
     sub.add_parser('start', help='通知アプリを常駐させます。')
     sub.add_parser('stop', help='通知アプリの常駐を止め、まだ届いていない通知の予約を取り消します。')
-    sub.add_parser('uninstall', help='通知アプリと常駐用の設定を削除します。')
+    remover = sub.add_parser('uninstall', help='通知アプリと常駐用の設定を削除します。')
+    remover.add_argument('--remove-state', action='store_true', help='このMacの設定と、同じ通知を繰り返さないための記録も削除します。lacia uninstall が使います。')
     args = parser.parse_args()
     target = 'gui/' + str(os.getuid())
     if args.action == 'build': build(args.destination.resolve())
@@ -310,6 +311,11 @@ def main():
         if APP.exists(): run(APP / 'Contents/MacOS/LaciaNotifier', '--clear-pending')
         AGENT.unlink(missing_ok=True)
         if APP.exists(): shutil.rmtree(APP)
+        if args.remove_state:
+            shutil.rmtree(STATE, ignore_errors=True)
+            print('通知アプリと、常駐用の設定と、このMacの設定を削除しました。', file=sys.stderr)
+            print('uninstalled; private_state_removed')
+            return
         print('通知アプリと常駐用の設定を削除しました。同じ通知を繰り返さないための記録や、このMacの設定は手元に残っています。', file=sys.stderr)
         print('uninstalled; private_state_preserved_for_dedup_and_manual_removal')
 

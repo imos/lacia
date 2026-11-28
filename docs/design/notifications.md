@@ -15,7 +15,11 @@ macOS の端末で通知アプリとサーバーを一緒に動かすときは�
 
 `lacia agent` は、通知の一覧を `manifest.json` に書きます。アプリは、それを読んで、macOS の予約と照らし合わせます。
 
+メニューバーのアイコンのメニューの「レイシアを開く」で、ブラウザーに Web のホームの画面を開けます。開く先は、通知を押したときと同じ `site` のアドレスです。
+
 ## インストール
+
+ふつうは、`lacia setup --notifier` で入れます。実行ファイルに入っている、同じ版のソースから作ります。`lacia setup` が実行ファイルを置き換えたときは、入っている通知アプリも作り直します。`lacia uninstall` は、`manage.py uninstall --remove-state` で、アプリと設定と状態を消します（[導入と更新](install.md#通知アプリ)）。ここからは、`manage.py` を直接使う方法です。
 
 コードのリポジトリーで `macos/notifier/manage.py` を使い、アプリを作って入れます。管理者の権限は要りません。次の例は、同じ Mac で `lacia serve` を既定のアドレスで動かす場合です。先にサーバーを起動します。 [ローカル環境で始める](../../README.md#ローカル環境で始める)
 
@@ -33,7 +37,7 @@ python3 macos/notifier/manage.py start
 | `install <アプリ>` | アプリ、設定、LaunchAgent を置きます。起動はしません |
 | `start` | LaunchAgent を登録して、起動します |
 | `stop` | 止めて、macOS に予約済みの通知をすべて消します |
-| `uninstall` | 予約を消して、アプリと LaunchAgent を消します。設定と状態のディレクトリーは残します |
+| `uninstall` | 予約を消して、アプリと LaunchAgent を消します。設定と状態のディレクトリーは残します。`--remove-state` を付けると、それも消します |
 
 置く場所は、次のとおりです。
 

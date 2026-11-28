@@ -11,3 +11,6 @@ __pycache__/
 *.key
 *.pem
 secrets/*
+
+# Built by make dist.
+/dist/

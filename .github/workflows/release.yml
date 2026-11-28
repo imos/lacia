@@ -1,0 +1,73 @@
+# Builds a release on a version tag (v0.1.0 and so on): runs the checks,
+# builds the binaries and SHA256SUMS with make dist, attests where they were
+# built, and publishes them as the release of the tag. install.sh fetches
+# the latest release.
+#
+# Run by hand (workflow_dispatch), it builds the same way and keeps the files
+# as an artifact of the run, without a release, to try the build.
+#
+# The actions are pinned by commit, as this job can write releases.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version the binary tells (lacia version)'
+        default: v0.0.0-try
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Go of the release
+        id: go
+        run: echo "version=$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          # A cache written by other runs does not go into a release.
+          cache: false
+      - name: Build
+        run: make dist VERSION="$VERSION"
+      - name: Attest
+        # Attestations need a public repository on the plans of these
+        # repositories; the development one is private.
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Keep the files of a try
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Publish the release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # gh uploads the files to a draft and publishes it after, so that an
+        # immutable release gets all of them.
+        run: |
+          gh release create "$VERSION" dist/* --verify-tag --title "$VERSION" \
+            --notes "導入のしかたは、https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/install-guide.md にあります。実行ファイルがこのリポジトリーのこのタグから作られたことは、gh attestation verify <ファイル> -R ${GITHUB_REPOSITORY} で確かめられます。"

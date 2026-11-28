@@ -144,3 +144,5 @@ button.quiet:hover { color: #b3261e; }
 section.routine-task > .markdown { margin-top: .6rem; }
 #problem { border-left: 3px solid var(--review); padding: .1rem 0 .1rem .8rem; margin: .6rem 0; }
 #problem h3 { color: var(--review); margin-top: .2rem; }
+.machine p { margin: 0 0 .3rem; }
+.machine pre { margin: 0; white-space: pre-wrap; font-size: .85rem; }

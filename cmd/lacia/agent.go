@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/agent"
+	"github.com/imos/lacia/internal/effect/network"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/notify"
 	"github.com/imos/lacia/internal/schedule"
@@ -134,9 +135,8 @@ func runAgent(args []string) error {
 		slog.Info("agent started", "target", t.Target, "port", t.Port, "version", version())
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	client := network.Server(15 * time.Second)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	get := func(path string) ([]byte, string, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base()+path, nil)
 		if err != nil {

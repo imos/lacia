@@ -25,6 +25,7 @@
 | [記録のリポジトリー](records.md) | タスクのディレクトリー、記録の設定（`.lacia/config.json`、`.lacia/serve.conf`）、Git への保存 |
 | [決まりと会話の起動](rules.md) | 実行ファイルに埋め込んだ決まり、記録の側での上書き、`lacia rules`、`lacia init`、`lacia codex`、`lacia claude` |
 | [依頼の受付](requests.md) | 待ち行列、窓口の会話とサブエージェント、Codex と Claude Code の違い、状態を変えない依頼 |
+| [導入と更新](install.md) | `lacia setup`、`lacia update`、`lacia uninstall`、記録の初期の中身、常駐、`lacia doctor` の端末の点検 |
 | [設定の一覧](settings.md) | `lacia serve` の設定、記録の設定、環境変数 |
 | [言葉の使い分け](terms.md) | プロファイル、相手、ログイン、場所、呼び名の意味 |
 
@@ -37,7 +38,7 @@
 | [わたしのこと](self.md) | 書き留め、夜の書き直しと点検、採用しなかった案、わたし自身の共有、夜の整理 |
 | [予定の連携](calendar.md) | Google Calendar の連携、読むカレンダー、祝日、表示の上書き |
 | [Mac の通知](notifications.md) | 通知アプリと `lacia agent`、インストール、対象と除外、記録のコピーの更新 |
-| [安全のための仕組み](safety.md) | 繰り返しの書き込みを止める仕組み、秘密の扱い、プッシュを止めるフック、ブラウザーの使い方の境界 |
+| [安全のための仕組み](safety.md) | 繰り返しの書き込みを止める仕組み、秘密の扱い、外へ作用する処理を集める場所と境界のテスト、プッシュを止めるフック、ブラウザーの使い方の境界 |
 
 ### 使う環境が限られるもの
 

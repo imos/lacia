@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/imos/lacia/internal/calendar"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -263,14 +263,7 @@ func (f *Fetcher) Once(ctx context.Context) error {
 		}
 		return firstErr
 	}
-	if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
-		return err
-	}
-	tmp := f.Path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, f.Path); err != nil {
+	if err := disk.WriteFileNoSync(f.Path, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
 	if direct {

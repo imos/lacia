@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -66,7 +67,7 @@ func (k *Keeper) updateTidy(change func(*tidyState)) tidyState {
 	s := k.readTidy()
 	change(&s)
 	data, _ := json.MarshalIndent(s, "", "  ")
-	if err := writeFile(k.tidyPath(), append(data, '\n'), 0o600); err != nil {
+	if err := disk.WriteFileNoSync(k.tidyPath(), append(data, '\n'), 0o600); err != nil {
 		slog.Error("tidy state", "error", err)
 	}
 	return s
@@ -246,7 +247,7 @@ func (k *Keeper) tidyOnce(ctx context.Context, think Think, started time.Time, e
 			return TidyDay{}, err
 		}
 		file := filepath.Join(k.Dir, "tidy-days", day.Day+".json")
-		if err := writeFile(file, append(data, '\n'), 0o600); err != nil {
+		if err := disk.WriteFileNoSync(file, append(data, '\n'), 0o600); err != nil {
 			return TidyDay{}, errors.New("夜の整理の記録を保存できませんでした。" + err.Error())
 		}
 	}

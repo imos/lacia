@@ -38,7 +38,7 @@ func TestLegacyRecordsStopBeforeStartingOrWriting(t *testing.T) {
 				{"todo"},
 			} {
 				err := run(args)
-				if err == nil || !strings.Contains(err.Error(), fixture.format+"です") || !strings.Contains(err.Error(), "lacia migrate --dry-run") || !strings.Contains(err.Error(), "形式2") {
+				if err == nil || !strings.Contains(err.Error(), fixture.format+"です") || !strings.Contains(err.Error(), "形式2の記録だけ") {
 					t.Errorf("%v: migration guidance = %v", args, err)
 				}
 			}

@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/network"
 )
 
 const MaxIncomingImages = 4
@@ -173,7 +175,11 @@ func (b *Bot) fetchImage(ctx context.Context, ref ImageRef) ([]byte, string, err
 			return fail("添付画像を取得できませんでした。")
 		}
 		// Never reuse the authenticated REST client or forward its credentials.
-		client := &http.Client{Timeout: 20 * time.Second, Transport: b.imageTransport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		client := network.Internet(20 * time.Second)
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		if b.imageTransport != nil {
+			client.Transport = b.imageTransport
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return fail("添付画像を取得できませんでした。")

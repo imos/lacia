@@ -85,7 +85,8 @@ func TestProblems(t *testing.T) {
 	}
 }
 
-// A repository of format 0 gets only the checks that hold for both shapes.
+// A repository of format 0 gets only the checks that hold for both shapes,
+// and is told how to move to the current one.
 func TestFormat0(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, ".lacia/config.json", `{"areas": ["work"]}`)
@@ -95,10 +96,6 @@ func TestFormat0(t *testing.T) {
 	write(t, root, "work/projects/old/notes.md", "以前の資料\n")
 	write(t, root, "scripts/run.sh", "")
 	if r := Check(root, true); len(r.Errors) != 0 || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "lacia migrate") {
-		t.Errorf("report = %+v", r)
-	}
-	write(t, root, "work/tasks/2026-11/T1002/task.md", "broken\n")
-	if r := Check(root, false); len(r.Errors) != 1 || !strings.Contains(r.Errors[0], "T1002/task.md を読めません") {
 		t.Errorf("report = %+v", r)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // An item of the document is one list line. It starts with the day its
@@ -156,7 +158,7 @@ func (k *Keeper) Date() (bool, error) {
 		return false, nil
 	}
 	next := k.backdate(doc, k.now().In(k.Zone()).Format(time.DateOnly))
-	if err := writeFile(k.Path, []byte(next+"\n"), 0o644); err != nil {
+	if err := disk.WriteFileNoSync(k.Path, []byte(next+"\n"), 0o644); err != nil {
 		return false, err
 	}
 	night := Night{At: k.now(), Accepted: true, Summary: "項目に、中身が最後に変わった日を付けました。本文は変えていません。"}

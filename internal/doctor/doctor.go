@@ -74,15 +74,7 @@ func CheckWithState(root string, links bool, context task.StateContext) Report {
 		checkAreaRoutines(&r, root, cfg)
 	}
 	jobs := schedule.Load(root)
-	if cfg.Format == 0 {
-		_, problems, err := task.ReadLegacyTasks(root, cfg.Areas)
-		if err != nil {
-			r.errorf("タスクを読めません: %v", err)
-		}
-		for _, p := range problems {
-			r.errorf("%s を読めません: %s", p.Path, p.Err)
-		}
-	} else {
+	if cfg.Format >= 1 {
 		store, err := task.Open(root)
 		if err != nil {
 			r.errorf("タスクを読めません: %v", err)

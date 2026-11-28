@@ -83,7 +83,7 @@ func TestAnObservedEndClosesTheWaitOnce(t *testing.T) {
 		t.Fatalf("a later report changed the end: %+v", got)
 	}
 	// The waits survive a restart.
-	reopened, err := Open(s.dir)
+	reopened, err := Open(s.dir.Path())
 	if err != nil {
 		t.Fatal(err)
 	}

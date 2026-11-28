@@ -21,6 +21,7 @@ import (
 
 	"github.com/imos/lacia/internal/chat"
 	"github.com/imos/lacia/internal/discord"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -72,6 +73,8 @@ type Request struct {
 
 	DiscordImages        []discord.ImageRef `json:"discord_images,omitempty"`
 	DiscordSourceChannel string             `json:"discord_source_channel,omitempty"`
+	DiscordMail          bool               `json:"discord_mail,omitempty"`
+	DiscordMailTarget    string             `json:"discord_mail_target,omitempty"`
 	DiscordReviewReply   bool               `json:"discord_review_reply,omitempty"`
 }
 
@@ -131,16 +134,12 @@ var ErrUncertain = errors.New("uncertain")
 type Queue struct {
 	dir string
 	now func() time.Time
-	// BeforeMain starts any preparation after claiming a main request and before running it.
-	BeforeMain func(context.Context, Request)
 	// Finished is called after a request reaches a final status.
 	Finished func(Request)
 
-	mu           sync.Mutex
-	items        map[string]*Request
-	working      int // requests running through their Finished callback
-	mainWorking  bool
-	mainReserved bool
+	mu      sync.Mutex
+	items   map[string]*Request
+	working int // requests running through their Finished callback
 	// merged maps a message that was folded into a waiting request to that
 	// request, so receiving it twice does not queue it after all.
 	merged map[string]string
@@ -164,7 +163,7 @@ func Open(dir string) (*Queue, error) { return open(dir, true) }
 func OpenRecords(dir string) (*Queue, error) { return open(dir, false) }
 
 func open(dir string, interrupted bool) (*Queue, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := disk.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	q := &Queue{dir: dir, now: time.Now, items: map[string]*Request{}, merged: map[string]string{}, served: map[string]time.Time{}, wake: make(chan struct{})}
@@ -209,34 +208,7 @@ func (q *Queue) save(r *Request) error {
 	if err != nil {
 		return err
 	}
-	path := q.path(r)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err = f.Write(append(data, '\n')); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return disk.WriteFile(q.path(r), append(data, '\n'), 0o600)
 }
 
 // Add queues a request. A request with an ID that already exists is not
@@ -343,7 +315,7 @@ func (q *Queue) AddMerging(r Request) (Request, bool, error) {
 	}
 	var waiting *Request
 	for _, old := range q.items {
-		if old.Status == Queued && old.Kind == User && old.Author == r.Author && old.ReplyTo == r.ReplyTo && old.DiscordSourceChannel == r.DiscordSourceChannel && old.DiscordReviewReply == r.DiscordReviewReply && old.Side == r.Side && old.ID != r.ID {
+		if old.Status == Queued && old.Kind == User && old.Author == r.Author && old.ReplyTo == r.ReplyTo && old.DiscordSourceChannel == r.DiscordSourceChannel && old.DiscordReviewReply == r.DiscordReviewReply && !old.DiscordMail && old.Side == r.Side && old.ID != r.ID {
 			if waiting == nil || old.Created.After(waiting.Created) {
 				waiting = old
 			}
@@ -598,39 +570,6 @@ func (q *Queue) Working() bool {
 	return q.working > 0
 }
 
-// MainQueued reports whether a queued main request matches keep. The predicate
-// must not call back into the queue.
-func (q *Queue) MainQueued(keep func(Request) bool) bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for _, r := range q.items {
-		if !r.Side && r.Status == Queued && keep(*r) {
-			return true
-		}
-	}
-	return false
-}
-
-// WhenMainIdle reserves the main lane only if no request there is queued
-// or running. New requests can still be saved while run executes. The side
-// lane is independent and neither waits for nor prevents this reservation.
-func (q *Queue) WhenMainIdle(run func()) {
-	q.mu.Lock()
-	if q.mainWorking || q.mainReserved || q.next(false) != nil {
-		q.mu.Unlock()
-		return
-	}
-	q.mainReserved = true
-	q.mu.Unlock()
-	defer func() {
-		q.mu.Lock()
-		q.mainReserved = false
-		q.mu.Unlock()
-		q.signal()
-	}()
-	run()
-}
-
 // Work processes the requests of one lane until ctx ends: the main
 // conversation's, or with side set, those for the side conversation.
 // Draining stops new work from starting while it returns true (used before
@@ -640,7 +579,7 @@ func (q *Queue) Work(ctx context.Context, side bool, run Runner, draining func()
 		woken := q.woken() // taken before looking, so no wake-up is missed
 		q.mu.Lock()
 		var r *Request
-		if ctx.Err() == nil && (side || !q.mainReserved) && (draining == nil || !draining()) {
+		if ctx.Err() == nil && (draining == nil || !draining()) {
 			r = q.next(side)
 		}
 		saveFailed := false
@@ -659,9 +598,6 @@ func (q *Queue) Work(ctx context.Context, side bool, run Runner, draining func()
 				saveFailed = true
 			} else {
 				q.working++
-				if !side {
-					q.mainWorking = true
-				}
 			}
 		}
 		q.mu.Unlock()
@@ -681,9 +617,6 @@ func (q *Queue) Work(ctx context.Context, side bool, run Runner, draining func()
 			case <-time.After(5 * time.Second):
 			}
 			continue
-		}
-		if !side && q.BeforeMain != nil {
-			q.BeforeMain(ctx, *r)
 		}
 		slog.Info("request started", "id", r.ID, "kind", r.Kind, "task", r.TaskID)
 		prompt := Prompt(*r)
@@ -714,9 +647,6 @@ func (q *Queue) Work(ctx context.Context, side bool, run Runner, draining func()
 		}
 		q.mu.Lock()
 		q.working--
-		if !side {
-			q.mainWorking = false
-		}
 		q.mu.Unlock()
 	}
 }

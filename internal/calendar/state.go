@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // SnapshotState holds the served snapshot outside the record repository.
@@ -57,25 +58,7 @@ func (s *SnapshotState) publish(candidate []byte, guardDrops bool) error {
 			}
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".snapshot-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	defer tmp.Close()
-	if _, err := tmp.Write(candidate); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), s.Path)
+	return disk.WriteFile(s.Path, candidate, 0o600)
 }
 
 // Import reads a candidate when the older producer has written one.

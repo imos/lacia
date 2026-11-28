@@ -19,7 +19,7 @@ import (
 
 func runTask(args []string) error {
 	if len(args) == 0 {
-		return errors.New("task のあとに list、show、log、new、set、claim、field、recheck、rechecked、note、write、attach、lint、path のどれかを指定してください")
+		return errors.New("task のあとに " + strings.Join(subcommands("task"), "、") + " のどれかを指定してください")
 	}
 	fs := commandFlags("task " + args[0])
 	root := fs.String("root", "", "記録のリポジトリー")
@@ -538,7 +538,7 @@ func runTask(args []string) error {
 		}
 		fmt.Println(filepath.Join(dir, t.Dir))
 	default:
-		return fmt.Errorf("task %s というコマンドはありません", args[0])
+		return fmt.Errorf("task %s というコマンドはありません。task のあとには %s のどれかを指定してください", args[0], strings.Join(subcommands("task"), "、"))
 	}
 	return nil
 }
@@ -576,10 +576,6 @@ func warnLocalTaskRead(err error) bool {
 	}
 	fmt.Fprintln(os.Stderr, "サーバーから最新のタスクを読めなかったため、手元にある記録を表示します。")
 	return true
-}
-
-func printTaskList(tasks []task.Task, statuses, area string, all bool) error {
-	return outputTaskList(tasks, statuses, area, all, false)
 }
 
 func outputTaskList(tasks []task.Task, statuses, area string, all, asJSON bool) error {

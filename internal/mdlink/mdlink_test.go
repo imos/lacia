@@ -29,15 +29,4 @@ func TestFindAndResolve(t *testing.T) {
 			t.Errorf("Resolve(%q, %q) = %q %q %v", c.from, c.dest, target, frag, ok)
 		}
 	}
-	for _, c := range []struct{ from, target, want string }{
-		{"areas/work/tasks/2026-11/T1/task.md", "AGENTS.md", "../../../../../AGENTS.md"},
-		{"AGENTS.md", "areas/work/x.md", "areas/work/x.md"},
-		{"areas/work/a/b.md", "areas/work/a/c.md", "c.md"},
-		{"areas/work/a/b.md", "areas/work/a", "../a"},
-		{"rules/local.md", "archive/journal/work/x.md", "../archive/journal/work/x.md"},
-	} {
-		if got := Relative(c.from, c.target); got != c.want {
-			t.Errorf("Relative(%q, %q) = %q, want %q", c.from, c.target, got, c.want)
-		}
-	}
 }

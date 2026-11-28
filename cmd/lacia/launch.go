@@ -3,17 +3,17 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/chat"
 	"github.com/imos/lacia/internal/claudecode"
 	"github.com/imos/lacia/internal/codex"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/schedule"
@@ -70,7 +70,10 @@ func launchPrompt(root string, now time.Time) (string, error) {
 type launchOptions struct {
 	login  string
 	memory string
-	args   []string
+	// here starts the conversation where it is run, even outside the
+	// records.
+	here bool
+	args []string
 }
 
 // parseLaunchOptions reads Lacia's options at the start of the command line.
@@ -93,6 +96,8 @@ func parseLaunchOptions(name string, args []string) (launchOptions, error) {
 			options.memory = "false"
 		case strings.HasPrefix(arg, "--memory="):
 			return launchOptions{}, fmt.Errorf("--memory には true か false を指定してください")
+		case arg == "--here":
+			options.here = true
 		case arg == "--yolo":
 			options.args = append(options.args, arg)
 		default:
@@ -155,7 +160,7 @@ func launchArgs(kind, prompt, root, dir string, rest []string, memory bool) []st
 	switch kind {
 	case caller.Claude:
 		args = append(args, "--append-system-prompt", prompt)
-		if rel, err := filepath.Rel(root, dir); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if !within(root, dir) {
 			// Started elsewhere, such as in a code repository: the records
 			// must still be readable.
 			args = append(args, "--add-dir", root)
@@ -167,6 +172,12 @@ func launchArgs(kind, prompt, root, dir string, rest []string, memory bool) []st
 	return append(args, rest...)
 }
 
+// within reports whether dir is root or lies under it.
+func within(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // runLaunch starts Codex or Claude Code as Lacia: with the rules, the day's
 // situation, and an environment in which the lacia command finds the
 // repository. The process becomes the agent, so `lacia who` and the task
@@ -176,6 +187,9 @@ func launchArgs(kind, prompt, root, dir string, rest []string, memory bool) []st
 // `--login <name>` says the same. Without either, the default
 // login of this machine's list is used, and without a list the agent is
 // started as it is installed.
+//
+// Run outside the records, it starts in them, unless --here says to start
+// where it is.
 func runLaunch(kind, name string, rest []string) error {
 	options, err := parseLaunchOptions(name, rest)
 	if err != nil {
@@ -205,8 +219,11 @@ func runLaunch(kind, name string, rest []string) error {
 	if yolo {
 		fmt.Fprintln(os.Stderr, "承認とサンドボックスを外して起動します。")
 	}
-	path, err := exec.LookPath(command[0])
-	if err != nil {
+	agent := program.Codex(command[0])
+	if kind == caller.Claude {
+		agent = program.ClaudeCode(command[0])
+	}
+	if _, err := agent.Find(); err != nil {
 		return fmt.Errorf("%s が見つかりません。別の名前でインストールしているときは、%s にログイン名と起動用のコマンドを指定してください", command[0], login.ListPath(os.Getenv))
 	}
 	prompt, err := launchPrompt(root, time.Now())
@@ -214,8 +231,17 @@ func runLaunch(kind, name string, rest []string) error {
 		return err
 	}
 	dir, _ := os.Getwd()
-	argv := append(append([]string{}, command...), launchArgs(kind, prompt, root, dir, rest, options.memory == "true")...)
-	env := append(os.Environ(), "LACIA_TASKS="+root, "LACIA_LAUNCH="+kind)
+	env := os.Environ()
+	if !within(root, dir) && !options.here {
+		if err := os.Chdir(root); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "記録の場所（%s）で始めます。いまの場所で始めるときは、--here を付けてください。\n", root)
+		dir = root
+		env = append(env, "PWD="+root)
+	}
+	args := append(append([]string{}, command[1:]...), launchArgs(kind, prompt, root, dir, rest, options.memory == "true")...)
+	env = append(env, "LACIA_TASKS="+root, "LACIA_LAUNCH="+kind)
 	env = append(env, rulesNoticeEnvironment(root)...)
 	if name != "" {
 		env = append(env, "LACIA_LOGIN="+name)
@@ -232,5 +258,21 @@ func runLaunch(kind, name string, rest []string) error {
 			env = claudecode.WithMemory(env, options.memory == "true")
 		}
 	}
-	return syscall.Exec(path, argv, env)
+	return agent.Replace(args, lastWins(env))
+}
+
+// lastWins keeps the last value of each variable. The list is handed to
+// the program as it is, and most programs read the first value.
+func lastWins(env []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for i := len(env) - 1; i >= 0; i-- {
+		key, _, _ := strings.Cut(env[i], "=")
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, env[i])
+		}
+	}
+	slices.Reverse(out)
+	return out
 }

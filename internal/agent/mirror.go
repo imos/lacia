@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/imos/lacia/internal/effect/program"
 	"golang.org/x/sys/unix"
 )
 
@@ -199,7 +199,7 @@ func (g mirrorGit) run(args ...string) ([]byte, error) {
 	if args[0] != "check-ignore" {
 		prefix = append(prefix, "--literal-pathspecs")
 	}
-	cmd := exec.CommandContext(g.ctx, "git", append(prefix, args...)...)
+	cmd := program.Git().Command(g.ctx, append(prefix, args...)...)
 	for _, env := range os.Environ() {
 		name, _, _ := strings.Cut(env, "=")
 		switch name {

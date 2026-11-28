@@ -2,21 +2,19 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/network"
 )
 
 // localAPI is the default loopback port for a read-only mirror that
@@ -33,35 +31,6 @@ func apiBase() string {
 }
 
 type apiClient string
-
-var apiTransport = sync.OnceValue(func() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	dial := transport.DialContext
-	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		return dialWhileRestarting(ctx, dial, network, address, 30*time.Second, 250*time.Millisecond)
-	}
-	return transport
-})
-
-// Retry only refused TCP dials. By staying below HTTP, no request body,
-// redirect, TLS handshake, or partially received response is replayed.
-func dialWhileRestarting(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error), network, address string, within, interval time.Duration) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, within)
-	defer cancel()
-	for {
-		conn, err := dial(ctx, network, address)
-		if !errors.Is(err, syscall.ECONNREFUSED) || network != "tcp" {
-			return conn, err
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, err
-		case <-timer.C:
-		}
-	}
-}
 
 // apiForRoot routes operations based on the repository they will affect.
 func apiForRoot(root string) apiClient {
@@ -127,7 +96,7 @@ func (api apiClient) request(method, path string, in, out any, timeout time.Dura
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(caller.Header, me().Encode())
-	resp, err := (&http.Client{Timeout: timeout, Transport: apiTransport()}).Do(req)
+	resp, err := network.ServerRestarting(timeout).Do(req)
 	if err != nil {
 		return api.connectionError(err)
 	}
@@ -169,7 +138,7 @@ func (api apiClient) putOut(path string, body io.Reader, out any) error {
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set(caller.Header, me().Encode())
-	resp, err := (&http.Client{Timeout: 10 * time.Minute, Transport: apiTransport()}).Do(req)
+	resp, err := network.ServerRestarting(10 * time.Minute).Do(req)
 	if err != nil {
 		return api.connectionError(err)
 	}

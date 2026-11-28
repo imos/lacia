@@ -2,12 +2,15 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/imos/lacia/internal/home"
 )
 
 // resolvePath reads a path written in a settings file: "~/" is the home
@@ -46,34 +49,83 @@ func applyConfig(fs *flag.FlagSet, path, profile string) (map[string]map[string]
 	return configSource{path: path, profile: profile}.apply(fs)
 }
 
-// recordsConfig is the settings file a task repository carries, relative to
-// its root. It is read after the file named by --config, which wins.
-const recordsConfig = ".lacia/serve.conf"
-
-// recordsSettings are the options the repository's own file may set. The
-// conversations write to the repository, so the file must not be a way for
-// them to loosen what holds them: where the server listens, which commands
-// it starts, the sandbox, pushing, and what it connects to stay with the
-// command line and the file outside the repository.
-var recordsSettings = map[string]bool{
-	"label": true, "google-client": true, "calendar-write": true, "calendar": true, "calendars": true, "calendar-overrides": true, "calendar-holidays": true,
-	"now": true, "self": true, "self-at": true, "self-model": true, "self-exchanges": true, "self-improve": true,
-	"notice-log": true, "instructions-extra": true,
+// serveConfig is the settings of lacia serve as read from every place, and
+// where each value came from.
+type serveConfig struct {
+	options
+	// origin names, by option, the place its value came from. An option
+	// that is not in it has its default.
+	origin   map[string]string
+	profiles map[string]map[string]string
+	root     string
+	// stale is the machine's file read from the place of older versions.
+	stale bool
 }
 
-// pathSettings name files outside the control of the repository layout, so
-// a relative value is taken from the directory of the settings.
-var pathSettings = map[string]bool{"google-client": true, "calendar": true, "calendars": true, "instructions-extra": true}
+// loadServeConfig reads the command line, the file of the machine and the
+// records' own file, in that order; an earlier place wins.
+func loadServeConfig(args []string) (*serveConfig, error) {
+	c := &serveConfig{options: serveOptions(), origin: map[string]string{}}
+	if err := c.fs.Parse(args); err != nil {
+		return nil, err
+	}
+	c.fs.Visit(func(f *flag.Flag) { c.origin[f.Name] = "コマンドライン" })
+	path, profile := c.str("config"), c.str("profile")
+	if machine := home.Settings(os.Getenv); *path == "" && fileExists(machine.Path()) {
+		*path, c.stale = machine.Path(), machine.Stale()
+		c.origin["config"] = "既定の場所"
+	}
+	if *path != "" {
+		profiles, err := configSource{path: *path, profile: *profile, origin: c.origin}.apply(c.fs)
+		if err != nil {
+			return nil, err
+		}
+		c.profiles = profiles
+	} else if *profile != "" || *c.str("peer") != "" {
+		return nil, errors.New("--profile と --peer は、設定のファイルと一緒に使ってください")
+	}
+	root, err := findRoot(*c.str("root"))
+	if err != nil {
+		return nil, err
+	}
+	c.root = root
+	if c.origin["root"] == "" {
+		c.origin["root"] = "見つけた場所"
+	}
+	*c.str("root") = root
+	if conf := filepath.Join(root, recordsConfig); fileExists(conf) {
+		if _, err := (configSource{path: conf, recordsOnly: true, base: root, origin: c.origin}).apply(c.fs); err != nil {
+			return nil, err
+		}
+	}
+	if state := c.str("state"); *state == "" {
+		*state = home.State(os.Getenv)
+	}
+	if at := c.str("self-at"); *at == "" && c.origin["self-at"] == "" {
+		*at = nightAt
+		if *c.on("inbox") && *c.str("peer") != "" {
+			*at = nightAtInbox
+		}
+	}
+	return c, nil
+}
+
+// recordsConfig is the settings file a task repository carries, relative to
+// its root. It is read after the file of the machine, which wins, and only
+// the options the table marks as records may be set in it.
+const recordsConfig = ".lacia/serve.conf"
 
 // configSource is one settings file and how far it is trusted.
 type configSource struct {
 	path, profile string
-	// allow limits the options the file may set; nil allows every option.
-	allow map[string]bool
-	// base, when set, is where relative paths of pathSettings start.
+	// recordsOnly limits the options to those the records may set.
+	recordsOnly bool
+	// base, when set, is where relative paths of path options start.
 	base string
 	// only is used by a command that reads a subset of the server settings.
 	only string
+	// origin, when set, takes the file and line each option was set from.
+	origin map[string]string
 }
 
 func (c configSource) apply(fs *flag.FlagSet) (map[string]map[string]string, error) {
@@ -109,7 +161,7 @@ func (c configSource) apply(fs *flag.FlagSet) (map[string]map[string]string, err
 		if !ok || name == "" {
 			return nil, fmt.Errorf("%s の%d行目を読めません。「名前 = 値」か「[プロファイルの名前]」の形で書いてください", path, n)
 		}
-		if name == "config" || name == "profile" {
+		if opt, ok := settingNamed(name); ok && opt.where == commandLine {
 			return nil, fmt.Errorf("%s の%d行目: %s はコマンドラインで指定してください", path, n, name)
 		}
 		if section != "" {
@@ -135,16 +187,24 @@ func (c configSource) apply(fs *flag.FlagSet) (map[string]map[string]string, err
 		switch {
 		case fs.Lookup(s.name) == nil:
 			slog.Warn("config: unknown setting skipped", "detail", "この版では使えない設定項目を読み飛ばしました。項目名を確かめてください。", "file", path, "line", s.line, "name", s.name)
-		case c.allow != nil && !c.allow[s.name]:
+		case c.recordsOnly && !recordsMay(s.name):
 			slog.Warn("config: setting not allowed in this file skipped", "detail", "このファイルでは指定できない設定項目を読み飛ばしました。", "file", path, "line", s.line, "name", s.name)
 		case !given[s.name]:
-			if c.base != "" && pathSettings[s.name] && s.value != "" {
+			if opt, _ := settingNamed(s.name); c.base != "" && opt.path && s.value != "" {
 				s.value = resolvePath(c.base, s.value)
 			}
 			if err := fs.Set(s.name, s.value); err != nil {
 				return nil, fmt.Errorf("%s の%d行目（%s）: %w", path, s.line, s.name, err)
 			}
+			if c.origin != nil {
+				c.origin[s.name] = fmt.Sprintf("%s の%d行目", path, s.line)
+			}
 		}
 	}
 	return profiles, nil
+}
+
+func recordsMay(name string) bool {
+	opt, ok := settingNamed(name)
+	return ok && opt.where == records
 }

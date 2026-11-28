@@ -8,15 +8,9 @@ import (
 	"github.com/imos/lacia/internal/discord"
 )
 
-// runDiscord delivers approved PDF attachments, shows the members,
-// pauses or resumes taking a child's messages, and rebuilds the log of past
-// days.
+// runDiscord delivers approved PDF attachments, shows the members, and
+// pauses or resumes taking a child's messages.
 func runDiscord(args []string) error {
-	// The backfill reads and writes files on the machine it runs on; it
-	// does not go through the server.
-	if len(args) > 0 && args[0] == "backfill" {
-		return runDiscordBackfill(args[1:])
-	}
 	if apiBase() == "" {
 		return errors.New(apiAddressHelp)
 	}
@@ -81,5 +75,5 @@ func runDiscord(args []string) error {
 		fmt.Printf("%sからの発言の受け付けを再開しました。\n", got.Name)
 		return nil
 	}
-	return errors.New("使い方: lacia discord attach --request <依頼ID> --file <local内の相対パス.pdf> | members | pause <名前かID> <分> | resume <名前かID> | backfill --state <ディレクトリー>")
+	return usageError("discord")
 }

@@ -41,7 +41,7 @@ func work(t *testing.T, q *request.Queue, answer func(request.Request) (string, 
 func TestTidyWiringLogsTellsAndLetsGoOnlyAfterAnAnswer(t *testing.T) {
 	root, state := t.TempDir(), t.TempDir()
 	os.MkdirAll(filepath.Join(root, "memory"), 0o755)
-	queue, err := request.Open(filepath.Join(state, "requests"))
+	queue, err := request.Open(testDir(t, filepath.Join(state, "requests")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,14 +49,14 @@ func TestTidyWiringLogsTellsAndLetsGoOnlyAfterAnAnswer(t *testing.T) {
 	// destination there.
 	bot := &recordingDiscord{}
 	queue.Finished = func(r request.Request) { deliverDiscord(context.Background(), bot, queue, r) }
-	log := daylog.Discord(filepath.Join(root, "log", "discord"))
+	log := daylog.Discord(testDir(t, root), "log/discord")
 	saved := 0
 	log.Changed = func() { saved++ }
 
 	now := time.Date(2026, 11, 17, 3, 30, 0, 0, task.JST)
 	said := time.Date(2026, 11, 16, 19, 0, 0, 0, task.JST)
 	view := "<わたしのこと>\n# わたしのこと\n\nわたしのものの見方です。\n\n## わたし自身\n\n- 結論を先に聞きたい方だと考えています。\n\n## 家庭モードで\n\n- 短い返事が喜ばれるようです。\n</わたしのこと>\n<今夜変えたこと>\n最初の版です。\n</今夜変えたこと>\n"
-	keeper := &self.Keeper{Path: filepath.Join(root, "memory", "self.md"), Dir: filepath.Join(state, "self"), Label: "家庭モード", ChatSide: true,
+	keeper := &self.Keeper{Records: testDir(t, root), Name: "memory/self.md", State: testDir(t, filepath.Join(state, "self")), Label: "家庭モード", ChatSide: true,
 		Now: func() time.Time { return now },
 		Think: func(_ context.Context, prompt string) (string, error) {
 			if strings.Contains(prompt, "<覚えておく候補>") {

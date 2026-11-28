@@ -43,7 +43,6 @@ func openPage(args []string) (string, error) {
 	return base + "/", nil
 }
 
-// runRoot prints where the records are.
 func runRoot(args []string) error {
 	if len(args) > 0 {
 		return usageError("root")

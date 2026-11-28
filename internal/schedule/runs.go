@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/routine"
 	"github.com/imos/lacia/internal/task"
 )
@@ -144,7 +145,7 @@ type pendingRun struct {
 type RunLog struct {
 	Root        string // task repository
 	Location    *time.Location
-	State       string // file listing the runs in progress
+	State       StateFile // the runs in progress
 	Execution   func(string) (Execution, bool)
 	ResolveName func(string) string
 	Review      func(string, Run, routine.Result) error
@@ -159,7 +160,7 @@ type RunLog struct {
 }
 
 // recorded reports whether the runs of the job are logged.
-func recorded(job Job) bool { return ValidName(job.Name) }
+func recorded(job Job) bool { return task.ValidRoutineID(job.Name) }
 
 func (l *RunLog) name(name string) string {
 	if l.ResolveName != nil {
@@ -173,12 +174,12 @@ func (l *RunLog) load() {
 		return
 	}
 	l.loaded = true
-	if data, err := os.ReadFile(l.State); err == nil {
+	if data, err := l.State.read(); err == nil {
 		json.Unmarshal(data, &l.pending)
 	}
 }
 
-func (l *RunLog) save() error { return atomicJSON(l.State, l.pending) }
+func (l *RunLog) save() error { return l.State.writeJSON(l.pending) }
 
 // first returns the first of the occurrences that job skipped before Slot.
 func first(job Job, n int) time.Time {
@@ -239,7 +240,7 @@ func (l *RunLog) Begin(job Job, request string, now time.Time) error {
 			return err
 		}
 	}
-	l.pending = append(l.pending, pendingRun{Name: job.Name, At: job.Slot, Queued: now, Request: request, Repeat: job.Every > 0 && (job.ID == "" || job.Output == "none"), To: job.To})
+	l.pending = append(l.pending, pendingRun{Name: job.Name, At: job.Slot, Queued: now, Request: request, Repeat: job.Every > 0 && job.Output == "none", To: job.To})
 	if err := l.save(); err != nil {
 		l.pending = l.pending[:len(l.pending)-1]
 		return err
@@ -525,31 +526,22 @@ func (l *RunLog) write(name string, run Run, repeat bool) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	line, err := json.Marshal(run)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	records, err := disk.OpenRecords(l.Root)
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
+	defer records.Close()
+	file, _ := filepath.Rel(l.Root, path)
+	return records.AppendSync(file, append(line, '\n'), 0o644)
 }
 
 // Months lists the months that have runs of the job, newest first.
 func Months(root, name string) []string {
-	if !ValidName(name) {
+	if !task.ValidRoutineID(name) {
 		return nil
 	}
 	pattern, err := runsFile(root, name, "*")
@@ -571,7 +563,7 @@ func Months(root, name string) []string {
 // ReadRuns returns the runs of the job in one month, newest first. A line
 // that cannot be read is left out.
 func ReadRuns(root, name, month string) []Run {
-	if !ValidName(name) {
+	if !task.ValidRoutineID(name) {
 		return nil
 	}
 	if _, err := time.Parse(monthLayout, month); err != nil {

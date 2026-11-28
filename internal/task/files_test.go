@@ -32,7 +32,7 @@ func TestTaskFiles(t *testing.T) {
 	if !strings.Contains(string(log), "files/report/index.html を置きました（15バイト、sha256 ") || !strings.Contains(string(log), "このファイルは Git の管理外です。") {
 		t.Errorf("log:\n%s", log)
 	}
-	if w := CheckFormat(task, s.Files(task), s.Format()); len(w) != 0 {
+	if w := Check(task, s.Files(task)); len(w) != 0 {
 		t.Errorf("files/ should be an allowed place: %v", w)
 	}
 

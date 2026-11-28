@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func TestSnapshotStateRetainsPreviousAcrossRestart(t *testing.T) {
@@ -13,6 +15,11 @@ func TestSnapshotStateRetainsPreviousAcrossRestart(t *testing.T) {
 	Scope = nil
 	t.Cleanup(func() { Scope = prevScope })
 	root := t.TempDir()
+	state, err := disk.OpenTools(filepath.Join(root, "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
 	path := filepath.Join(root, "state", "calendar", "snapshot.json")
 	legacy := filepath.Join(root, "input.json")
 	candidate := func(stamp string, count int) []byte {
@@ -47,7 +54,7 @@ func TestSnapshotStateRetainsPreviousAcrossRestart(t *testing.T) {
 	if err := os.WriteFile(legacy, first, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s := &SnapshotState{Path: path}
+	s := &SnapshotState{Dir: state, Name: "calendar/snapshot.json"}
 	if err := s.Import(legacy); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +62,7 @@ func TestSnapshotStateRetainsPreviousAcrossRestart(t *testing.T) {
 	if err := os.Remove(legacy); err != nil {
 		t.Fatal(err)
 	}
-	s = &SnapshotState{Path: path}
+	s = &SnapshotState{Dir: state, Name: "calendar/snapshot.json"}
 	if err := s.Import(legacy); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +102,7 @@ func TestSnapshotStateRetainsPreviousAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(0, "ok")
-	s = &SnapshotState{Path: path, LegacyOnly: true}
+	s = &SnapshotState{Dir: state, Name: "calendar/snapshot.json", LegacyOnly: true}
 	if err := s.Publish(legacyLater); err != nil {
 		t.Fatal(err)
 	}

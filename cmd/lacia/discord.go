@@ -17,6 +17,7 @@ import (
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/codex"
 	"github.com/imos/lacia/internal/discord"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
 )
@@ -111,7 +112,7 @@ func stageIn(birthday string, now time.Time, loc *time.Location) string {
 
 // newDiscord builds the bot from the environment the home Deployment has
 // always provided. The token is read from a file and never logged.
-func newDiscord(statePath string, fam members, queue *request.Queue, loc *time.Location) (*discord.Bot, error) {
+func newDiscord(state *disk.Dir, stateName string, fam members, queue *request.Queue, loc *time.Location) (*discord.Bot, error) {
 	token := strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN"))
 	if path := os.Getenv("DISCORD_BOT_TOKEN_FILE"); token == "" && path != "" {
 		data, err := os.ReadFile(path)
@@ -134,7 +135,7 @@ func newDiscord(statePath string, fam members, queue *request.Queue, loc *time.L
 		MentionAllChannels: strings.TrimSpace(os.Getenv("DISCORD_MENTION_ALL_CHANNELS")) == "true",
 		MonitorAllChannels: strings.TrimSpace(os.Getenv("DISCORD_MONITOR_ALL_CHANNELS")) == "true",
 		Authors:            split(os.Getenv("LACIA_DISCORD_AUTHOR_IDS")), AnyHuman: os.Getenv("LACIA_DISCORD_AUTHOR_POLICY") == "channel-humans",
-		Members: fam.Members, State: statePath,
+		Members: fam.Members, State: state, StateName: stateName,
 	}
 	if cfg.Token == "" || cfg.GuildID == "" || len(cfg.Channels) == 0 || (!cfg.AnyHuman && len(cfg.Authors) == 0 && len(cfg.Members) == 0) {
 		return nil, errors.New("Discordの設定が足りません（トークン、DISCORD_GUILD_ID、DISCORD_CHANNEL_IDS、投稿者の指定）")

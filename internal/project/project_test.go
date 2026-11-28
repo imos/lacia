@@ -16,7 +16,7 @@ status: active
 
 金融の質問に強いモデルを作ります。
 
-## 順序
+## 取りかかる順
 
 1. X58 — 定義が決まらないと比較ができないため
 2. X61（前提: X58）
@@ -98,5 +98,9 @@ func TestMove(t *testing.T) {
 	}
 	if same, _ := Move(sample, []string{"X58"}, "X58", -1); !strings.Contains(same, "1. X58") {
 		t.Errorf("moving the first one up:\n%s", same)
+	}
+	out, _ = Move("---\ntitle: 空\n---\n\n## めざすこと\n\nなし。\n", []string{"T1001", "T1002"}, "T1002", -1)
+	if !strings.HasSuffix(out, "## 取りかかる順\n\n1. T1002\n2. T1001\n") {
+		t.Errorf("new section =\n%s", out)
 	}
 }

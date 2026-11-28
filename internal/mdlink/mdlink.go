@@ -22,7 +22,6 @@ type Link struct {
 	Dest       string
 }
 
-// Find returns the links of one line.
 func Find(line string) []Link {
 	var out []Link
 	for _, m := range link.FindAllStringSubmatchIndex(line, -1) {

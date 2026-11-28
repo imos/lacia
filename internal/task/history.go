@@ -9,22 +9,16 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
-// The history of a task lives in log.md in format 0, one dated line per
-// entry, and in log.jsonl in format 1, one JSON object per event.
+// HistoryFile holds the history of a task or a project, one JSON object per
+// event. LogFile is where format 0 kept it, one dated line per entry.
 const (
 	LogFile     = "log.md"
 	HistoryFile = "log.jsonl"
 )
-
-// LogName is the file that holds the history of a task or a project.
-func LogName(format int) string {
-	if format >= 1 {
-		return HistoryFile
-	}
-	return LogFile
-}
 
 // Kinds of events. See docs/design/records.md.
 const (
@@ -103,24 +97,21 @@ func MarshalEvent(e Event) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// AppendEvent adds one event to a log.jsonl.
-func AppendEvent(path string, now time.Time, e Event) error {
+// AppendEvent adds one event to the log.jsonl of that name in the records.
+func AppendEvent(records *disk.Dir, name string, now time.Time, e Event) error {
+	line, err := eventLine(now, e)
+	if err != nil {
+		return err
+	}
+	return records.Append(name, line, 0o644)
+}
+
+func eventLine(now time.Time, e Event) ([]byte, error) {
 	e.At = now.Format(time.RFC3339)
 	e.Text = e.text()
 	e.After = ""
 	data, err := MarshalEvent(e)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(append(data, '\n'))
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return append(data, '\n'), err
 }
 
 // ptr gives the optional fields that are written even when empty.
@@ -206,19 +197,16 @@ func (l Line) FormatIn(loc *time.Location) string {
 // events of log.jsonl formatted as dated text. tail
 // keeps the last ones only, when positive.
 func (s *Store) HistoryLines(t Task, tail int) ([]string, error) {
-	return ReadHistoryIn(filepath.Join(s.root, t.Dir), s.format, tail, s.Location())
+	return ReadHistoryIn(filepath.Join(s.root, t.Dir), tail, s.Location())
 }
 
 // ReadHistory reads the history in dir, a task or project directory.
-func ReadHistory(dir string, format int, tail int) ([]string, error) {
-	return ReadHistoryIn(dir, format, tail, JST)
+func ReadHistory(dir string, tail int) ([]string, error) {
+	return ReadHistoryIn(dir, tail, JST)
 }
 
 // ReadHistoryIn renders the history in the configured local time.
-func ReadHistoryIn(dir string, format int, tail int, loc *time.Location) ([]string, error) {
-	if format == 0 {
-		return nil, (Config{Format: format}).RequireCurrentFormat()
-	}
+func ReadHistoryIn(dir string, tail int, loc *time.Location) ([]string, error) {
 	events, err := ReadEvents(filepath.Join(dir, HistoryFile))
 	if err != nil {
 		return nil, err

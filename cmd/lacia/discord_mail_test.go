@@ -48,7 +48,7 @@ func TestDiscordMailUsesOnlyVerifiedSourceAndBoundedRead(t *testing.T) {
 	}
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			q, err := request.Open(filepath.Join(t.TempDir(), "requests"))
+			q, err := request.Open(testDir(t, filepath.Join(t.TempDir(), "requests")))
 			if err != nil {
 				t.Fatal(err)
 			}

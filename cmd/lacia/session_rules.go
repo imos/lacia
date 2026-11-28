@@ -15,13 +15,17 @@ import (
 	"github.com/imos/lacia/internal/task"
 )
 
+// sessionRulesWait bounds how long a conversation waits for the replacement
+// before it starts with the embedded rules.
+var sessionRulesWait = 2 * time.Second
+
 // The path supplied by the server is its own absolute executable path. Using
 // it instead of PATH lets an atomic deployment supply the replacement binary
 // without invoking a shim or a command from the task repository.
 func sessionRules(ctx context.Context, root, executable string) rules.SessionRules {
 	usingReplacement := filepath.IsAbs(executable)
 	if usingReplacement {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, sessionRulesWait)
 		defer cancel()
 		cmd := program.Lacia(executable).Command(ctx, "rules", "--session-json")
 		cmd.Dir = root

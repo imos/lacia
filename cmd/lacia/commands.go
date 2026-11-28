@@ -170,7 +170,6 @@ const helpFooter = `
 別のサーバーに接続するには、LACIA_API に URL を指定してください。ask など、依頼を届けるコマンドには lacia serve への接続が必要です。
 `
 
-// helpText is what lacia help prints.
 func helpText() string {
 	var b strings.Builder
 	b.WriteString(helpHeader)

@@ -12,20 +12,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
 // File is the name of the file that makes a directory a project.
 const File = "project.md"
 
-// Status of a project. Only active projects show on the home page.
+// Only active projects show on the home page.
 const (
 	Active = "active"
 	Paused = "paused"
 	Done   = "done"
 )
 
-// StatusLabel is the word shown for a status.
 func StatusLabel(status string) string {
 	switch status {
 	case Paused:
@@ -54,22 +54,8 @@ type Project struct {
 	Order  []Item
 }
 
-// OrderHeading is the section that lists the tasks in order. OrderHeading1
-// is its name in a repository of format 1; only the one of the format is
-// read.
-const (
-	OrderHeading  = "順序"
-	OrderHeading1 = "取りかかる順"
-)
-
-// OrderHeadingFor is the section that lists the tasks in a repository of
-// the given format.
-func OrderHeadingFor(format int) string {
-	if format >= 1 {
-		return OrderHeading1
-	}
-	return OrderHeading
-}
+// OrderHeading is the section that lists the tasks in order.
+const OrderHeading = "取りかかる順"
 
 var (
 	// "1. X62 — 理由" or "- X62"
@@ -77,11 +63,8 @@ var (
 	requires = regexp.MustCompile(`[（(]\s*前提\s*[:：]\s*([^）)]*)[）)]`)
 )
 
-// Parse reads the text of a project.md of format 0.
-func Parse(src string) (Project, error) { return ParseFormat(src, 0) }
-
-// ParseFormat reads the text of a project.md of the given format.
-func ParseFormat(src string, format int) (Project, error) {
+// Parse reads the text of a project.md.
+func Parse(src string) (Project, error) {
 	doc, err := task.ParseDoc(src)
 	if err != nil {
 		return Project{}, err
@@ -97,7 +80,7 @@ func ParseFormat(src string, format int) (Project, error) {
 	default:
 		return p, fmt.Errorf("status %q は使えません。active, paused, done のどれかにしてください", p.Status)
 	}
-	p.Order = ParseOrder(task.Section(doc.Body, OrderHeadingFor(format)))
+	p.Order = ParseOrder(task.Section(doc.Body, OrderHeading))
 	return p, nil
 }
 
@@ -134,14 +117,13 @@ func FormatOrder(items []Item) string {
 	return b.String()
 }
 
-// Load reads every project of the given areas in a repository of the given
-// format. A project.md that cannot be read is reported and skipped, so that
+// Load reads every project of the given areas. A project.md that cannot be read is reported and skipped, so that
 // one bad file does not hide the rest.
-func Load(root string, format int, areas []string) ([]Project, []error) {
+func Load(root string, areas []string) ([]Project, []error) {
 	var projects []Project
 	var problems []error
 	for _, area := range areas {
-		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(task.AreaDir(format, area)), "projects"))
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(task.AreaDir(area)), "projects"))
 		if err != nil {
 			continue
 		}
@@ -149,12 +131,12 @@ func Load(root string, format int, areas []string) ([]Project, []error) {
 			if !e.IsDir() {
 				continue
 			}
-			dir := filepath.Join(filepath.FromSlash(task.AreaDir(format, area)), "projects", e.Name())
+			dir := filepath.Join(filepath.FromSlash(task.AreaDir(area)), "projects", e.Name())
 			data, err := os.ReadFile(filepath.Join(root, dir, File))
 			if err != nil {
 				continue
 			}
-			p, err := ParseFormat(string(data), format)
+			p, err := Parse(string(data))
 			if err != nil {
 				problems = append(problems, fmt.Errorf("%s/%s: %w", filepath.ToSlash(dir), File, err))
 				continue
@@ -169,12 +151,12 @@ func Load(root string, format int, areas []string) ([]Project, []error) {
 
 // Find returns the project ref names: "<name>", or "<area>/<name>" when
 // the same name is used in more than one area.
-func Find(root string, format int, areas []string, ref string) (Project, error) {
+func Find(root string, areas []string, ref string) (Project, error) {
 	area, name, scoped := strings.Cut(strings.Trim(ref, "/"), "/")
 	if !scoped {
 		area, name = "", area
 	}
-	projects, _ := Load(root, format, areas)
+	projects, _ := Load(root, areas)
 	var found []Project
 	for _, p := range projects {
 		if p.Slug == name && (area == "" || p.Area == area) {
@@ -266,20 +248,14 @@ func (p Plan) Waiting() int {
 }
 
 // Move shifts a task one place up (-1) or down (+1) in the order section of
-// a project.md of format 0 and returns the new text. Tasks missing from the
-// order are appended first, so that any task of the project can be moved.
+// a project.md and returns the new text. Tasks missing from the order are
+// appended first, so that any task of the project can be moved.
 func Move(src string, all []string, id string, delta int) (string, error) {
-	return MoveFormat(src, all, id, delta, 0)
-}
-
-// MoveFormat is Move for a project.md of the given format.
-func MoveFormat(src string, all []string, id string, delta, format int) (string, error) {
-	heading := OrderHeadingFor(format)
 	doc, err := task.ParseDoc(src)
 	if err != nil {
 		return "", err
 	}
-	items := ParseOrder(task.Section(doc.Body, heading))
+	items := ParseOrder(task.Section(doc.Body, OrderHeading))
 	listed := map[string]bool{}
 	for _, item := range items {
 		listed[item.ID] = true
@@ -302,7 +278,7 @@ func MoveFormat(src string, all []string, id string, delta, format int) (string,
 	if to >= 0 && to < len(items) {
 		items[at], items[to] = items[to], items[at]
 	}
-	doc.Body = replaceSection(doc.Body, heading, FormatOrder(items))
+	doc.Body = replaceSection(doc.Body, OrderHeading, FormatOrder(items))
 	return doc.String(), nil
 }
 
@@ -331,7 +307,8 @@ func replaceSection(body, heading, text string) string {
 	return strings.Join(out, "\n")
 }
 
-// AppendLog adds an event to the project's JSON history.
-func AppendLog(dir string, now time.Time, e task.Event) error {
-	return task.AppendEvent(filepath.Join(dir, task.HistoryFile), now, e)
+// AppendLog adds an event to the JSON history of the project in dir,
+// relative to the records.
+func AppendLog(records *disk.Dir, dir string, now time.Time, e task.Event) error {
+	return task.AppendEvent(records, filepath.Join(dir, task.HistoryFile), now, e)
 }

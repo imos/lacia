@@ -4,18 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/imos/lacia/internal/effect/disk"
 )
 
-// SnapshotState holds the served snapshot outside the record repository.
-// An older producer can still submit its snapshot through the old path.
+// SnapshotState holds the served snapshot outside the record repository,
+// in the file Name inside Dir. An older producer can still submit its
+// snapshot through the old path.
 type SnapshotState struct {
-	Path       string
+	Dir        *disk.Dir
+	Name       string
 	LegacyOnly bool // the operator deliberately switched back to the legacy producer
 	mu         sync.Mutex
 }
+
+func (s *SnapshotState) Path() string { return filepath.Join(s.Dir.Path(), s.Name) }
 
 // Publish validates and guards a candidate before replacing the served file.
 // A rejected candidate leaves the last readable snapshot in place.
@@ -40,7 +45,7 @@ func (s *SnapshotState) publish(candidate []byte, guardDrops bool) error {
 	if guardDrops && snapshot.DirectGoogle {
 		return fmt.Errorf("従来の予定ファイルに、直接取得を示す設定は書けません")
 	}
-	previous, err := os.ReadFile(s.Path)
+	previous, err := s.Dir.ReadFile(s.Name)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -58,7 +63,7 @@ func (s *SnapshotState) publish(candidate []byte, guardDrops bool) error {
 			}
 		}
 	}
-	return disk.WriteFile(s.Path, candidate, 0o600)
+	return s.Dir.WriteFile(s.Name, candidate, 0o600)
 }
 
 // Import reads a candidate when the older producer has written one.

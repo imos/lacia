@@ -11,7 +11,7 @@ import (
 func TestRepositoryZoneTaskBoundaryAndHistory(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0755)
-	os.WriteFile(filepath.Join(root, ConfigFile), []byte(`{"format":1,"areas":["work"],"timezone":"America/New_York"}`), 0600)
+	os.WriteFile(filepath.Join(root, ConfigFile), []byte(`{"format":2,"areas":["work"],"timezone":"America/New_York"}`), 0600)
 	s, err := Open(root)
 	if err != nil {
 		t.Fatal(err)

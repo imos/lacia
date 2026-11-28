@@ -82,8 +82,7 @@ func EveryLabel(value string) string {
 	return m[1] + "時間ごと"
 }
 
-// addEvery moves a time on by one interval. Whole days keep the time of
-// day in zones that change their clocks.
+// Whole days keep the time of day in zones that change their clocks.
 func addEvery(t time.Time, value string) time.Time {
 	m := everyPattern.FindStringSubmatch(value)
 	if m == nil {
@@ -171,7 +170,6 @@ func recheckConflict(id, key string) error {
 	return fmt.Errorf("%s は、外部の変化を繰り返し確かめながら待っています。%s とは一緒に使えません。次の回だけを変えるときは lacia task field %s resume_on \"日時\" を使います。繰り返しの確認をやめて %s で待つときは、lacia task set %s doing で外部待ちを離れてから指定してください", id, key, id, key, id)
 }
 
-// RecheckRound is one round that became due.
 type RecheckRound struct {
 	Task Task
 	// Asked is the round the server now asks a conversation to look at. It

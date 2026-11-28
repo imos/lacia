@@ -13,7 +13,7 @@ import (
 func TestTaskHistoryViews(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0755)
-	os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format":1,"areas":["work"]}`), 0644)
+	os.WriteFile(filepath.Join(root, task.ConfigFile), []byte(`{"format":2,"areas":["work"]}`), 0644)
 	store, err := task.Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestTaskHistoryViews(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(dir, task.HistoryFile), nil, 0644)
 	for i, e := range events {
-		if err := task.AppendEvent(filepath.Join(dir, task.HistoryFile), time.Date(2026, 11, 24, 9, i, 0, 0, task.JST), e); err != nil {
+		if err := task.AppendEvent(testDir(t, dir), task.HistoryFile, time.Date(2026, 11, 24, 9, i, 0, 0, task.JST), e); err != nil {
 			t.Fatal(err)
 		}
 	}

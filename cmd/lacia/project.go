@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/project"
 	"github.com/imos/lacia/internal/task"
 )
@@ -41,7 +42,7 @@ func runProject(args []string) error {
 		fmt.Println("プロジェクトの履歴に書きました。")
 		return nil
 	}
-	p, err := project.Find(dir, cfg.Format, cfg.Areas, ref)
+	p, err := project.Find(dir, cfg.Areas, ref)
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,12 @@ func runProject(args []string) error {
 		actor = me().Name()
 	}
 	e := task.Event{Type: task.EventNote, By: noteActor(actor), Text: entry}
-	if err := project.AppendLog(filepath.Join(dir, filepath.FromSlash(p.Dir)), time.Now().In(cfg.Location()), e); err != nil {
+	records, err := disk.OpenRecords(dir)
+	if err != nil {
+		return err
+	}
+	defer records.Close()
+	if err := project.AppendLog(records, filepath.FromSlash(p.Dir), time.Now().In(cfg.Location()), e); err != nil {
 		return err
 	}
 	fmt.Println("プロジェクトの履歴に書きました。")

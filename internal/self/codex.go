@@ -34,7 +34,7 @@ type CodexNight struct {
 	Private     []string // more places in the records not to read
 	// Scratch is a directory lacia may write, outside the records. The
 	// night works in a directory made in it and removed afterwards.
-	Scratch string
+	Scratch *disk.Dir
 }
 
 const (
@@ -134,16 +134,13 @@ type rpcMessage struct {
 func (n CodexNight) start(ctx context.Context) (*codexSession, error) {
 	// Codex reads the settings, instructions and skills of the project it
 	// starts in; inside the records, the conversations could write them.
-	if rel, err := filepath.Rel(n.Root, n.Scratch); err == nil && filepath.IsLocal(rel) {
-		return nil, unguarded("作業用のディレクトリー %s が、記録の中にあります", n.Scratch)
+	if rel, err := filepath.Rel(n.Root, n.Scratch.Path()); err == nil && filepath.IsLocal(rel) {
+		return nil, unguarded("作業用のディレクトリー %s が、記録の中にあります", n.Scratch.Path())
 	}
-	scratch, err := disk.OpenTools(n.Scratch)
-	if err != nil {
-		return nil, err
-	}
-	work := filepath.Join(n.Scratch, codexScratch)
+	scratch := n.Scratch
+	work := filepath.Join(scratch.Path(), codexScratch)
 	files := map[string]string{"probe/allowed": probeAllowed, "probe/denied/canary": probeDenied, "probe/key.pem": probeDenied}
-	err = scratch.RemoveAll(codexScratch) // what a night that did not end left
+	err := scratch.RemoveAll(codexScratch) // what a night that did not end left
 	if err == nil {
 		err = scratch.MkdirAll(filepath.Join(codexScratch, "cwd"))
 	}
@@ -153,7 +150,6 @@ func (n CodexNight) start(ctx context.Context) (*codexSession, error) {
 		}
 	}
 	if err != nil {
-		scratch.Close()
 		return nil, err
 	}
 
@@ -172,7 +168,6 @@ func (n CodexNight) start(ctx context.Context) (*codexSession, error) {
 	if err != nil {
 		cancel()
 		scratch.RemoveAll(codexScratch)
-		scratch.Close()
 		return nil, err
 	}
 	if err := s.prepare(n, work); err != nil {
@@ -365,7 +360,6 @@ func (s *codexSession) close() {
 	s.cancel()
 	s.cmd.Wait()
 	s.scratch.RemoveAll(codexScratch)
-	s.scratch.Close()
 }
 
 func (s *codexSession) send(message any) error {

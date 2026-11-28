@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -45,6 +46,11 @@ func runInit(args []string) error {
 	if err := requireCurrentRecords(root); err != nil {
 		return err
 	}
+	records, err := disk.OpenRecords(root)
+	if err != nil {
+		return err
+	}
+	defer records.Close()
 	path := filepath.Join(root, task.ConfigFile)
 	settings := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(path); err == nil {
@@ -85,10 +91,7 @@ func runInit(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		if err := records.WriteFileNoSync(task.ConfigFile, append(data, '\n'), 0o644); err != nil {
 			return err
 		}
 		fmt.Printf("%s の user を「%s」にしました。\n", task.ConfigFile, name)
@@ -98,13 +101,13 @@ func runInit(args []string) error {
 
 	// The profile is the owner's and Lacia's to write: only the empty line
 	// the template leaves is filled in.
-	profile := filepath.Join(root, "memory", "profile.md")
-	if data, err := os.ReadFile(profile); err == nil {
+	profile := filepath.Join("memory", "profile.md")
+	if data, err := records.ReadFile(profile); err == nil {
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if strings.TrimSpace(line) == profileName {
 				lines[i] = profileName + name
-				if err := os.WriteFile(profile, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+				if err := records.WriteFileNoSync(profile, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 					return err
 				}
 				fmt.Println("memory/profile.md に呼び名を書きました。")
@@ -112,7 +115,7 @@ func runInit(args []string) error {
 			}
 		}
 	}
-	if err := initCalendar(root, strings.TrimSpace(*account), ask, stdin); err != nil {
+	if err := initCalendar(records, strings.TrimSpace(*account), ask, stdin); err != nil {
 		return err
 	}
 	fmt.Println("lacia codex か lacia claude で、わたしと会話を始められます。")
@@ -121,9 +124,8 @@ func runInit(args []string) error {
 
 // initCalendar writes the list of calendars with the primary calendar of one
 // account. A list that is already there is the owner's, and is left alone.
-func initCalendar(root, account string, ask bool, stdin *bufio.Reader) error {
-	path := filepath.Join(root, calendarsFile)
-	if fileExists(path) {
+func initCalendar(records *disk.Dir, account string, ask bool, stdin *bufio.Reader) error {
+	if fileExists(filepath.Join(records.Path(), calendarsFile)) {
 		if account != "" {
 			return fmt.Errorf("%s が、すでにあります。読むカレンダーを変えるときは、このファイルを直してください", calendarsFile)
 		}
@@ -145,10 +147,7 @@ func initCalendar(root, account string, ask bool, stdin *bufio.Reader) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	if err := records.WriteFileNoSync(calendarsFile, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("%s に、%s の予定を読む設定を書きました。\n", calendarsFile, account)

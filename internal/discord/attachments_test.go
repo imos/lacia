@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func TestReadPDF(t *testing.T) {
@@ -92,7 +94,7 @@ func TestSendPDFMultipartAndRestartDedup(t *testing.T) {
 		fmt.Fprintf(w, `{"id":"message","channel_id":"channel","attachments":[{"id":"file","filename":"out.pdf","size":%d}]}`, len(pdf))
 	}))
 	defer server.Close()
-	cfg := Config{State: filepath.Join(t.TempDir(), "discord.json"), Token: "test", api: server.URL}
+	cfg := Config{State: testDir(t, t.TempDir()), StateName: "discord.json", Token: "test", api: server.URL}
 	b := New(cfg)
 	result, err := b.SendPDF(context.Background(), "channel", "request-a", "out.pdf", pdf)
 	if err != nil || result.Status != "sent" || result.MessageID != "message" {
@@ -141,7 +143,7 @@ func TestSendPDFUnknownNeverRetries(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			cfg := Config{State: filepath.Join(t.TempDir(), "discord.json"), api: server.URL}
+			cfg := Config{State: testDir(t, t.TempDir()), StateName: "discord.json", api: server.URL}
 			b := New(cfg)
 			pdf := []byte("%PDF-test")
 			result, err := b.SendPDF(context.Background(), "channel", "request", "out.pdf", pdf)
@@ -162,8 +164,8 @@ func TestSendPDFNoNetworkWithoutDurableClaim(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "blocked"), []byte("file"), 0600)
-	for _, state := range []string{"", filepath.Join(root, "blocked", "discord.json")} {
-		_, err := New(Config{State: state, api: server.URL}).SendPDF(context.Background(), "channel", "request", "out.pdf", []byte("%PDF-test"))
+	for _, state := range []*disk.Dir{nil, testDir(t, root)} {
+		_, err := New(Config{State: state, StateName: "blocked/discord.json", api: server.URL}).SendPDF(context.Background(), "channel", "request", "out.pdf", []byte("%PDF-test"))
 		if err == nil {
 			t.Fatal("accepted missing state")
 		}
@@ -174,7 +176,7 @@ func TestSendPDFNoNetworkWithoutDurableClaim(t *testing.T) {
 }
 
 func TestSendPDFValidation(t *testing.T) {
-	b := New(Config{State: filepath.Join(t.TempDir(), "discord.json")})
+	b := New(Config{State: testDir(t, t.TempDir()), StateName: "discord.json"})
 	for _, data := range [][]byte{[]byte("text"), []byte("%PDF-" + strings.Repeat("x", MaxAttachmentBytes))} {
 		if _, err := b.SendPDF(context.Background(), "channel", "request", "out.pdf", data); err == nil {
 			t.Fatal("accepted invalid PDF")

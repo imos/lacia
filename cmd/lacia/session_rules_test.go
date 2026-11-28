@@ -7,11 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 )
 
 func TestSessionRulesFollowExecutableAndFallback(t *testing.T) {
+	// A busy machine can take seconds to start a shell script, and the
+	// replacement must not fall back for that.
+	wait := sessionRulesWait
+	sessionRulesWait = time.Minute
+	t.Cleanup(func() { sessionRulesWait = wait })
 	root := t.TempDir()
 	t.Setenv("LACIA_USER", "")
 	if err := os.MkdirAll(filepath.Join(root, ".lacia"), 0o700); err != nil {
@@ -68,12 +75,16 @@ echo '{"core":"FIRST","behavior":"BEHAVIOR","revision":{"core":"one"}}'`)
 }
 
 func TestRulesNoticeFollowsConversationVersion(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notices", "conversation.json")
+	notices, err := disk.OpenTools(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notices.Close()
 	one := rules.Revision{"core": "one"}
 	two := rules.Revision{"core": "two"}
 	var stderr bytes.Buffer
 	for _, current := range []rules.Revision{one, two, two, one, one} {
-		writeRulesNotice(path, one, current, &stderr)
+		writeRulesNotice(notices, "conversation.json", one, current, &stderr)
 	}
 	if got := strings.Count(stderr.String(), "決まりの版が変わりました"); got != 2 {
 		t.Fatalf("wanted one notice for the change and one for the rollback, got %d: %q", got, stderr.String())

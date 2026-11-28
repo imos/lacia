@@ -29,7 +29,7 @@ func TestTaskAgeUsesTheRequestThatStartedWork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(month, req.ID+".json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	queue, err := request.OpenRecords(dir)
+	queue, err := request.OpenRecords(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestTaskListsShowAndSortByStatusTime(t *testing.T) {
 			t.Fatal(err)
 		}
 		if known {
-			if err := task.AppendEvent(log, now.Add(-hours), task.Event{Type: task.EventCreated, Status: string(status)}); err != nil {
+			if err := task.AppendEvent(testDir(t, filepath.Dir(log)), task.HistoryFile, now.Add(-hours), task.Event{Type: task.EventCreated, Status: string(status)}); err != nil {
 				t.Fatal(err)
 			}
 			for _, e := range []task.Event{
@@ -149,7 +149,7 @@ func TestTaskListsShowAndSortByStatusTime(t *testing.T) {
 				{Type: task.EventClaimed, Owner: "local-claude"},
 				{Type: task.EventNote, Text: "状態は同じままです。"},
 			} {
-				if err := task.AppendEvent(log, now.Add(-time.Minute), e); err != nil {
+				if err := task.AppendEvent(testDir(t, filepath.Dir(log)), task.HistoryFile, now.Add(-time.Minute), e); err != nil {
 					t.Fatal(err)
 				}
 			}

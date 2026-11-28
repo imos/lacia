@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -217,7 +216,7 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 	f.history["100"] = []Message{{ID: "10", Content: "切り替えの前の古い投稿"}}
 
 	dir := t.TempDir()
-	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, AnyHuman: true, State: filepath.Join(dir, "discord.json"),
+	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, AnyHuman: true, State: testDir(t, dir), StateName: "discord.json",
 		api: f.server.URL + "/api", gateway: "ws" + strings.TrimPrefix(f.server.URL, "http") + "/gateway"}
 	var mu sync.Mutex
 	var got []Incoming
@@ -336,7 +335,7 @@ func TestBotAcceptsOnlyRequests(t *testing.T) {
 func TestBotFinishesAMessageWhenTheConnectionDies(t *testing.T) {
 	f := newFake(t)
 	f.beat = 20 // a slow Receive keeps the acknowledgements unread, so the bot drops the connection
-	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, AnyHuman: true, State: filepath.Join(t.TempDir(), "discord.json"),
+	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, AnyHuman: true, State: testDir(t, t.TempDir()), StateName: "discord.json",
 		api: f.server.URL + "/api", gateway: "ws" + strings.TrimPrefix(f.server.URL, "http") + "/gateway"}
 	bot := New(cfg)
 	ready := make(chan struct{})

@@ -8,22 +8,14 @@ import (
 	"regexp"
 )
 
-const AreaRoutineFormat = 2
-
 var routineID = regexp.MustCompile(`^S(0[0-9]{3}|[1-9][0-9]*)$`)
 
 func ValidRoutineID(id string) bool { return id != "S0000" && routineID.MatchString(id) }
 
 // RoutineBase returns the repository-relative directory for routine definitions.
-func RoutineBase(format int, area string) string {
-	if format >= AreaRoutineFormat {
-		return filepath.Join(AreaDir(format, area), "routines")
-	}
-	return "routines"
-}
+func RoutineBase(area string) string { return filepath.Join(AreaDir(area), "routines") }
 
 // RoutineDir resolves a routine by stable ID without parsing its definition.
-// Old layouts also write run history for schedule slugs and deleted jobs.
 func RoutineDir(root, id string) (string, error) {
 	if id == "." || id == ".." || id == "" || filepath.Base(id) != id {
 		return "", fmt.Errorf("定期タスクIDが正しくありません: %q", id)
@@ -32,15 +24,12 @@ func RoutineDir(root, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cfg.Format < AreaRoutineFormat {
-		return filepath.Join(root, RoutineBase(cfg.Format, ""), id), nil
-	}
 	if !ValidRoutineID(id) {
 		return "", fmt.Errorf("定期タスクIDが正しくありません: %q", id)
 	}
 	var found string
 	for _, area := range cfg.Areas {
-		dir := filepath.Join(root, RoutineBase(cfg.Format, area), id)
+		dir := filepath.Join(root, RoutineBase(area), id)
 		info, err := os.Lstat(filepath.Join(dir, "routine.md"))
 		if errors.Is(err, os.ErrNotExist) {
 			continue

@@ -3,42 +3,13 @@
 <section class="wide">
 <h1>{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</h1>
 <p class="hint"><a href="/routines">定期タスクの一覧</a> · <a href="/files/schedules/{{.Name}}.md">予約の設定（<code>schedules/{{.Name}}.md</code>）</a></p>
-{{if .Err}}<p class="notice">予約の設定に問題があります。{{.Err}}</p>{{else}}
-<p>{{.When}}に、{{if .Side}}定期処理用の会話{{else}}窓口の会話{{end}}で実行する設定です。{{if .To}}宛先は <code>{{.To}}</code> です。{{end}}</p>
-{{if not .Enabled}}<p class="notice">この予約は停止中です。</p>{{end}}
-{{end}}
+<p class="notice">予約の設定に問題があります。{{.Err}}</p>
 {{if .Executions}}
 <h2>各回の実行状況</h2>
 <table class="tasks"><thead><tr><th>予定時刻</th><th>実行先</th><th>状態</th><th>実行ID</th><th>開始・終了時刻</th><th>結果</th></tr></thead><tbody>
 {{range .Executions}}<tr><td>{{clock .Job.Slot}}</td><td>{{.DestinationLabel}}（{{.Device}}）{{if .Result.Profile}} / {{.Result.Profile}}{{end}}</td><td>{{.StatusLabel}}</td><td>{{.ID}}</td><td>{{if not .Started.IsZero}}{{clock .Started}}{{end}}{{if not .Result.Finished.IsZero}}〜{{clock .Result.Finished}}{{end}}</td><td>{{brief .Result.Reply}}{{if .Result.Error}}{{if .Result.Reply}}<br>{{end}}{{.Result.Error}}{{end}}</td></tr>{{end}}
 </tbody></table>
 {{end}}
-<h2>いまの様子</h2>
-<p class="hint">最後に成功した時刻と、失敗や未実行が続いた回数は、記録がある月のうち新しい3か月分までをもとに表示します。連続した失敗の回数には、実際に動いた回だけを数えます。</p>
-<table class="tasks">
-<tbody>
-<tr><th>記録にある最後の成功時刻</th><td>{{if .Health.LastSuccess.IsZero}}調べた範囲に成功の記録はありません{{else}}{{clock .Health.LastSuccess}}{{end}}</td></tr>
-<tr><th>続けて失敗した回数</th><td>{{.Health.Failed}}回</td></tr>
-<tr><th>続けて実行されなかった回数</th><td>{{.Health.Missed}}回</td></tr>
-<tr><th>最後に扱った回の予定日時</th><td>{{if .Last}}{{.Last}}{{else}}記録がありません{{end}}</td></tr>
-{{range .Pending}}<tr><th>結果待ち</th><td>{{clock .At}} に予定していた回の依頼を {{clock .Started}} に受け付けました。</td></tr>{{end}}
-</tbody>
-</table>
-<h2>実行の記録</h2>
-{{if .Every}}<p class="hint">一定の間隔で動く予約が従来の形式で正常な結果を返した場合は、その日の最初の回と、結果が変わった回を記録します。タスクが終了を待っている回、確かめた範囲を結果に記した回、失敗した回は毎回記録します。実行を見送った回も記録に残し、続けて見送った分はまとめることがあります。</p>{{end}}
-{{if .Months}}<p class="hint">月：{{range .Months}}{{if eq . $.Data.Month}}<strong>{{.}}</strong>{{else}}<a href="/routines/{{$.Data.Name}}?month={{.}}">{{.}}</a>{{end}} {{end}}</p>{{end}}
-<table class="tasks">
-<thead><tr><th>予定時刻</th><th>結果</th><th>実行先と実行ID</th><th>終えた時刻</th><th>ひとこと</th></tr></thead>
-<tbody>
-{{range .Runs}}<tr id="{{.Anchor}}">
-  <td>{{clock .At}}{{if .LateMinutes}}<br>予定の{{.LateMinutes}}分後に依頼を受け付けました。{{end}}</td>
-  <td><span class="status run-{{.Outcome}}">{{.OutcomeLabel}}</span>{{if gt .Count 1}} {{.Count}}回分{{end}}</td>
-  <td>{{.DestinationLabel}}{{if .Device}}（{{.Device}}）{{if .Profile}} / {{.Profile}}{{end}}{{end}}<br>{{.Request}}</td>
-  <td>{{if eq .Outcome "missed"}}{{else}}{{clock .Finished}}{{end}}</td>
-  <td>{{.Summary}}{{if .Unverified}}<ul>{{range .Unverified}}<li>{{.}}</li>{{end}}</ul>{{end}}</td>
-</tr>{{else}}<tr><td colspan="5">実行の記録は、まだありません。</td></tr>{{end}}
-</tbody>
-</table>
 </section>
 {{end}}
 {{end}}

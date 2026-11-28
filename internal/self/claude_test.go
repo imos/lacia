@@ -20,7 +20,7 @@ func TestClaudeLive(t *testing.T) {
 	}
 	k := keeper(t)
 	k.Now = time.Now
-	root := filepath.Dir(filepath.Dir(k.Path))
+	root := filepath.Dir(filepath.Dir(k.Path()))
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestTidyLive(t *testing.T) {
 		t.Skip("LACIA_SELF_LIVE is not set")
 	}
 	x := newTidier(t)
-	openSession := Claude(command, "fable", filepath.Dir(filepath.Dir(x.Path)), true)
+	openSession := Claude(command, "fable", filepath.Dir(filepath.Dir(x.Path())), true)
 	at := x.now().Add(-6 * time.Hour)
 	x.Exchanges = func(time.Time) []Exchange {
 		return []Exchange{

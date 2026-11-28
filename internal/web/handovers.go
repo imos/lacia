@@ -103,17 +103,25 @@ func (s *Server) apiHandover(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, item)
 }
+
+// handoverUpdate is the body of a request that moves a handover along. One
+// of Start, Via, End, Ack and Cancel says which step it reports.
+type handoverUpdate struct {
+	Start       string // the host whose runner takes the continuation
+	Place       string // the configured place requesting the handover
+	End         *int   // exit code of the runner's process
+	Tail        string // last words of that process
+	Via         string // where the runner delivered the continuation
+	Ack, Cancel bool
+}
+
+// apiUpdateHandover moves a handover one step along. A step returns replied
+// when it has already written the response; otherwise this function answers
+// with the item or the error.
 func (s *Server) apiUpdateHandover(w http.ResponseWriter, r *http.Request) {
 	s.handoverMu.Lock()
 	defer s.handoverMu.Unlock()
-	var in struct {
-		Start       string // the host whose runner takes the continuation
-		Place       string // the configured place requesting the handover
-		End         *int   // exit code of the runner's process
-		Tail        string // last words of that process
-		Via         string // where the runner delivered the continuation
-		Ack, Cancel bool
-	}
+	var in handoverUpdate
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalidJSONMessage})
 		return
@@ -123,161 +131,24 @@ func (s *Server) apiUpdateHandover(w http.ResponseWriter, r *http.Request) {
 	actor := actorFor("", sess, known)
 	now := s.Now()
 	var item handover.Handover
-	var changed bool
+	var replied bool
 	var err error
 	switch {
 	case in.Start != "":
-		existing, getErr := s.Handovers.Get(id)
-		if getErr != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": getErr.Error()})
-			return
-		}
-		to, _ := caller.ParseDestination(existing.Next)
-		if to.Place != "" && in.Place == to.Place && to.Place != s.Place && !s.workerAllowed(r, to.Place) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録した端末の認証が必要です"})
-			return
-		}
-		if existing.Stale(now) && (to.Place == "" || to.Place == in.Place && to.Place != s.Place) {
-			if err := s.expireHandover(existing, now); err != nil {
-				slog.Warn("record expired handover", "id", id, "error", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "期限を過ぎた申し送りの結果を保存できませんでした"})
-				return
-			}
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "申し送りから24時間を過ぎたため、続きを始めません"})
-			return
-		}
-		skipped := ""
-		item, changed, err = s.Handovers.Update(id, func(item *handover.Handover) bool {
-			to, err := caller.ParseDestination(item.Next)
-			if !item.Runnable() || err != nil || to.Place != "" && (to.Place != in.Place || to.Place == s.Place) {
-				return false
-			}
-			// The user, or another conversation, may have taken the task
-			// up while the destination was offline.
-			t, terr := s.Store.Get(item.TaskID)
-			if terr != nil || t.Status.Closed() {
-				item.State = handover.Skipped
-				item.Skipped, skipped = "タスクは、すでに閉じていました。", item.ID
-				return true
-			}
-			// One conversation at a time works on a task. While another
-			// is at it, the continuation waits its turn.
-			if t.Status == task.Doing && item.WaitID != "" {
-				return false
-			}
-			item.State = handover.Delivered
-			item.Started, item.Runner = now, in.Start
-			return true
-		})
-		if err == nil && skipped != "" {
-			s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: fmt.Sprintf("申し送り %s の続きは、始めませんでした。%s", item.ID, item.Skipped)})
-			s.changed()
-			changed = false
-		}
-		if err == nil && !changed {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "この申し送りの続きは、いまは始められません"})
-			return
-		}
+		item, replied, err = s.startHandover(w, r, id, in, now)
 	case in.Via != "":
-		if !s.handoverReportAllowed(w, r, id) {
-			return
-		}
-		item, changed, err = s.Handovers.Update(id, func(item *handover.Handover) bool {
-			if item.Started.IsZero() || item.Via != "" {
-				return false
-			}
-			item.Via = summary(in.Via, 200)
-			return true
-		})
-		if err == nil && changed {
-			s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: fmt.Sprintf("%s の届け方を記録しました。\n%s", subject(item), item.Via)})
-			s.changed()
-		}
+		item, replied, err = s.recordHandoverVia(w, r, id, in.Via)
 	case in.End != nil:
-		if !s.handoverReportAllowed(w, r, id) {
-			return
-		}
-		item, changed, err = s.Handovers.Update(id, func(item *handover.Handover) bool {
-			if item.Started.IsZero() || !item.Ended.IsZero() {
-				return false
-			}
-			item.Ended, item.ExitCode = now, *in.End
-			return true
-		})
-		if err == nil && changed {
-			entry := fmt.Sprintf("%s のために始めた会話が、終了コード %d で終わりました。", subject(item), item.ExitCode)
-			if tail := summary(in.Tail, 300); tail != "" && item.Acked.IsZero() {
-				entry += "最後の出力は、次のとおりです。\n" + tail
-			}
-			s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: entry})
-			s.tickHandoversLocked(now)
-			s.changed()
-		}
+		item, replied, err = s.recordHandoverEnd(w, r, id, *in.End, in.Tail, now)
 	case in.Ack:
-		item, changed, err = s.Handovers.Update(id, func(item *handover.Handover) bool {
-			to, err := caller.ParseDestination(item.Next)
-			if item.Closed() || err != nil || to.Place != "" && (!known || sess.Caller.Name() != to.String()) {
-				return false
-			}
-			t, err := s.Store.Get(item.TaskID)
-			if err != nil || t.Status.Closed() {
-				return false
-			}
-			item.ClaimPending = known
-			item.AckedLabel = sess.Label()
-			item.State = handover.Acked
-			item.AckedKey = sess.Key
-			item.Acked, item.AckedBy = now, actor
-			return true
-		})
-		if err == nil && !changed {
-			message := "申し送り " + item.ID + " は、いまは受け取れません。タスクと申し送りの状態を確かめてください。"
-			switch {
-			case item.State == handover.Cancelled:
-				message = subject(item) + " は、取り消されています。続きを始めないでください。"
-			case item.State == handover.Skipped:
-				message = subject(item) + " は、見送りになりました。続きを始めないでください。"
-			case item.State == handover.Acked && item.AckedKey == sess.Key && item.AckedBy == actor:
-				if err := s.applyHandoverClaim(item); err != nil {
-					writeJSON(w, 500, map[string]string{"error": err.Error()})
-					return
-				}
-				writeJSON(w, http.StatusOK, item) // said twice by the same conversation
-				return
-			case !item.Acked.IsZero():
-				// Two conversations must not both do the work.
-				message = fmt.Sprintf("%s は、すでに %s が受け取りました。この会話では、続きを始めないでください。", subject(item), item.AckedBy)
-			}
-			writeJSON(w, http.StatusConflict, map[string]string{"error": message})
-			return
-		}
-		if err == nil && changed {
-			note := subject(item) + " を受け取りました。"
-			if known {
-				if err := s.applyHandoverClaim(item); err != nil {
-					writeJSON(w, 500, map[string]string{"error": err.Error()})
-					return
-				}
-			}
-			s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, By: actor, Text: note})
-
-			s.changed()
-		}
+		item, replied, err = s.ackHandover(w, id, sess, known, actor, now)
 	case in.Cancel:
-		item, changed, err = s.Handovers.Update(id, func(item *handover.Handover) bool {
-			if item.Closed() {
-				return false
-			}
-			item.State = handover.Cancelled
-
-			return true
-		})
-		if err == nil && changed {
-			s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, By: actor, Text: fmt.Sprintf("申し送り %s を取り消しました。", item.ID)})
-			s.changed()
-		}
+		item, err = s.cancelHandover(id, actor)
 	default:
 		err = errors.New("start、via、end、ack、cancel のどれかを指定してください")
+	}
+	if replied {
+		return
 	}
 	if errors.Is(err, handover.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -288,6 +159,176 @@ func (s *Server) apiUpdateHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) startHandover(w http.ResponseWriter, r *http.Request, id string, in handoverUpdate, now time.Time) (handover.Handover, bool, error) {
+	existing, getErr := s.Handovers.Get(id)
+	if getErr != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": getErr.Error()})
+		return handover.Handover{}, true, nil
+	}
+	to, _ := caller.ParseDestination(existing.Next)
+	if to.Place != "" && in.Place == to.Place && to.Place != s.Place && !s.workerAllowed(r, to.Place) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "登録した端末の認証が必要です"})
+		return handover.Handover{}, true, nil
+	}
+	if existing.Stale(now) && (to.Place == "" || to.Place == in.Place && to.Place != s.Place) {
+		if err := s.expireHandover(existing, now); err != nil {
+			slog.Warn("record expired handover", "id", id, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "期限を過ぎた申し送りの結果を保存できませんでした"})
+			return handover.Handover{}, true, nil
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "申し送りから24時間を過ぎたため、続きを始めません"})
+		return handover.Handover{}, true, nil
+	}
+	skipped := ""
+	item, changed, err := s.Handovers.Update(id, func(item *handover.Handover) bool {
+		to, err := caller.ParseDestination(item.Next)
+		if !item.Runnable() || err != nil || to.Place != "" && (to.Place != in.Place || to.Place == s.Place) {
+			return false
+		}
+		// The user, or another conversation, may have taken the task
+		// up while the destination was offline.
+		t, terr := s.Store.Get(item.TaskID)
+		if terr != nil || t.Status.Closed() {
+			item.State = handover.Skipped
+			item.Skipped, skipped = "タスクは、すでに閉じていました。", item.ID
+			return true
+		}
+		// One conversation at a time works on a task. While another
+		// is at it, the continuation waits its turn.
+		if t.Status == task.Doing && item.WaitID != "" {
+			return false
+		}
+		item.State = handover.Delivered
+		item.Started, item.Runner = now, in.Start
+		return true
+	})
+	if err == nil && skipped != "" {
+		s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: fmt.Sprintf("申し送り %s の続きは、始めませんでした。%s", item.ID, item.Skipped)})
+		s.changed()
+		changed = false
+	}
+	if err == nil && !changed {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "この申し送りの続きは、いまは始められません"})
+		return item, true, nil
+	}
+	return item, false, err
+}
+
+func (s *Server) recordHandoverVia(w http.ResponseWriter, r *http.Request, id, via string) (handover.Handover, bool, error) {
+	if !s.handoverReportAllowed(w, r, id) {
+		return handover.Handover{}, true, nil
+	}
+	item, changed, err := s.Handovers.Update(id, func(item *handover.Handover) bool {
+		if item.Started.IsZero() || item.Via != "" {
+			return false
+		}
+		item.Via = summary(via, 200)
+		return true
+	})
+	if err == nil && changed {
+		s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: fmt.Sprintf("%s の届け方を記録しました。\n%s", subject(item), item.Via)})
+		s.changed()
+	}
+	return item, false, err
+}
+
+func (s *Server) recordHandoverEnd(w http.ResponseWriter, r *http.Request, id string, exitCode int, tail string, now time.Time) (handover.Handover, bool, error) {
+	if !s.handoverReportAllowed(w, r, id) {
+		return handover.Handover{}, true, nil
+	}
+	item, changed, err := s.Handovers.Update(id, func(item *handover.Handover) bool {
+		if item.Started.IsZero() || !item.Ended.IsZero() {
+			return false
+		}
+		item.Ended, item.ExitCode = now, exitCode
+		return true
+	})
+	if err == nil && changed {
+		entry := fmt.Sprintf("%s のために始めた会話が、終了コード %d で終わりました。", subject(item), item.ExitCode)
+		if tail := summary(tail, 300); tail != "" && item.Acked.IsZero() {
+			entry += "最後の出力は、次のとおりです。\n" + tail
+		}
+		s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, Text: entry})
+		s.tickHandoversLocked(now)
+		s.changed()
+	}
+	return item, false, err
+}
+
+func (s *Server) ackHandover(w http.ResponseWriter, id string, sess caller.Session, known bool, actor string, now time.Time) (handover.Handover, bool, error) {
+	item, changed, err := s.Handovers.Update(id, func(item *handover.Handover) bool {
+		to, err := caller.ParseDestination(item.Next)
+		if item.Closed() || err != nil || to.Place != "" && (!known || sess.Caller.Name() != to.String()) {
+			return false
+		}
+		t, err := s.Store.Get(item.TaskID)
+		if err != nil || t.Status.Closed() {
+			return false
+		}
+		item.ClaimPending = known
+		item.AckedLabel = sess.Label()
+		item.State = handover.Acked
+		item.AckedKey = sess.Key
+		item.Acked, item.AckedBy = now, actor
+		return true
+	})
+	if err == nil && !changed {
+		s.refuseHandoverAck(w, item, sess, actor)
+		return item, true, nil
+	}
+	if err == nil && changed {
+		note := subject(item) + " を受け取りました。"
+		if known {
+			if err := s.applyHandoverClaim(item); err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return item, true, nil
+			}
+		}
+		s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, By: actor, Text: note})
+
+		s.changed()
+	}
+	return item, false, err
+}
+
+// refuseHandoverAck answers an ack that changed nothing.
+func (s *Server) refuseHandoverAck(w http.ResponseWriter, item handover.Handover, sess caller.Session, actor string) {
+	message := "申し送り " + item.ID + " は、いまは受け取れません。タスクと申し送りの状態を確かめてください。"
+	switch {
+	case item.State == handover.Cancelled:
+		message = subject(item) + " は、取り消されています。続きを始めないでください。"
+	case item.State == handover.Skipped:
+		message = subject(item) + " は、見送りになりました。続きを始めないでください。"
+	case item.State == handover.Acked && item.AckedKey == sess.Key && item.AckedBy == actor:
+		if err := s.applyHandoverClaim(item); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, item) // said twice by the same conversation
+		return
+	case !item.Acked.IsZero():
+		// Two conversations must not both do the work.
+		message = fmt.Sprintf("%s は、すでに %s が受け取りました。この会話では、続きを始めないでください。", subject(item), item.AckedBy)
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": message})
+}
+
+func (s *Server) cancelHandover(id, actor string) (handover.Handover, error) {
+	item, changed, err := s.Handovers.Update(id, func(item *handover.Handover) bool {
+		if item.Closed() {
+			return false
+		}
+		item.State = handover.Cancelled
+
+		return true
+	})
+	if err == nil && changed {
+		s.Store.Log(item.TaskID, task.Event{Type: task.EventHandover, Handover: item.ID, By: actor, Text: fmt.Sprintf("申し送り %s を取り消しました。", item.ID)})
+		s.changed()
+	}
+	return item, err
 }
 
 func (s *Server) handoverReportAllowed(w http.ResponseWriter, r *http.Request, id string) bool {

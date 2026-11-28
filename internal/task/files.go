@@ -30,13 +30,11 @@ const (
 	filesKeptForDay = 90
 )
 
-// StoredFile is a file under a task's files/ directory.
 type StoredFile struct {
 	Path string // relative to files/
 	Size int64
 }
 
-// StoredFiles lists what is in the task's files/ directory.
 func (s *Store) StoredFiles(t Task) []StoredFile {
 	var out []StoredFile
 	base := filepath.Join(s.root, t.Dir, FilesDir)
@@ -66,20 +64,17 @@ func (s *Store) SetPinned(ref string, keep bool) error {
 	if err != nil {
 		return err
 	}
-	pin := filepath.Join(s.root, t.Dir, FilesDir, pinFile)
+	pin := filepath.Join(t.Dir, FilesDir, pinFile)
 	if keep == s.Pinned(t) {
 		return nil
 	}
 	if keep {
-		if err := os.MkdirAll(filepath.Dir(pin), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(pin, nil, 0o644); err != nil {
+		if err := s.records.WriteFileNoSync(pin, nil, 0o644); err != nil {
 			return err
 		}
 		return s.Log(t.ID, Event{Type: EventFile, Action: "kept", Text: "files/ を、タスクを閉じたあとも残すことにしました。"})
 	}
-	if err := os.Remove(pin); err != nil {
+	if err := s.records.Remove(pin); err != nil {
 		return err
 	}
 	return s.Log(t.ID, Event{Type: EventFile, Action: "unkept", Text: fmt.Sprintf("files/ を残す指定を外しました。タスクを閉じてから%d日で消えます。", filesKeptForDay)})
@@ -126,21 +121,10 @@ func (s *Store) PutFile(ref, kind, name string, r io.Reader, actor string) (Stor
 			used += f.Size
 		}
 	}
-	dir := filepath.Join(s.root, t.Dir, kind)
-	target := filepath.Join(dir, filepath.FromSlash(clean))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return StoredFile{}, err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".upload-*")
-	if err != nil {
-		return StoredFile{}, err
-	}
-	defer os.Remove(tmp.Name())
-	hash := sha256.New()
-	size, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(r, MaxFileSize+1))
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
+	// The file is read whole before anything is written, so that one over
+	// the limits leaves the old file in place.
+	data, err := io.ReadAll(io.LimitReader(r, MaxFileSize+1))
+	size := int64(len(data))
 	switch {
 	case err != nil:
 		return StoredFile{}, err
@@ -149,23 +133,20 @@ func (s *Store) PutFile(ref, kind, name string, r io.Reader, actor string) (Stor
 	case kind == FilesDir && used+size > MaxTaskFiles:
 		return StoredFile{}, fmt.Errorf("このタスクの files/ が %d MiB を超えます。要らないものを消してから置いてください", MaxTaskFiles>>20)
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return StoredFile{}, err
-	}
-	if err := os.Rename(tmp.Name(), target); err != nil {
+	if err := s.records.WriteFileNoSync(filepath.Join(t.Dir, kind, filepath.FromSlash(clean)), data, 0o644); err != nil {
 		return StoredFile{}, err
 	}
 	note := "このファイルは Git の管理外です。"
 	if kind == ArtifactsDir {
 		note = "このファイルは Git で管理します。"
 	}
-	sum := hex.EncodeToString(hash.Sum(nil))[:16]
+	hash := sha256.Sum256(data)
+	sum := hex.EncodeToString(hash[:])[:16]
 	entry := Event{Type: EventFile, By: actor, Action: "put", Path: kind + "/" + clean, Bytes: ptr(size), SHA256: sum,
 		Text: fmt.Sprintf("%s/%s を置きました（%s、sha256 %s）。%s", kind, clean, HumanSize(size), sum, note)}
 	return StoredFile{clean, size}, s.Log(t.ID, entry)
 }
 
-// RemoveFile deletes one file from the task's files/ directory.
 func (s *Store) RemoveFile(ref, name, actor string) error {
 	t, err := s.Get(ref)
 	if err != nil {
@@ -175,7 +156,8 @@ func (s *Store) RemoveFile(ref, name, actor string) error {
 	if clean == "" || strings.HasPrefix(path.Base(clean), ".") {
 		return errors.New("ファイルの名前を指定してください")
 	}
-	if err := os.Remove(filepath.Join(s.root, t.Dir, FilesDir, filepath.FromSlash(clean))); err != nil {
+	file := filepath.Join(t.Dir, FilesDir, filepath.FromSlash(clean))
+	if _, err := os.Lstat(filepath.Join(s.root, file)); err != nil || s.records.Remove(file) != nil {
 		return fmt.Errorf("files/%s は見つかりませんでした", clean)
 	}
 	return s.Log(t.ID, Event{Type: EventFile, By: actor, Action: "removed", Path: FilesDir + "/" + clean, Text: fmt.Sprintf("files/%s を消しました。", clean)})
@@ -196,7 +178,7 @@ func (s *Store) ExpireFiles(now time.Time) []Task {
 		for _, f := range files {
 			total += f.Size
 		}
-		if err := os.RemoveAll(filepath.Join(s.root, t.Dir, FilesDir)); err != nil {
+		if err := s.records.RemoveAll(filepath.Join(t.Dir, FilesDir)); err != nil {
 			continue
 		}
 		s.Log(t.ID, Event{Type: EventFile, Action: "purged", Text: fmt.Sprintf("タスクを閉じてから%d日たったので、files/ の%d件（%s）を消しました。", filesKeptForDay, len(files), HumanSize(total))})
@@ -205,7 +187,6 @@ func (s *Store) ExpireFiles(now time.Time) []Task {
 	return cleaned
 }
 
-// HumanSize writes a size the way a person reads it.
 func HumanSize(n int64) string {
 	switch {
 	case n >= 1<<20:

@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"github.com/imos/lacia/internal/testrecords"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/schedule"
+	"github.com/imos/lacia/internal/testrecords"
 
 	"github.com/imos/lacia/internal/self"
 	"github.com/imos/lacia/internal/task"
@@ -24,7 +27,7 @@ func TestSelf(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return store, &self.Keeper{Path: filepath.Join(root, "memory", "self.md"), Dir: t.TempDir(), Label: mode, ChatSide: home}
+		return store, &self.Keeper{Records: store.Records(), Name: "memory/self.md", State: testDir(t, t.TempDir()), Label: mode, ChatSide: home}
 	}
 	homeStore, homeKeeper := open("家庭モード", true)
 	home, err := (&Server{Store: homeStore, DoorOnly: true, Self: homeKeeper}).Handler()
@@ -82,8 +85,8 @@ func TestSelf(t *testing.T) {
 	}
 	// HTML uses reader-facing labels; the API and file keep first-person headings.
 	doc := "# わたしのこと\n\n## わたし自身\n\n- 本文です。\n\n## 仕事モードで\n"
-	os.MkdirAll(filepath.Dir(workKeeper.Path), 0o755)
-	if err := os.WriteFile(workKeeper.Path, []byte(doc), 0o644); err != nil {
+	os.MkdirAll(filepath.Dir(workKeeper.Path()), 0o755)
+	if err := os.WriteFile(workKeeper.Path(), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	page = call(work, "GET", "/self", "", pod, "lacia.example.test", "")
@@ -148,7 +151,7 @@ func TestSelfItemDates(t *testing.T) {
 func TestSelfImprovementsAPI(t *testing.T) {
 	root := t.TempDir()
 	told := 0
-	keeper := &self.Keeper{Path: filepath.Join(root, "repo", "memory", "self.md"), Dir: filepath.Join(root, "state"), Label: "仕事モード",
+	keeper := &self.Keeper{Records: testDir(t, filepath.Join(root, "repo")), Name: "memory/self.md", State: testDir(t, filepath.Join(root, "state")), Label: "仕事モード",
 		At: "02:30", ImproveTell: func(string, string) error { told++; return nil }}
 	keeper.Think = func(context.Context, string) (string, error) {
 		return "<わたしのこと>\n# わたしのこと\n\n## わたし自身\n\n- 項目です。\n\n## 仕事モードで\n\n- 仕事の項目です。\n</わたしのこと>\n<今夜変えたこと>\n最初の版です。\n</今夜変えたこと>\n" +
@@ -187,4 +190,21 @@ func TestSelfImprovementsAPI(t *testing.T) {
 	if rec := call("GET", "/self", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "書き留めのきっかけを作る") || !strings.Contains(rec.Body.String(), `class="item-date"`) || !strings.Contains(rec.Body.String(), "毎日 02:30 に書き留めを読み返し") {
 		t.Errorf("page = %d", rec.Code)
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
+// stateFile opens the directory of path, and names the file in it.
+func stateFile(t *testing.T, path string) schedule.StateFile {
+	t.Helper()
+	return schedule.StateFile{Dir: testDir(t, filepath.Dir(path)), Name: filepath.Base(path)}
 }

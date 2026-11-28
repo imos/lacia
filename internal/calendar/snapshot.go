@@ -126,7 +126,6 @@ type Marker struct {
 	Title  string
 }
 
-// Load reads and validates the snapshot file.
 func Load(path string) (Snapshot, error) {
 	f, err := os.Open(path)
 	if err != nil {

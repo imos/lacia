@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/agent"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/notify"
 )
 
@@ -25,7 +26,8 @@ var mirrorTaskPath = regexp.MustCompile(`(?:^|/)tasks/[0-9]{4}-[0-9]{2}/([A-Z][0
 type mirrorPoll struct {
 	dir       string
 	site      string
-	statePath string
+	files     *disk.Dir
+	stateName string
 	state     *notify.State
 
 	attempted  time.Time
@@ -76,7 +78,7 @@ func (m *mirrorPoll) observe(ctx context.Context, now time.Time, revision string
 	}
 	// Persist the review before acknowledging the recovery to Git. After a
 	// crash, the same recovery can be observed again and is deduplicated by path.
-	if err := notify.SaveState(m.statePath, m.state); err != nil {
+	if err := notify.SaveState(m.files, m.stateName, m.state); err != nil {
 		m.state.Sync = previous
 		m.healthy = false
 		slog.Warn("task mirror state", "detail", "手元の記録の同期状況を保存できませんでした。", "error", err)
@@ -140,7 +142,7 @@ func (m *mirrorPoll) fail(now time.Time) {
 			Expires: float64(now.Add(24 * time.Hour).Unix()),
 		}
 	}
-	if err := notify.SaveState(m.statePath, m.state); err != nil {
+	if err := notify.SaveState(m.files, m.stateName, m.state); err != nil {
 		m.state.Sync = previous
 		slog.Warn("task mirror state", "detail", "手元の記録の同期状況を保存できませんでした。", "error", err)
 	}

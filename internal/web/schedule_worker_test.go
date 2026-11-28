@@ -29,7 +29,7 @@ func TestScheduleWorkerAPIAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := schedule.OpenDispatch(filepath.Join(t.TempDir(), "dispatch.json"), routing)
+	d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(t.TempDir(), "dispatch.json")), routing)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -129,10 +129,8 @@ func (s *Server) routineNotices(w http.ResponseWriter, request *http.Request) {
 			// The run's assigned reply route is authoritative even after the
 			// definition changes. Do not also deliver its result through the Mac.
 			routed := job.ReplyTo != ""
-			if s.Requests != nil {
-				if run, ok := s.Requests.Get(r.RunID); ok {
-					routed = run.ReplyTo != ""
-				}
+			if run, ok := s.findRequest(r.RunID); ok {
+				routed = run.ReplyTo != ""
 			}
 			if routed {
 				continue
@@ -201,8 +199,6 @@ func (s *Server) routineNoticeAcknowledged(w http.ResponseWriter, r *http.Reques
 		http.Error(w, fmt.Sprintf("定期タスク %s の通知を記録できませんでした", id), http.StatusConflict)
 		return
 	}
-	if s.Changed != nil {
-		s.Changed()
-	}
+	s.changed()
 	w.WriteHeader(http.StatusNoContent)
 }

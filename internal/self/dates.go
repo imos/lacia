@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // An item of the document is one list line. It starts with the day its
@@ -51,7 +49,6 @@ func itemDates(doc string) map[string]string {
 	return out
 }
 
-// undated reports whether doc has an item without a day.
 func undated(doc string) bool {
 	for _, line := range strings.Split(doc, "\n") {
 		if _, day, _, ok := splitItem(line); ok && day == "" {
@@ -97,7 +94,7 @@ func (k *Keeper) backdate(doc, today string) string {
 	if !undated(doc) {
 		return doc
 	}
-	paths, _ := filepath.Glob(filepath.Join(k.Dir, "versions", "*.md"))
+	paths, _ := filepath.Glob(filepath.Join(k.State.Path(), "versions", "*.md"))
 	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
 	since := map[string]string{} // text -> oldest day of its run so far
 	broken := map[string]bool{}  // texts whose run has ended
@@ -158,7 +155,7 @@ func (k *Keeper) Date() (bool, error) {
 		return false, nil
 	}
 	next := k.backdate(doc, k.now().In(k.Zone()).Format(time.DateOnly))
-	if err := disk.WriteFileNoSync(k.Path, []byte(next+"\n"), 0o644); err != nil {
+	if err := k.Records.WriteFileNoSync(k.Name, []byte(next+"\n"), 0o644); err != nil {
 		return false, err
 	}
 	night := Night{At: k.now(), Accepted: true, Summary: "項目に、中身が最後に変わった日を付けました。本文は変えていません。"}

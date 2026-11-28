@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/agent"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/network"
 	"github.com/imos/lacia/internal/login"
 	"github.com/imos/lacia/internal/notify"
@@ -63,7 +64,12 @@ func runAgent(args []string) error {
 	if *configPath == "" || *stateDir == "" {
 		return errors.New("--config と --state を指定してください")
 	}
-	logFile, err := openLog(filepath.Join(*stateDir, "worker.log"))
+	files, err := disk.OpenNotifierState(*stateDir)
+	if err != nil {
+		return err
+	}
+	defer files.Close()
+	logFile, err := openLog(files, "worker.log")
 	if err != nil {
 		return err
 	}
@@ -100,14 +106,13 @@ func runAgent(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	forward := &agent.Forward{Kubectl: t.Kubectl, Context: t.Context, Namespace: t.Namespace, Target: t.Target, LocalPort: t.Port, RemotePort: t.RemotePort}
-	manifestPath := filepath.Join(*stateDir, "manifest.json")
-	statePath := filepath.Join(*stateDir, "agent-state.json")
-	state, err := notify.LoadState(statePath)
+	const manifestName, stateName = "manifest.json", "agent-state.json"
+	state, err := notify.LoadState(files, stateName)
 	if err != nil {
 		slog.Error("state", "detail", "通知の状態を読み取れませんでした。", "error", err)
 		return err
 	}
-	mirror := mirrorPoll{dir: cfg.TasksRepo, site: cfg.Site, statePath: statePath, state: state}
+	mirror := mirrorPoll{dir: cfg.TasksRepo, site: cfg.Site, files: files, stateName: stateName, state: state}
 	writeOffline := func() {
 		now := time.Now()
 		configData, _ := os.ReadFile(*configPath)
@@ -118,7 +123,7 @@ func runAgent(args []string) error {
 			Calendar: notify.HealthDisabled, Transport: notify.HealthFailed,
 		}}
 		mirror.display(&manifest, now, config.Enabled)
-		if err := notify.WriteManifest(manifestPath, manifest); err != nil {
+		if err := notify.WriteManifest(files, manifestName, manifest); err != nil {
 			slog.Error("write manifest", "detail", "通知アプリに渡す通知の一覧を保存できませんでした。", "error", err)
 		}
 	}
@@ -156,7 +161,7 @@ func runAgent(args []string) error {
 
 	// Waits: look at the cluster jobs conversations registered, and start
 	// the conversation that continues when one ends.
-	watcher := &agent.Watcher{Kubectl: t.Kubectl, Base: base, Client: client, Dir: cfg.TasksRepo, LogDir: filepath.Join(*stateDir, "waits"), Runners: map[string][]string{}, Place: cfg.Place}
+	watcher := &agent.Watcher{Kubectl: t.Kubectl, Base: base, Client: client, Dir: cfg.TasksRepo, Logs: files, LogDir: "waits", Runners: map[string][]string{}, Place: cfg.Place}
 	watcher.Host, _ = os.Hostname()
 	// The logins of this machine (the same list `lacia codex --login`
 	// reads), the default one first. Without any, Codex as it is installed.
@@ -191,11 +196,11 @@ func runAgent(args []string) error {
 	os.Setenv("PATH", strings.Join(append(append([]string{}, watcher.Path...), os.Getenv("PATH")), string(os.PathListSeparator)))
 	defer watcher.Stop()
 	if cfg.Schedule != nil {
-		conversations := scheduleConversations{root: cfg.TasksRepo, state: filepath.Join(*stateDir, "schedule-conversations"), base: base(), place: cfg.Place, logins: list}
+		conversations := scheduleConversations{root: cfg.TasksRepo, state: files, base: base(), place: cfg.Place, logins: list}
 		worker := &schedule.Worker{
 			Config: schedule.WorkerConfig{URL: base(), Device: cfg.Schedule.Device, Root: cfg.TasksRepo,
 				SecretFile: resolvePath(filepath.Dir(*configPath), cfg.Schedule.SecretFile), AuthCheck: cfg.Schedule.AuthCheck},
-			State: filepath.Join(*stateDir, "schedule-worker.json"), Client: client, Available: alive, RunConversation: conversations.run, SelectProfile: conversations.selection,
+			State: schedule.StateFile{Dir: files, Name: "schedule-worker.json"}, Client: client, Available: alive, RunConversation: conversations.run, SelectProfile: conversations.selection,
 		}
 		if err := worker.Validate(); err != nil {
 			slog.Error("scheduled work misconfigured", "detail", "この端末で予約を実行できません。通知アプリの予約の設定を確かめてください。", "error", err)
@@ -319,11 +324,11 @@ func runAgent(args []string) error {
 		mirror.observe(ctx, in.Now, revision, in.TasksErr)
 		manifest := notify.Plan(in, state)
 		mirror.display(&manifest, in.Now, config.Enabled)
-		stateErr := notify.SaveState(statePath, state)
+		stateErr := notify.SaveState(files, stateName, state)
 		if stateErr != nil {
 			slog.Error("save state", "detail", "通知の状態を保存できませんでした。", "error", stateErr)
 		}
-		manifestErr := notify.WriteManifest(manifestPath, manifest)
+		manifestErr := notify.WriteManifest(files, manifestName, manifest)
 		if manifestErr != nil {
 			slog.Error("write manifest", "detail", "通知アプリに渡す通知の一覧を保存できませんでした。", "error", manifestErr)
 		}
@@ -371,9 +376,9 @@ func errText(err error) string {
 }
 
 // openLog appends to the log, starting over when it has grown large.
-func openLog(path string) (*os.File, error) {
-	if info, err := os.Stat(path); err == nil && info.Size() > 2<<20 {
-		os.Rename(path, path+".old")
+func openLog(dir *disk.Dir, name string) (*os.File, error) {
+	if info, err := dir.Lstat(name); err == nil && info.Size() > 2<<20 {
+		dir.Rename(name, name+".old")
 	}
-	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	return dir.OpenAppend(name, 0o600)
 }

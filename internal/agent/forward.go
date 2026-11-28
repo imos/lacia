@@ -91,7 +91,6 @@ func (f *Forward) Start(ctx context.Context) error {
 	}
 }
 
-// Alive reports whether kubectl is still running.
 func (f *Forward) Alive() bool {
 	f.mu.Lock()
 	done := f.done
@@ -131,5 +130,4 @@ func (f *Forward) Stop() {
 	}
 }
 
-// URL is the local address of the forwarded server.
 func (f *Forward) URL() string { return "http://127.0.0.1:" + strconv.Itoa(f.LocalPort) }

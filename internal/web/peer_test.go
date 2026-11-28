@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"github.com/imos/lacia/internal/testrecords"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/imos/lacia/internal/testrecords"
 
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
@@ -27,7 +28,7 @@ func TestTalkingToTheHomeMode(t *testing.T) {
 		return store
 	}
 	queue := func() *request.Queue {
-		q, err := request.Open(t.TempDir())
+		q, err := request.Open(testDir(t, t.TempDir()))
 		if err != nil {
 			t.Fatal(err)
 		}

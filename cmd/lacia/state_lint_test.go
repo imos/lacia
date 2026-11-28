@@ -59,7 +59,7 @@ func TestWaitingGuidanceInStandaloneAndConnectedCLI(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(state, "sessions.json"), []byte("[]"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			handovers, err := handover.Open(filepath.Join(state, "handovers"))
+			handovers, err := handover.Open(testDir(t, filepath.Join(state, "handovers")))
 			if err != nil {
 				t.Fatal(err)
 			}

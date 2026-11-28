@@ -14,10 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"syscall"
 	"time"
 
 	"github.com/imos/lacia/internal/daylog"
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // MaxAttachmentBytes is a conservative application limit, independent of
@@ -41,17 +41,17 @@ func ReadPDF(root, path string) (string, []byte, error) {
 	if !filepath.IsLocal(path) || !pdfName.MatchString(filepath.Base(path)) {
 		return "", nil, errors.New("local/ からの相対パスを指定してください。ファイル名の先頭は半角英数字、末尾は .pdf にしてください。使える文字は半角英数字とピリオド、アンダースコア、ハイフンです")
 	}
-	repo, err := os.OpenRoot(root)
+	records, err := disk.OpenRecords(root)
 	if err != nil {
 		return "", nil, errors.New("添付ファイルを探す local ディレクトリーを開けませんでした")
 	}
-	defer repo.Close()
-	dir, err := repo.OpenRoot("local")
+	defer records.Close()
+	dir, err := records.Sub("local")
 	if err != nil {
 		return "", nil, errors.New("添付ファイルを探す local ディレクトリーを開けませんでした")
 	}
 	defer dir.Close()
-	f, err := dir.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := dir.Open(path)
 	if err != nil {
 		return "", nil, errors.New("local 内の添付ファイルを開けませんでした")
 	}
@@ -80,41 +80,20 @@ func (b *Bot) SendPDF(ctx context.Context, channel, requestID, filename string, 
 	key := hex.EncodeToString(digest[:])
 	b.attachmentsMu.Lock()
 	defer b.attachmentsMu.Unlock()
-	dir := b.cfg.State + ".attachments"
-	if b.cfg.State == "" {
+	ledger := b.cfg.State
+	if ledger == nil {
 		return result, errors.New("添付の送信記録の保存先がありません")
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return result, err
-	}
-	path := filepath.Join(dir, key+".json")
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	name := filepath.Join(b.cfg.StateName+".attachments", key+".json")
+	payload, _ := json.Marshal(result)
+	err := ledger.CreateNewSync(name, payload, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		saved, err := os.ReadFile(path)
+		saved, err := ledger.ReadFile(name)
 		if err != nil {
 			return result, err
 		}
 		err = json.Unmarshal(saved, &result)
 		return result, err
-	}
-	if err != nil {
-		return result, err
-	}
-	payload, _ := json.Marshal(result)
-	_, err = f.Write(payload)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = syncAttachmentDir(dir)
-	}
-	// Also persist creation of the ledger directory itself.
-	if err == nil {
-		err = syncAttachmentDir(filepath.Dir(dir))
 	}
 	if err != nil {
 		return result, err
@@ -127,35 +106,7 @@ func (b *Bot) SendPDF(ctx context.Context, channel, requestID, filename string, 
 	b.record(daylog.Entry{Key: "file:" + messageID, At: time.Now(), Who: "レイシア", Place: b.place(ctx, channel),
 		Files: []daylog.File{{Name: filename, Type: "application/pdf", Size: int64(len(data))}}})
 	payload, _ = json.Marshal(result)
-	tmp, err := os.CreateTemp(dir, ".result-")
-	if err != nil {
-		return result, err
-	}
-	defer os.Remove(tmp.Name())
-	_, err = tmp.Write(payload)
-	if err == nil {
-		err = tmp.Sync()
-	}
-	closeErr = tmp.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), path)
-	}
-	if err == nil {
-		err = syncAttachmentDir(dir)
-	}
-	return result, err
-}
-
-func syncAttachmentDir(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return result, ledger.WriteFile(name, payload, 0o600)
 }
 
 // postPDF intentionally does not use do: uploads must never be replayed,

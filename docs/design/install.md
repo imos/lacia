@@ -68,6 +68,8 @@
 
 初期の中身は、本体の `internal/starter/files/` にあり、実行ファイルに入っています。以前のひな形のリポジトリーから、道具のファイル（`Makefile`、`tools/`、`LACIA_SOURCE`、`LACIA_VERSION`）、`README.md`、`LICENSE` を除いたものです。記録には、道具を置きません。
 
+- いまの中身は、個人向けのひな形（imos/lacia-template）の `1d0ef35`（2026-11-27）に合わせています。ひな形とわざと違えているのは、導入の案内を `lacia setup` に合わせた3つのファイル（`.lacia/serve.conf`、`memory/accounts.md`、`memory/profile.md`）だけです。ひな形を読み取り専用にするまでに、ひな形の中身が変わったときは、このコミットからの差分を見て、ここへ写し、このコミットの記録も新しくします。
+- 付属する定期タスクは、`S0001`（止めてある例）と `S0002`（毎日10時の `local/` の点検）です。番号の決め方は、[記録のリポジトリー](records.md#定期タスク)にあります。
 - 呼び名は、`.lacia/config.json` の `user` と、`memory/profile.md` の「呼び名」の行に入れます。
 - 初期の中身のファイルは、本体のほかの部分と違い、MIT No Attribution（MIT-0）で使えます。条文は `internal/starter/LICENSE` にあります。記録に `LICENSE` を置かなくても、オーナーさんは自由に使えます。本体のライセンス（`LICENSE`）にも、「記録の初期の中身」の節で、同じことを書いています。
 - 初期の中身を直しても、すでにある記録には届きません。
@@ -133,7 +135,23 @@ macOS では、`~/Library/LaunchAgents/jp.imoz.lacia.serve.plist` に定義を�
 - 版は `-ldflags "-X main.release=<版>"` で入れます。`lacia version` と `lacia doctor` に出ます。
 - `-buildvcs=true` で、コミットを実行ファイルに入れます。コミットしていない変更があると、実行ファイルに「変更あり」の印が入って、同じファイルになりません。`make dist` は、変更のあるクローンでは止まります。
 
-このため、同じタグのクローンで `make dist VERSION=<タグ>` を実行すると、リリースと同じ `SHA256SUMS` ができます。2026-11-28 に、開発用のリポジトリーの同じコミットで、GitHub Actions（Linux）の手での実行が作った `lacia-darwin-arm64` と、Apple シリコンの Mac（macOS 26.5.1、手元の Go は 1.26.5 で、`GOTOOLCHAIN` が 1.26.11 を取得しました）で作ったものを比べ、1バイトも違わないことを確かめました。リリースと手元のビルドを突き合わせる入口（`make verify`）は、まだありません。
+このため、同じタグのクローンで `make dist VERSION=<タグ>` を実行すると、リリースと同じ `SHA256SUMS` ができます。2026-11-28 に、開発用のリポジトリーの同じコミットで、GitHub Actions（Linux）の手での実行が作った `lacia-darwin-arm64` と、Apple シリコンの Mac（macOS 26.5.1、手元の Go は 1.26.5 で、`GOTOOLCHAIN` が 1.26.11 を取得しました）で作ったものを比べ、1バイトも違わないことを確かめました。同じ日に、配布用のリポジトリーの最初のリリース（`v0.1.0`）でも、GitHub Actions が作った `SHA256SUMS` と、同じタグを Mac でビルドしたものが同じになりました。
+
+リリースと手元のビルドの突き合わせは、`make verify` で行います。配布用のリポジトリーのクローンで、版のタグを取り出してから実行します。
+
+```sh
+git clone https://github.com/imos/lacia.git && cd lacia
+git checkout v0.1.0
+make verify
+```
+
+`make verify` は、次の3つを確かめます。どれかが合わなければ、そこで止まります。
+
+1. `make dist` で作った `SHA256SUMS` が、リリースの `SHA256SUMS` と同じであること。同じなら、リリースの実行ファイルは、公開のソースからできたものと同じです。
+2. `gh attestation verify` で、実行ファイルに、配布用のリポジトリーのワークフローが作ったという証明が付いていること。
+3. `gh release verify` で、リリースが変えられない状態で公開されていること。
+
+版は、取り出したタグから決まります。`VERSION` で指定することもできます。比べる相手のリポジトリーは `REPO`（既定は `imos/lacia`）で変えられます。`gh` が要ります。開発用のリポジトリーには版のタグがないので、開発用のクローンでは止まります。
 
 ### 画像の置き場所
 

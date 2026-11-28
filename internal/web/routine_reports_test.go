@@ -22,7 +22,7 @@ func TestRoutineReportAndNotifications(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := schedule.OpenDispatch(filepath.Join(t.TempDir(), "dispatch.json"), routing)
+	d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(t.TempDir(), "dispatch.json")), routing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestRoutineReportAndNotifications(t *testing.T) {
 	job := schedule.Job{ID: "S1001", Name: "S1001", LegacyName: "github", Slot: now, Output: "matters", Title: "GitHubの確認"}
 	s.Schedules = func() ([]schedule.Job, map[string]string) { return []schedule.Job{job}, nil }
 	attempts := 0
-	log := &schedule.RunLog{Root: root, State: filepath.Join(t.TempDir(), "pending.json"), Execution: d.Get,
+	log := &schedule.RunLog{Root: root, State: stateFile(t, filepath.Join(t.TempDir(), "pending.json")), Execution: d.Get,
 		Review: func(id string, run schedule.Run, report routine.Result) error {
 			attempts++
 			if attempts == 1 {
@@ -109,7 +109,7 @@ func TestPartialCoverageKeepsRealFindingsReviewable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := schedule.OpenDispatch(filepath.Join(t.TempDir(), "dispatch.json"), routing)
+	d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(t.TempDir(), "dispatch.json")), routing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestPartialCoverageKeepsRealFindingsReviewable(t *testing.T) {
 	now := time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
 	job := schedule.Job{ID: "S1001", Name: "S1001", Output: "matters", CheckResult: true, Slot: now, Enabled: true}
 	s.Schedules = func() ([]schedule.Job, map[string]string) { return []schedule.Job{job}, nil }
-	log := &schedule.RunLog{Root: s.Store.Root(), State: filepath.Join(t.TempDir(), "pending.json"), Execution: d.Get, Review: func(id string, _ schedule.Run, r routine.Result) error {
+	log := &schedule.RunLog{Root: s.Store.Root(), State: stateFile(t, filepath.Join(t.TempDir(), "pending.json")), Execution: d.Get, Review: func(id string, _ schedule.Run, r routine.Result) error {
 		_, _, err := s.Routines.Accept(id, r)
 		return err
 	}}
@@ -176,7 +176,7 @@ func TestPartialCoverageKeepsRealFindingsReviewable(t *testing.T) {
 func TestCoverageForNoneOutputAndLegacyNames(t *testing.T) {
 	s, h := setupRoutine(t)
 	routing, _ := schedule.LoadRouting("", s.Store.Root(), "work", "codex", "codex")
-	d, _ := schedule.OpenDispatch(filepath.Join(t.TempDir(), "dispatch.json"), routing)
+	d, _ := schedule.OpenDispatch(stateFile(t, filepath.Join(t.TempDir(), "dispatch.json")), routing)
 	s.ScheduleDispatch = d
 	now := time.Now()
 	for _, job := range []schedule.Job{{ID: "S1001", Name: "S1001", Output: "none", CheckResult: true}, {Name: "old-check", CheckResult: true}} {
@@ -196,14 +196,14 @@ func TestCoverageForNoneOutputAndLegacyNames(t *testing.T) {
 func TestExpectedScopesCannotBeDroppedAndFullCoverageRecovers(t *testing.T) {
 	s, h := setupRoutine(t)
 	routing, _ := schedule.LoadRouting("", s.Store.Root(), "work", "codex", "codex")
-	d, err := schedule.OpenDispatch(filepath.Join(t.TempDir(), "dispatch.json"), routing)
+	d, err := schedule.OpenDispatch(stateFile(t, filepath.Join(t.TempDir(), "dispatch.json")), routing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.ScheduleDispatch = d
 	base := time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
 	expected := []string{"cluster:site-a/auth", "cluster:site-b/auth", "cluster:site-c/auth"}
-	log := &schedule.RunLog{Root: s.Store.Root(), State: filepath.Join(t.TempDir(), "pending.json"), Execution: d.Get}
+	log := &schedule.RunLog{Root: s.Store.Root(), State: stateFile(t, filepath.Join(t.TempDir(), "pending.json")), Execution: d.Get}
 	for n := 0; n < 3; n++ {
 		now := base.Add(time.Duration(n) * time.Hour)
 		id := fmt.Sprintf("fixed-%d", n)

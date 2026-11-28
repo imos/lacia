@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-func newFormat1Store(t *testing.T) *Store {
+func newLayoutStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0o755)
-	os.WriteFile(filepath.Join(root, ConfigFile), []byte(`{"format": 1, "areas": ["work", "personal"]}`), 0o644)
+	os.WriteFile(filepath.Join(root, ConfigFile), []byte(`{"format": 2, "areas": ["work", "personal"]}`), 0o644)
 	s, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -36,8 +36,8 @@ func TestUnknownFormatStops(t *testing.T) {
 	}
 }
 
-func TestFormat1Layout(t *testing.T) {
-	s := newFormat1Store(t)
+func TestLayout(t *testing.T) {
+	s := newLayoutStore(t)
 	got, err := s.Create(NewTask{Area: "work", Title: "形を確かめる", Slug: "layout", Actor: "local-claude"})
 	if err != nil {
 		t.Fatal(err)
@@ -46,9 +46,9 @@ func TestFormat1Layout(t *testing.T) {
 		t.Errorf("dir = %s", got.Dir)
 	}
 	if _, err := os.Stat(filepath.Join(s.Root(), got.Dir, LogFile)); !os.IsNotExist(err) {
-		t.Errorf("format 1 wrote log.md: %v", err)
+		t.Errorf("log.md was written: %v", err)
 	}
-	os.WriteFile(filepath.Join(s.Root(), AliasFile1), []byte("old-01\tT1001\n"), 0o644)
+	os.WriteFile(filepath.Join(s.Root(), AliasFile), []byte("old-01\tT1001\n"), 0o644)
 	if err := s.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestFormat1Layout(t *testing.T) {
 	if strings.Join(detail.Files, ",") != HistoryFile {
 		t.Errorf("files = %v", detail.Files)
 	}
-	if w := CheckFormat(got, s.Files(got), 1); len(w) != 0 {
+	if w := Check(got, s.Files(got)); len(w) != 0 {
 		for _, x := range w {
 			if strings.Contains(x.Message, HistoryFile) {
 				t.Errorf("log.jsonl was taken for a stray file: %v", x)
@@ -69,8 +69,8 @@ func TestFormat1Layout(t *testing.T) {
 }
 
 // The events come out in the shape of the example in the design.
-func TestFormat1History(t *testing.T) {
-	s := newFormat1Store(t)
+func TestHistoryEvents(t *testing.T) {
+	s := newLayoutStore(t)
 	created, err := s.Create(NewTask{Area: "work", Title: "履歴を確かめる", Actor: "local-claude"})
 	if err != nil {
 		t.Fatal(err)
@@ -153,8 +153,8 @@ func TestFormat1History(t *testing.T) {
 
 // Every change that takes a task out of "doing" keeps the body, including
 // the ones the server makes.
-func TestFormat1Handover(t *testing.T) {
-	s := newFormat1Store(t)
+func TestHandoverEvent(t *testing.T) {
+	s := newLayoutStore(t)
 	created, _ := s.Create(NewTask{Area: "work", Title: "引き継ぎ", Status: Doing})
 	s.Ready(created.ID, "届けたときの記録\n句点のない引用", true)
 	s.SetStatus(created.ID, Doing, "Web", "")
@@ -196,7 +196,7 @@ func TestReadEventsTolerates(t *testing.T) {
 		`not json`,
 		``,
 	}, "\n")), 0o644)
-	lines, err := ReadHistory(filepath.Dir(path), 1, 0)
+	lines, err := ReadHistory(filepath.Dir(path), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,19 +212,19 @@ func TestReadEventsTolerates(t *testing.T) {
 	}
 }
 
-func TestFormat1Check(t *testing.T) {
+func TestCheckShape(t *testing.T) {
 	good := Task{ID: "T1001", Status: Review, Body: "## ひとことで\n\n形を確かめます。\n\n## 次にすること\n\nオーナーさんに、結果を見ていただきます。\n\n## 今回したこと\n\n調べました。\n\n## いまの状況\n\n済んでいることがあります。\n\n## いまの資料\n\n- [結果](artifacts/a.md)\n"}
-	if w := CheckFormat(good, []string{"task.md", "log.jsonl", "notes.md", "artifacts/a.md"}, 1); len(w) != 0 {
+	if w := Check(good, []string{"task.md", "log.jsonl", "notes.md", "artifacts/a.md"}); len(w) != 0 {
 		t.Errorf("a well-formed task got warnings: %v", w)
 	}
 	// A task written before the switch has the state and no summary.
 	old := Task{ID: "T1002", Status: Doing, Body: "## いまの状況\n\n進めています。\n\n## 次にすること\n\nレイシアが続けます。\n"}
-	if w := CheckFormat(old, []string{"task.md", "log.jsonl"}, 1); len(w) != 0 {
+	if w := Check(old, []string{"task.md", "log.jsonl"}); len(w) != 0 {
 		t.Errorf("a task of before got warnings: %v", w)
 	}
 	bad := Task{ID: "T1003", Status: Doing, Body: "## 見ていただくもの\n\n- a\n\n## 次にすること\n\n" + Placeholder + "\n"}
 	text := ""
-	for _, w := range CheckFormat(bad, []string{"task.md", "log.md"}, 1) {
+	for _, w := range Check(bad, []string{"task.md", "log.md"}) {
 		text += w.String() + "\n"
 	}
 	for _, want := range []string{"「見ていただくもの」という見出しは", "lacia task note", "「## ひとことで」がありません。", "「ひとことで」と「次にすること」を書いて", "log.md は"} {
@@ -233,19 +233,19 @@ func TestFormat1Check(t *testing.T) {
 		}
 	}
 	long := strings.Repeat("行\n", MaxBodyLines)
-	if w := LintFormat(long, 1); len(w) != 0 {
+	if w := Lint(long); len(w) != 0 {
 		t.Errorf("%d lines got warnings: %v", MaxBodyLines, w)
 	}
-	if w := LintFormat(long+"行\n", 0); len(w) != 1 {
+	if w := Lint(long + "行\n"); len(w) != 1 {
 		t.Errorf("%d lines got %v", MaxBodyLines+1, w)
 	}
-	if got := Body(1, "a", "b"); got != "## ひとことで\n\na\n\n## 次にすること\n\nb\n" {
+	if got := Body("a", "b"); got != "## ひとことで\n\na\n\n## 次にすること\n\nb\n" {
 		t.Errorf("body = %q", got)
 	}
 }
 
 func TestLegacyRuntimeRequiresMigration(t *testing.T) {
-	for _, config := range []string{"", `{"format":0}`} {
+	for _, config := range []string{"", `{"format":0}`, `{"format":1}`} {
 		root := t.TempDir()
 		if config != "" {
 			os.MkdirAll(filepath.Join(root, ".lacia"), 0755)
@@ -256,9 +256,6 @@ func TestLegacyRuntimeRequiresMigration(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(root, "areas")); !os.IsNotExist(err) {
 			t.Fatalf("rejected open changed the repository: %v", err)
-		}
-		if _, err := ReadHistory(root, 0, 0); err == nil || !strings.Contains(err.Error(), "lacia migrate") {
-			t.Fatalf("legacy runtime history read: %v", err)
 		}
 	}
 }

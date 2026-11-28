@@ -38,12 +38,12 @@ func newRoutineActionRuntime(t *testing.T, keepsTasks bool) routineActionRuntime
 	if err != nil {
 		t.Fatal(err)
 	}
-	return routineActionRuntime{stateDir: state, tasks: store, receipts: routine.NewStore(root)}
+	return routineActionRuntime{state: testDir(t, state), tasks: store, receipts: routine.NewStore(root)}
 }
 
 func (a routineActionRuntime) testMode(t *testing.T, value string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(a.stateDir, "routine-actions-mode"), []byte(value), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(a.state.Path(), "routine-actions-mode"), []byte(value), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -67,7 +67,7 @@ func TestRoutineActionPrepareAndMoveExistingHandoff(t *testing.T) {
 		Key: "matter:already-delivered", Revision: "1", Text: "すでに伝えた操作をお願いします。", Owner: true,
 	}}})
 	raw, _ := json.Marshal(plan)
-	if err := os.WriteFile(filepath.Join(a.stateDir, "routine-actions-baseline.json"), raw, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(a.state.Path(), "routine-actions-baseline.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if a.enabled() {

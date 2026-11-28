@@ -100,7 +100,7 @@ func TestAddressedHandoverAndWait(t *testing.T) {
 func TestServerHandoverAndDatedTaskUseTheirAddressedAgent(t *testing.T) {
 	store, s, h, now := setupWaits(t)
 	setDestinationTestServer(s)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

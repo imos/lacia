@@ -4,11 +4,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func TestWaitOutboxSurvivesRetryAndRestart(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(dir)
+	s, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func TestWaitOutboxSurvivesRetryAndRestart(t *testing.T) {
 	if len(s.List(nil)) != 1 {
 		t.Fatal("duplicate outbox messages")
 	}
-	reopened, err := Open(dir)
+	reopened, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,4 +53,15 @@ func TestStateControlsDeliveryAndDeadlines(t *testing.T) {
 			t.Fatalf("stale state %s", c.state)
 		}
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

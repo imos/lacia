@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
-// Init makes a test repository use format 1, preserving explicit settings.
+// Init makes a test repository use format 2, preserving explicit settings.
 func Init(t testing.TB, root string) string {
 	t.Helper()
 	path := filepath.Join(root, ".lacia", "config.json")
@@ -25,18 +27,26 @@ func Init(t testing.TB, root string) string {
 	if _, ok := settings["format"]; ok {
 		return root
 	}
-	settings["format"] = 1
+	settings["format"] = 2
 	data, err = json.Marshal(settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, filepath.Join(".lacia", "config.json"), data)
 	return root
+}
+
+// write replaces a file in the records at root.
+func write(t testing.TB, root, name string, data []byte) {
+	t.Helper()
+	records, err := disk.OpenRecords(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer records.Close()
+	if err := records.WriteFileNoSync(name, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 var (
@@ -49,7 +59,8 @@ var (
 // reads. The store refuses to make such a task; reload it after this.
 func WaitWithoutCondition(t testing.TB, root, dir string) {
 	t.Helper()
-	path := filepath.Join(root, filepath.FromSlash(dir), "task.md")
+	name := filepath.Join(filepath.FromSlash(dir), "task.md")
+	path := filepath.Join(root, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +69,5 @@ func WaitWithoutCondition(t testing.TB, root, dir string) {
 		t.Fatalf("%s has no status", path)
 	}
 	data = ownerLines.ReplaceAll(statusLine.ReplaceAll(data, []byte("status: waiting")), nil)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, name, data)
 }

@@ -1,16 +1,21 @@
 // Package disk is the only package in lacia that writes files. lacia writes
-// in two directories, the records and the tools directory (~/.lacia), and
-// each is held as an os.Root so no name can lead out of it. Outside them,
-// lacia writes only the two files in install.go.
+// in the records and in the tools directory (~/.lacia), which holds the
+// server's state, each opened as an os.Root so no name can lead out of it.
+// A command opens each directory once and hands the Dir to the parts that
+// write in it (docs/design/safety.md). Every place lacia writes outside
+// these is in outside.go.
 package disk
 
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // Dir is a directory lacia may write in. Names are relative to it; a name
@@ -33,10 +38,6 @@ func OpenTools(path string) (*Dir, error) {
 	return open(path, 0o700)
 }
 
-// MkdirAll makes the directory at path with missing parents, as
-// os.MkdirAll does.
-func MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
-
 func open(path string, dirMode os.FileMode) (*Dir, error) {
 	root, err := os.OpenRoot(path)
 	if err != nil {
@@ -46,6 +47,35 @@ func open(path string, dirMode os.FileMode) (*Dir, error) {
 }
 
 func (d *Dir) Path() string { return d.path }
+
+// ReadFile reads a file inside the directory. A conversation may leave a link
+// that leads outside, and reading through the root keeps it from being read.
+func (d *Dir) ReadFile(name string) ([]byte, error) { return d.root.ReadFile(name) }
+
+// Open opens a file inside the directory for reading. It does not wait on
+// a pipe that a conversation may have left in place of the file.
+func (d *Dir) Open(name string) (*os.File, error) {
+	return d.root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+}
+
+// Sub opens a directory inside as a Dir of its own, so that names in it
+// cannot lead out of it either.
+func (d *Dir) Sub(name string) (*Dir, error) {
+	root, err := d.root.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	return &Dir{path: filepath.Join(d.path, name), root: root, dirMode: d.dirMode}, nil
+}
+
+// MakeSub opens a directory inside as Sub does, making it, with missing
+// parents, in mode perm when it is not there.
+func (d *Dir) MakeSub(name string, perm os.FileMode) (*Dir, error) {
+	if err := d.root.MkdirAll(name, perm); err != nil {
+		return nil, d.fail("make directory", name, err)
+	}
+	return d.Sub(name)
+}
 
 func (d *Dir) Close() error { return d.root.Close() }
 
@@ -91,56 +121,34 @@ func (d *Dir) syncDir(name string) error {
 	return f.Sync()
 }
 
-// WriteFile, WriteFileNoSync and Append are for code that keeps the path of
-// a file rather than a Dir. A missing directory is made searchable by
-// whoever may read the file: 0o755 for a file of 0o644, 0o700 for 0o600.
-func WriteFile(path string, data []byte, perm os.FileMode) error {
-	return at(path, perm, func(d *Dir, name string) error { return d.WriteFile(name, data, perm) })
-}
-
-func WriteFileNoSync(path string, data []byte, perm os.FileMode) error {
-	return at(path, perm, func(d *Dir, name string) error { return d.WriteFileNoSync(name, data, perm) })
-}
-
-func Append(path string, data []byte, perm os.FileMode) error {
-	return at(path, perm, func(d *Dir, name string) error { return d.Append(name, data, perm) })
-}
-
-// Remove removes the file at path, and does nothing when it is gone.
-func Remove(path string) error {
-	d, err := open(filepath.Dir(path), 0o700)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Remove(filepath.Base(path))
-}
-
-func at(path string, perm os.FileMode, write func(*Dir, string) error) error {
-	dirMode := perm | perm&0o444>>2
-	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
-		return err
-	}
-	d, err := open(filepath.Dir(path), dirMode)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return write(d, filepath.Base(path))
-}
-
 // CreateNew writes a file that must not exist yet. When it does, the error
 // satisfies errors.Is(err, fs.ErrExist).
 func (d *Dir) CreateNew(name string, data []byte, perm os.FileMode) error {
 	return d.fail("write", name, d.copyTo(name, bytes.NewReader(data), os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm, false))
 }
 
-// Append adds data at the end of the file, making it when it is missing.
+// CreateNewSync writes a new file as CreateNew does, and waits for the disk:
+// the file, and each directory from it up to this one, so that a claim it
+// records outlasts a crash.
+func (d *Dir) CreateNewSync(name string, data []byte, perm os.FileMode) error {
+	err := d.copyTo(name, bytes.NewReader(data), os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm, true)
+	for dir := filepath.Dir(name); err == nil; dir = filepath.Dir(dir) {
+		err = d.syncDir(dir)
+		if dir == "." {
+			break
+		}
+	}
+	return d.fail("write", name, err)
+}
+
 func (d *Dir) Append(name string, data []byte, perm os.FileMode) error {
 	return d.fail("write", name, d.copyTo(name, bytes.NewReader(data), appendFlag, perm, false))
+}
+
+// AppendSync appends as Append does, and waits for the disk, for a record
+// that must outlast a crash.
+func (d *Dir) AppendSync(name string, data []byte, perm os.FileMode) error {
+	return d.fail("write", name, d.copyTo(name, bytes.NewReader(data), appendFlag, perm, true))
 }
 
 const appendFlag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
@@ -152,11 +160,25 @@ func (d *Dir) OpenAppend(name string, perm os.FileMode) (*os.File, error) {
 	return f, d.fail("open", name, err)
 }
 
+// OpenLock opens the file to read and write in place, making it when
+// missing: a lock, or a small file kept under one. A link in its place is
+// refused, so the lock cannot be another file.
+func (d *Dir) OpenLock(name string, perm os.FileMode) (*os.File, error) {
+	f, err := d.open(name, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, perm)
+	return f, d.fail("open", name, err)
+}
+
 func (d *Dir) open(name string, flag int, perm os.FileMode) (*os.File, error) {
 	if err := d.root.MkdirAll(filepath.Dir(name), d.dirMode); err != nil {
 		return nil, err
 	}
-	return d.root.OpenFile(name, flag, perm)
+	f, err := d.root.OpenFile(name, flag, perm)
+	// On macOS, openat with O_CREATE fails with ENOENT when another writer
+	// makes the same file at that moment. The file is there by then.
+	if errors.Is(err, fs.ErrNotExist) && flag&os.O_EXCL == 0 {
+		f, err = d.root.OpenFile(name, flag, perm)
+	}
+	return f, err
 }
 
 func (d *Dir) copyTo(name string, r io.Reader, flag int, perm os.FileMode, sync bool) error {
@@ -186,13 +208,31 @@ func (d *Dir) Rename(oldName, newName string) error {
 	return d.fail("rename "+oldName+" to", newName, err)
 }
 
+// MkdirTemp makes a new directory inside dir, making dir when missing, and
+// returns its name. Only the owner may read either.
+func (d *Dir) MkdirTemp(dir, prefix string) (string, error) {
+	name := filepath.Join(dir, prefix+rand.Text())
+	err := d.root.MkdirAll(dir, 0o700)
+	if err == nil {
+		err = d.root.Mkdir(name, 0o700)
+	}
+	return name, d.fail("make directory", name, err)
+}
+
+func (d *Dir) Lstat(name string) (fs.FileInfo, error) { return d.root.Lstat(name) }
+
 // Remove and RemoveAll do nothing when the name is already gone.
 func (d *Dir) Remove(name string) error {
-	if err := d.root.Remove(name); !os.IsNotExist(err) {
-		return d.fail("remove", name, err)
+	if err := d.RemoveFile(name); !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	return nil
 }
+
+// RemoveFile removes the name as Remove does, but reports one that is
+// already gone, with an error satisfying errors.Is(err, fs.ErrNotExist),
+// for callers that must know whether they removed it.
+func (d *Dir) RemoveFile(name string) error { return d.fail("remove", name, d.root.Remove(name)) }
 
 func (d *Dir) RemoveAll(name string) error {
 	return d.fail("remove", name, d.root.RemoveAll(name))

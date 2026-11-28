@@ -1,7 +1,7 @@
 // Package task reads and writes tasks in a record repository.
 //
 // A task is a directory holding task.md (front matter plus a short body),
-// and optionally notes.md, log.md and artifacts/. See docs/design/records.md.
+// and optionally notes.md, log.jsonl and artifacts/. See docs/design/records.md.
 package task
 
 import (
@@ -61,8 +61,8 @@ func ParseDoc(src string) (Doc, error) {
 	return d, nil
 }
 
-// String serializes the document. Empty values are dropped: an absent
-// optional field and an empty one mean the same thing.
+// Empty values are dropped: an absent optional field and an empty one
+// mean the same thing.
 func (d Doc) String() string {
 	var b strings.Builder
 	b.WriteString("---\n")

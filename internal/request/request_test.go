@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
 func TestQueueOrderAndPersistence(t *testing.T) {
 	dir := t.TempDir()
-	q, err := Open(dir)
+	q, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,7 @@ func TestQueueOrderAndPersistence(t *testing.T) {
 	}
 
 	// A new process sees the same results.
-	again, err := Open(dir)
+	again, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,14 +85,14 @@ func TestQueueOrderAndPersistence(t *testing.T) {
 
 func TestRunningBecomesUnknownAfterRestart(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := Open(dir)
+	q, _ := Open(testDir(t, dir))
 	r, _, _ := q.Add(Request{Text: "長い作業"})
 	q.mu.Lock()
 	q.items[r.ID].Status = Running
 	q.save(q.items[r.ID])
 	q.mu.Unlock()
 
-	again, err := Open(dir)
+	again, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestRunningBecomesUnknownAfterRestart(t *testing.T) {
 }
 
 func TestAddMergingFoldsABurstAndTakesTurns(t *testing.T) {
-	q, err := Open(t.TempDir())
+	q, err := Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func TestAddMergingFoldsABurstAndTakesTurns(t *testing.T) {
 
 func TestInterruptedRecordRequestKeepsPolicy(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := Open(dir)
+	q, _ := Open(testDir(t, dir))
 	r, _, err := q.Add(Request{ID: "record-interrupted", TaskID: "T1001", StatusPolicy: KeepStatus, Text: "記録だけを保存してください。"})
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +182,7 @@ func TestInterruptedRecordRequestKeepsPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(dir)
+	reopened, err := Open(testDir(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestPromptNamesTheConversationThatSent(t *testing.T) {
 }
 
 func TestWorkingIncludesCompletionCallback(t *testing.T) {
-	q, err := Open(t.TempDir())
+	q, err := Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,4 +277,15 @@ func TestWorkingIncludesCompletionCallback(t *testing.T) {
 	if q.Working() {
 		t.Fatal("finished worker still prevents restart")
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

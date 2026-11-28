@@ -3,13 +3,13 @@ package discord
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/imos/lacia/internal/daylog"
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func jstTime(s string) time.Time {
@@ -36,11 +36,11 @@ func TestBotKeepsWhatWasSaidAndPosted(t *testing.T) {
 	f.channels["200"] = Channel{ID: "200", Type: typePublicThread, ParentID: "100", OwnerID: "1", Name: "旅行の相談"}
 	f.history["100"] = []Message{{ID: "10"}}
 	dir := t.TempDir()
-	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, State: filepath.Join(dir, "discord.json"),
+	cfg := Config{Token: "the-token", GuildID: "G", Channels: []string{"100"}, State: testDir(t, dir), StateName: "discord.json",
 		Members: []Member{{ID: "20", Name: "Xさん", Role: Adult}, {ID: "21", Name: "Yさん", Role: Child}},
 		api:     f.server.URL + "/api", gateway: "ws" + strings.TrimPrefix(f.server.URL, "http") + "/gateway"}
 	bot := New(cfg)
-	bot.Log = daylog.Discord(filepath.Join(dir, "log"))
+	bot.Log = daylog.Discord(testDir(t, dir), "log")
 	received := make(chan Incoming, 16)
 	bot.Receive = func(in Incoming) (bool, error) { received <- in; return true, nil }
 	ready := make(chan struct{})
@@ -112,4 +112,15 @@ func TestBotKeepsWhatWasSaidAndPosted(t *testing.T) {
 func readLogOrEmpty(l *daylog.Log, when time.Time) string {
 	data, _ := os.ReadFile(l.Path(when))
 	return string(data)
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

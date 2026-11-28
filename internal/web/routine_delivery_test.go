@@ -10,7 +10,7 @@ import (
 
 func TestRoutineNativeNoticesPreserveTheAssignedTextRoute(t *testing.T) {
 	s, h := setupRoutine(t)
-	q, err := request.Open(t.TempDir())
+	q, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

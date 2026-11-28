@@ -121,7 +121,7 @@ func TestWaitingNeedsAConditionOnPageAndAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(true)
-	queued, err := request.Open(t.TempDir())
+	queued, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestTaskListsShowWaitingConditionsAndWatchProgress(t *testing.T) {
 
 func TestHomeShowsAQueuedTaskButKeepsWorkAlreadyInProgress(t *testing.T) {
 	store, _ := setup(t)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestTaskListSuppliesStructuredConditionAndKeepsTaskBody(t *testing.T) {
 			status = task.Todo
 		}
 		item, err := store.Create(task.NewTask{Area: "work", Title: title, Status: status,
-			Body: task.Body(store.Format(), "概要です。", "PRの結果を本文に書きます。")})
+			Body: task.Body("概要です。", "PRの結果を本文に書きます。")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -365,7 +365,7 @@ func TestTaskListSuppliesStructuredConditionAndKeepsTaskBody(t *testing.T) {
 
 func TestTaskListRequestsFinishedAlert(t *testing.T) {
 	store, _ := setup(t)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/codex"
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 // runCodexProbe sends one message through the bridge on a throwaway
@@ -25,8 +26,13 @@ func runCodexProbe(args []string) error {
 	if *workspace == "" || *state == "" || fs.NArg() == 0 {
 		return errors.New("--workspace、--state、送る文章を指定してください")
 	}
+	stateDir, err := disk.OpenTools(*state)
+	if err != nil {
+		return err
+	}
+	defer stateDir.Close()
 	bridge := codex.New(codex.Config{
-		Command: strings.Fields(*command), Workspace: *workspace, StateDir: *state, Ephemeral: true,
+		Command: strings.Fields(*command), Workspace: *workspace, State: stateDir, Ephemeral: true,
 		Instructions: "これは接続の試験です。指示された文章にだけ、短く答えてください。",
 	})
 	bridge.OnChild = func(c codex.Child) { fmt.Fprintf(os.Stderr, "サブエージェント: %+v\n", c) }

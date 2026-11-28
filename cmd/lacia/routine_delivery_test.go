@@ -10,6 +10,7 @@ import (
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/routine"
 	"github.com/imos/lacia/internal/schedule"
+	"github.com/imos/lacia/internal/task"
 )
 
 func TestRoutineTextDeliveryKeepsReviewAndDoesNotResend(t *testing.T) {
@@ -25,9 +26,9 @@ func TestRoutineTextDeliveryKeepsReviewAndDoesNotResend(t *testing.T) {
 		{"native", "", "結果です。", "", "", false, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := routineRecords(t, "S1001")
 			queueDir := filepath.Join(root, "requests")
-			q, err := request.Open(queueDir)
+			q, err := request.Open(testDir(t, queueDir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -53,7 +54,7 @@ func TestRoutineTextDeliveryKeepsReviewAndDoesNotResend(t *testing.T) {
 			// Replay a sender callback and reconstruct both stores, as after a crash
 			// between sending the text and recording the receipt.
 			deliverDiscordResult(context.Background(), bot, q, saved)
-			reopened, err := request.Open(queueDir)
+			reopened, err := request.Open(testDir(t, queueDir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,9 +92,30 @@ func TestRoutineTextDeliveryKeepsReviewAndDoesNotResend(t *testing.T) {
 	}
 }
 
-func TestSyncExistingRoutineProblemsUsesLatestStoredFailure(t *testing.T) {
+// routineRecords is a repository of the latest format whose area work holds
+// the routines ids.
+func routineRecords(t *testing.T, ids ...string) string {
+	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "routines", "S1042", "runs", "2026-11")
+	files := map[string]string{task.ConfigFile: `{"format":2,"areas":["work"]}`}
+	for _, id := range ids {
+		files["areas/work/routines/"+id+"/routine.md"] = "---\nid: " + id + "\ndaily: 09:00\n---\n確認します。\n"
+	}
+	for name, text := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestSyncExistingRoutineProblemsUsesLatestStoredFailure(t *testing.T) {
+	root := routineRecords(t, "S1042")
+	dir := filepath.Join(root, "areas", "work", "routines", "S1042", "runs", "2026-11")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

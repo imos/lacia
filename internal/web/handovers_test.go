@@ -19,8 +19,8 @@ func TestWaitOutboxRecoversBothSaveBoundaries(t *testing.T) {
 		t.Run(map[bool]string{false: "after observation", true: "after message save"}[failLink], func(t *testing.T) {
 			store, _ := setup(t)
 			wd, hd := t.TempDir(), t.TempDir()
-			ws, _ := wait.Open(wd)
-			hs, _ := handover.Open(hd)
+			ws, _ := wait.Open(testDir(t, wd))
+			hs, _ := handover.Open(testDir(t, hd))
 			s := &Server{Store: store, Waits: ws, Handovers: hs, Now: time.Now}
 			item, _, err := ws.Add(wait.Wait{TaskID: "T1001", Kind: wait.Job, Context: "ctx", Namespace: "ns", Name: "job", By: time.Now().Add(time.Hour), Next: wait.NextClaude, Then: "結果を集計します。"})
 			if err != nil {
@@ -54,11 +54,11 @@ func TestWaitOutboxRecoversBothSaveBoundaries(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			ws, err = wait.Open(wd)
+			ws, err = wait.Open(testDir(t, wd))
 			if err != nil {
 				t.Fatal(err)
 			}
-			hs, err = handover.Open(hd)
+			hs, err = handover.Open(testDir(t, hd))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +177,7 @@ func TestHandoverDelayPreservesStatusAndIsRecordedOnce(t *testing.T) {
 			store, s, h, now := setupWaits(t)
 			dir := t.TempDir()
 			var err error
-			s.Handovers, err = handover.Open(dir)
+			s.Handovers, err = handover.Open(testDir(t, dir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,7 +197,7 @@ func TestHandoverDelayPreservesStatusAndIsRecordedOnce(t *testing.T) {
 			if err := s.recordHandoverIssue(item, "delayed", reason); err != nil {
 				t.Fatal(err)
 			}
-			s.Handovers, err = handover.Open(dir)
+			s.Handovers, err = handover.Open(testDir(t, dir))
 			if err != nil {
 				t.Fatal(err)
 			}

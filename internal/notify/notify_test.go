@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/task"
 )
 
@@ -280,12 +281,13 @@ func TestParseConfig(t *testing.T) {
 
 func TestStateAndManifestFiles(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "private")
+	files := testDir(t, dir)
 	statePath := filepath.Join(dir, "agent-state.json")
-	state, err := LoadState(statePath)
+	state, err := LoadState(files, "agent-state.json")
 	if err != nil || state.Tasks != nil || state.Version != Version {
 		t.Fatalf("first run = %+v, %v", state, err)
 	}
-	if err := SaveState(statePath, state); err != nil {
+	if err := SaveState(files, "agent-state.json", state); err != nil {
 		t.Fatal(err)
 	}
 	if raw, _ := os.ReadFile(statePath); string(raw) != `{"version":1,"tasks":null,"outbox":[],"meetings":[]}` {
@@ -297,11 +299,11 @@ func TestStateAndManifestFiles(t *testing.T) {
 	Plan(input, state)
 	input.Tasks = []task.Task{fixtureTask(task.Review)}
 	manifest := Plan(input, state)
-	if err := SaveState(statePath, state); err != nil {
+	if err := SaveState(files, "agent-state.json", state); err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(dir, "manifest.json")
-	if err := WriteManifest(manifestPath, manifest); err != nil {
+	if err := WriteManifest(files, "manifest.json", manifest); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{statePath, manifestPath} {
@@ -316,11 +318,11 @@ func TestStateAndManifestFiles(t *testing.T) {
 		t.Errorf("temporary files were left: %v", entries)
 	}
 
-	reloaded, err := LoadState(statePath)
+	reloaded, err := LoadState(files, "agent-state.json")
 	if err != nil || !reflect.DeepEqual(reloaded, state) {
 		t.Errorf("reloaded = %+v, %v\nwant %+v", reloaded, err, state)
 	}
-	if got, err := ReadManifest(manifestPath); err != nil || !reflect.DeepEqual(got, manifest) {
+	if got, err := ReadManifest(files, "manifest.json"); err != nil || !reflect.DeepEqual(got, manifest) {
 		t.Errorf("manifest = %+v, %v\nwant %+v", got, err, manifest)
 	}
 
@@ -358,7 +360,7 @@ func TestStateAndManifestFiles(t *testing.T) {
 	}
 
 	// An empty manifest must hold an array, which the Swift decoder requires.
-	if err := WriteManifest(manifestPath, Manifest{Version: Version}); err != nil {
+	if err := WriteManifest(files, "manifest.json", Manifest{Version: Version}); err != nil {
 		t.Fatal(err)
 	}
 	if raw, _ := os.ReadFile(manifestPath); !strings.Contains(string(raw), `"notices":[]`) {
@@ -368,13 +370,13 @@ func TestStateAndManifestFiles(t *testing.T) {
 	if err := os.WriteFile(statePath, []byte(`{"version":2}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadState(statePath); !errors.Is(err, ErrStateVersion) {
+	if _, err := LoadState(files, "agent-state.json"); !errors.Is(err, ErrStateVersion) {
 		t.Errorf("version 2: %v", err)
 	}
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveState(statePath, state); !errors.Is(err, ErrDirectoryPrivate) {
+	if err := SaveState(files, "agent-state.json", state); !errors.Is(err, ErrDirectoryPrivate) {
 		t.Errorf("an open directory: %v", err)
 	}
 }
@@ -450,4 +452,15 @@ func TestRoutineNoticeOpensItsReceipt(t *testing.T) {
 	if len(state.Outbox) != 2 || state.Outbox[1].URL != testSite+"/routines/S1001" {
 		t.Fatalf("notification for server without receipt pages: %+v", state.Outbox)
 	}
+}
+
+// testDir opens dir as a directory lacia may write in.
+func testDir(t *testing.T, dir string) *disk.Dir {
+	t.Helper()
+	d, err := disk.OpenTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d
 }

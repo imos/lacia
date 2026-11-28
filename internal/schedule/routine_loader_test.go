@@ -18,10 +18,21 @@ func putDefinition(t *testing.T, root, path, body string) {
 	}
 }
 
-func TestRoutineLoaderAndAlias(t *testing.T) {
+// newRecords is a repository of the latest format whose area work holds
+// the routines ids.
+func newRecords(t *testing.T, ids ...string) string {
+	t.Helper()
 	root := t.TempDir()
-	putDefinition(t, root, "schedules/github.md", "---\ndaily: 09:00\n---\n旧定義です。")
-	putDefinition(t, root, "routines/S1001/routine.md", "---\nid: S1001\ntitle: 新しい名前です\narea: work\noutput: matters\nlegacy_name: github\ndaily: 09:00\nenabled: false\n---\n確認します。")
+	putDefinition(t, root, ".lacia/config.json", `{"format":2,"areas":["work"]}`)
+	for _, id := range ids {
+		putDefinition(t, root, "areas/work/routines/"+id+"/routine.md", "---\nid: "+id+"\ndaily: 09:00\n---\n確認します。\n")
+	}
+	return root
+}
+
+func TestRoutineLoaderAndAlias(t *testing.T) {
+	root := newRecords(t)
+	putDefinition(t, root, "areas/work/routines/S1001/routine.md", "---\nid: S1001\ntitle: 新しい名前です\narea: work\noutput: matters\nlegacy_name: github\ndaily: 09:00\nenabled: false\n---\n確認します。")
 	jobs := Load(root)
 	if len(jobs) != 1 {
 		t.Fatalf("duplicate schedule: %+v", jobs)
@@ -30,7 +41,7 @@ func TestRoutineLoaderAndAlias(t *testing.T) {
 	if j.Err != "" || j.Enabled || j.ID != "S1001" || j.Name != "S1001" || j.Area != "work" || j.LegacyName != "github" || j.Output != "matters" {
 		t.Fatalf("job: %+v", j)
 	}
-	if j.Path != filepath.Join("routines", "S1001", "routine.md") {
+	if j.Path != filepath.Join("areas", "work", "routines", "S1001", "routine.md") {
 		t.Fatal(j.Path)
 	}
 	if got, ok := Resolve(root, "github"); !ok || got.ID != "S1001" {
@@ -44,25 +55,30 @@ func TestRoutineLoaderAndAlias(t *testing.T) {
 func TestBrokenReplacementDoesNotRunOldSchedule(t *testing.T) {
 	for _, extra := range []string{"id: S1002\n", "id: S1001\noutput: invalid\n", "id: S1001\n"} {
 		t.Run(strings.ReplaceAll(extra, "\n", ";"), func(t *testing.T) {
-			root := t.TempDir()
+			root := newRecords(t)
 			putDefinition(t, root, "schedules/github.md", "---\ndaily: 09:00\n---\n旧定義です。")
 			timing := "daily: 09:00\n"
 			if extra == "id: S1001\n" {
 				timing = "every: 7m\n"
 			}
-			putDefinition(t, root, "routines/S1001/routine.md", "---\n"+extra+"legacy_name: github\n"+timing+"---\n確認します。")
+			putDefinition(t, root, "areas/work/routines/S1001/routine.md", "---\n"+extra+"legacy_name: github\n"+timing+"---\n確認します。")
 			jobs := Load(root)
-			if len(jobs) != 1 || jobs[0].Err == "" || jobs[0].Enabled {
-				t.Fatalf("unsafe fallback: %+v", jobs)
+			if len(jobs) != 2 {
+				t.Fatalf("jobs: %+v", jobs)
+			}
+			for _, j := range jobs {
+				if j.Err == "" || j.Enabled {
+					t.Fatalf("unsafe fallback: %+v", j)
+				}
 			}
 		})
 	}
 }
 
 func TestDuplicateRoutineAliasIsDisabled(t *testing.T) {
-	root := t.TempDir()
+	root := newRecords(t)
 	for _, id := range []string{"S1001", "S1002"} {
-		putDefinition(t, root, "routines/"+id+"/routine.md", "---\nid: "+id+"\nlegacy_name: github\ndaily: 09:00\n---\n確認します。")
+		putDefinition(t, root, "areas/work/routines/"+id+"/routine.md", "---\nid: "+id+"\nlegacy_name: github\ndaily: 09:00\n---\n確認します。")
 	}
 	for _, j := range Load(root) {
 		if j.Err == "" || j.Enabled {

@@ -122,7 +122,6 @@ func (b *Bot) Members() []MemberStatus {
 	return out
 }
 
-// MemberStatus is a member and whether they are paused.
 type MemberStatus struct {
 	Member
 	PausedUntil *time.Time `json:"paused_until,omitempty"`
@@ -165,7 +164,6 @@ func (b *Bot) Pause(who string, d time.Duration) (Member, time.Time, error) {
 	return m, until, nil
 }
 
-// Resume ends a pause early.
 func (b *Bot) Resume(who string) (Member, error) {
 	m, err := b.find(who)
 	if err != nil {

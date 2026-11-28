@@ -203,7 +203,7 @@ func TestStatusChange(t *testing.T) {
 
 func TestRequestsMarkTasksInProgressAtOnce(t *testing.T) {
 	store, _ := setup(t)
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestStartButtonForATaskThatBecameReady(t *testing.T) {
 	}
 	first, _ := store.Create(task.NewTask{Area: "work", Title: "先のタスク"})
 	second, _ := store.Create(task.NewTask{Area: "work", Title: "あとのタスク"})
-	queue, err := request.Open(filepath.Join(root, "requests"))
+	queue, err := request.Open(testDir(t, filepath.Join(root, "requests")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ func TestTaskStartsByItselfWhenReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queue, err := request.Open(filepath.Join(root, "requests"))
+	queue, err := request.Open(testDir(t, filepath.Join(root, "requests")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +626,7 @@ func TestHandoffFromTheHomeMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Create(task.NewTask{Area: "work", Title: "仕事のタスク"})
-	queue, err := request.Open(t.TempDir())
+	queue, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,6 +707,6 @@ func TestHandoffFromTheHomeMode(t *testing.T) {
 
 func readTestHistory(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
-	lines, err := task.ReadHistory(dir, 1, 0)
+	lines, err := task.ReadHistory(dir, 0)
 	return []byte(strings.Join(lines, "\n")), err
 }

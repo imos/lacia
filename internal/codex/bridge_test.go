@@ -82,7 +82,7 @@ func TestRunForBindsChildrenBeforeStartResponse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "thread.json"), []byte(`{"thread_id":"root-thread"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	b := New(Config{StateDir: dir})
+	b := New(Config{State: testState(t, dir)})
 	defer b.Close()
 	var mu sync.Mutex
 	var got []Child
@@ -180,7 +180,7 @@ func TestChildCompletionArrivesAfterParentAndNextTurn(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "thread.json"), []byte(`{"thread_id":"root"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	b := New(Config{StateDir: dir})
+	b := New(Config{State: testState(t, dir)})
 	defer b.Close()
 	completed := make(chan Child, 1)
 	b.OnChild = func(c Child) {
@@ -206,7 +206,7 @@ func TestChildCompletionArrivesAfterParentAndNextTurn(t *testing.T) {
 	}
 	b.Close()
 
-	reopened := New(Config{StateDir: dir})
+	reopened := New(Config{State: testState(t, dir)})
 	reopened.turns["missed-finish"] = &turn{}
 	defer reopened.Close()
 	if err := reopened.connect(ctx); err != nil || reopened.ThreadID() != "root" {
@@ -276,7 +276,7 @@ func TestConversationRefreshesRuleVersionBetweenTurns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	current := "one"
-	config := Config{StateDir: dir, CurrentInstructions: func(context.Context) (string, rules.Revision) {
+	config := Config{State: testState(t, dir), CurrentInstructions: func(context.Context) (string, rules.Revision) {
 		return current, rules.Revision{"core": current}
 	}}
 	b := New(config)

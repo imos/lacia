@@ -104,7 +104,6 @@ func pageURL(repoDir, dest string) string {
 	return target
 }
 
-// repoURL returns the page that shows a repository path.
 func repoURL(repoPath string) string {
 	if m := routineFile.FindStringSubmatch(repoPath); m != nil {
 		switch m[2] {

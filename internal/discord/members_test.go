@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -15,8 +14,7 @@ func authored(id, username string) Message {
 }
 
 func TestMembersAreKnownByIDAndBoundByUsernameOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "discord.json")
-	cfg := Config{State: path, Members: []Member{
+	cfg := Config{State: testDir(t, t.TempDir()), StateName: "discord.json", Members: []Member{
 		{ID: "1", Name: "佐藤さん", Role: Adult},
 		{Username: "Example_Child", Name: "Xさん", Role: Child},
 	}}
@@ -58,7 +56,7 @@ func TestMembersAreKnownByIDAndBoundByUsernameOnce(t *testing.T) {
 }
 
 func TestOnlyMembersCanBeMentioned(t *testing.T) {
-	b := New(Config{State: filepath.Join(t.TempDir(), "discord.json"), Members: []Member{
+	b := New(Config{State: testDir(t, t.TempDir()), StateName: "discord.json", Members: []Member{
 		{ID: "1", Name: "佐藤さん", Role: Adult},
 		{Username: "example_child", Name: "Xさん", Role: Child},
 	}})
@@ -81,7 +79,7 @@ func TestConfiguredMembersRejectUnknownEvenWithChannelHumans(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"members":[{"id":"known-adult","name":"大人の検証用","role":"adult"},{"id":"known-child","name":"子どもの検証用","role":"child"}]}`), &table); err != nil {
 		t.Fatal(err)
 	}
-	b := New(Config{State: filepath.Join(t.TempDir(), "state.json"), GuildID: "guild", Channels: []string{"channel"}, Members: table.Members, AnyHuman: true, Authors: []string{"stranger"}})
+	b := New(Config{State: testDir(t, t.TempDir()), StateName: "state.json", GuildID: "guild", Channels: []string{"channel"}, Members: table.Members, AnyHuman: true, Authors: []string{"stranger"}})
 	var got []Member
 	b.Receive = func(in Incoming) (bool, error) { got = append(got, in.Member); return false, nil }
 	for i, id := range []string{"stranger", "known-adult", "known-child"} {

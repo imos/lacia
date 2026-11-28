@@ -61,7 +61,6 @@ func readOnlyCopy(root string) bool {
 // me is the conversation that ran this command, found once.
 var me = sync.OnceValue(caller.Detect)
 
-// apiCall sends JSON to the server and decodes the reply into out.
 func apiCall(method, path string, in, out any) error {
 	return apiClient(apiBase()).call(method, path, in, out)
 }
@@ -125,12 +124,10 @@ func (api apiClient) connectionError(err error) error {
 	return fmt.Errorf("サーバー（%s）へつながりませんでした。手元で使うときは、lacia serve が起動しているか、どの URL で待ち受けているかを確かめてください。別のサーバーを使うときは、接続先の URL と、そこまでの通信経路を確かめてください。\n%w", api, err)
 }
 
-// put sends a file as the body of a PUT request.
 func (api apiClient) put(path string, body io.Reader) error {
 	return api.putOut(path, body, nil)
 }
 
-// putOut is put that also decodes the reply into out.
 func (api apiClient) putOut(path string, body io.Reader, out any) error {
 	req, err := http.NewRequest(http.MethodPut, string(api)+path, body)
 	if err != nil {

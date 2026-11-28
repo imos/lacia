@@ -2,10 +2,11 @@ package caller
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/disk"
 )
 
 func table(procs ...process) func(int) (process, error) {
@@ -129,8 +130,12 @@ func TestParseStat(t *testing.T) {
 }
 
 func TestRegistryNumbersConcurrentSessions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sessions.json")
-	r, err := OpenRegistry(path)
+	dir, err := disk.OpenTools(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	r, err := OpenRegistry(dir, "sessions.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +164,7 @@ func TestRegistryNumbersConcurrentSessions(t *testing.T) {
 	if _, ok := r.Seen(Caller{Place: "local"}); ok {
 		t.Fatal("a caller without an agent was recorded")
 	}
-	reopened, err := OpenRegistry(path)
+	reopened, err := OpenRegistry(dir, "sessions.json")
 	if err != nil {
 		t.Fatal(err)
 	}

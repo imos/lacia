@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,16 +103,17 @@ type Credential struct {
 	Connected    string `json:"connected"` // when the user granted access
 }
 
-// Store keeps the credentials file.
+// Store keeps the credentials in the file Name inside Dir.
 type Store struct {
-	Path string
+	Dir  *disk.Dir
+	Name string
 	mu   sync.Mutex
 }
 
 func (s *Store) load() (map[string]Credential, error) {
 	out := map[string]Credential{}
-	data, err := os.ReadFile(s.Path)
-	if os.IsNotExist(err) {
+	data, err := s.Dir.ReadFile(s.Name)
+	if errors.Is(err, fs.ErrNotExist) {
 		return out, nil
 	}
 	if err != nil {
@@ -129,7 +131,6 @@ func (s *Store) Get(account string) (Credential, bool) {
 	return c, err == nil && ok && c.RefreshToken != ""
 }
 
-// Put saves the credential of an account.
 func (s *Store) Put(account string, c Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,7 +143,7 @@ func (s *Store) Put(account string, c Credential) error {
 	if err != nil {
 		return err
 	}
-	return disk.WriteFileNoSync(s.Path, append(data, '\n'), 0o600)
+	return s.Dir.WriteFileNoSync(s.Name, append(data, '\n'), 0o600)
 }
 
 // Remove disconnects an account.
@@ -155,7 +156,7 @@ func (s *Store) Remove(account string) error {
 	}
 	delete(all, account)
 	data, _ := json.MarshalIndent(all, "", "  ")
-	return disk.WriteFileNoSync(s.Path, append(data, '\n'), 0o600)
+	return s.Dir.WriteFileNoSync(s.Name, append(data, '\n'), 0o600)
 }
 
 // Client talks to Google for one credential.
@@ -555,7 +556,6 @@ func (c *Client) readAccess(ctx context.Context, cred Credential, calendarID str
 	return checkCalendarRole(out.AccessRole)
 }
 
-// Accounts lists the connected accounts.
 func (s *Store) Accounts() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

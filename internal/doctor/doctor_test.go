@@ -34,6 +34,7 @@ func TestCleanRepository(t *testing.T) {
 
 func TestDesignLinks(t *testing.T) {
 	root := t.TempDir()
+	write(t, root, ".lacia/config.json", `{"format": 2}`)
 	write(t, root, "README.md", "[一覧](/design/) [有効](/design/rules#記録の側での上書き) [無効](/design/missing) [外](https://example.com/design/missing)\n")
 	r := Check(root, true)
 	if notes := strings.Join(r.Notes, "\n"); r.Broken != 1 || !strings.Contains(notes, "README.md:1 /design/missing") {
@@ -43,7 +44,7 @@ func TestDesignLinks(t *testing.T) {
 
 func TestProblems(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, ".lacia/config.json", `{"format": 1, "areas": ["work", "memory", "gone"]}`)
+	write(t, root, ".lacia/config.json", `{"format": 2, "areas": ["work", "memory", "gone"]}`)
 	write(t, root, "work/README.md", "top level area\n")
 	write(t, root, "areas/work/tasks/2026-11/T1001/task.md", taskMD)
 	write(t, root, "areas/work/tasks/2026-11/T1001/log.md", "# 履歴\n")
@@ -85,17 +86,16 @@ func TestProblems(t *testing.T) {
 	}
 }
 
-// A repository of format 0 gets only the checks that hold for both shapes,
-// and is told how to move to the current one.
-func TestFormat0(t *testing.T) {
+// A repository of an older format is only told how to move to the current
+// one: its shape is not checked against rules it was not written for.
+func TestOldFormat(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, ".lacia/config.json", `{"areas": ["work"]}`)
-	write(t, root, ".gitignore", "/local/\n/.lacia/source/\n/*/tasks/*/*/files/\n")
 	write(t, root, "work/tasks/2026-11/T1001/task.md", taskMD)
 	write(t, root, "work/tasks/2026-11/T1001/log.md", "# T1001 の履歴\n")
 	write(t, root, "work/projects/old/notes.md", "以前の資料\n")
 	write(t, root, "scripts/run.sh", "")
-	if r := Check(root, true); len(r.Errors) != 0 || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "lacia migrate") {
+	if r := Check(root, true); len(r.Errors) != 0 || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "形式0です") || !strings.Contains(r.Notes[0], "lacia migrate") {
 		t.Errorf("report = %+v", r)
 	}
 }

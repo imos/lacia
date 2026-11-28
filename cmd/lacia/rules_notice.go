@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -31,7 +32,7 @@ func rulesNoticeEnvironment(root string) []string {
 	if err != nil {
 		return nil
 	}
-	dir, err := os.MkdirTemp("", "lacia-rule-notices-")
+	dir, err := disk.TempDir("lacia-rule-notices-")
 	if err != nil {
 		return nil
 	}
@@ -76,19 +77,20 @@ func noticeRulesChange(args []string, out io.Writer) {
 			return
 		}
 	}
+	notices, err := disk.OpenTempDir(launch)
+	if err != nil {
+		return
+	}
+	defer notices.Close()
 	key := sha256.Sum256([]byte(root + "\n" + invoker.Key()))
-	path := filepath.Join(dir, fmt.Sprintf("%x.json", key))
-	writeRulesNotice(path, baseline, current.Revision, out)
+	writeRulesNotice(notices, fmt.Sprintf("%x.json", key), baseline, current.Revision, out)
 }
 
-func writeRulesNotice(path string, baseline, current rules.Revision, out io.Writer) {
-	if _, err := os.Stat(path); os.IsNotExist(err) && current.Notice(baseline) == "" {
+func writeRulesNotice(notices *disk.Dir, name string, baseline, current rules.Revision, out io.Writer) {
+	if _, err := notices.Lstat(name); os.IsNotExist(err) && current.Notice(baseline) == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
-	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	file, err := notices.OpenLock(name, 0o600)
 	if err != nil {
 		return
 	}

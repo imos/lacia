@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,7 +18,9 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/chat"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/network"
+	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/rules"
 	"github.com/imos/lacia/internal/task"
 )
@@ -47,18 +48,17 @@ const SideInstructions = `あなたはレイシアです。この会話では、
 - 記録のリポジトリーでは、git commit や git push を実行しないでください。Git への自動保存を使う環境では、サーバーが変更を保存します。ほかのリポジトリーでの操作は、それぞれの決まりと依頼の許可に従います。
 - 最後のメッセージが、結果の報告になります。伝えることがなければ、「報告はありません。」とだけ答えてください。伝えることがあるときは、結論から、自然な日本語で書いてください。`
 
-// Config describes the Codex to run.
 type Config struct {
-	Command     []string // how to start Codex, e.g. ["codex"]
-	Workspace   string   // the task repository; Codex works here
-	StateDir    string   // where the conversation ID and the socket live
-	Model       string   // empty keeps the model of Codex's own settings
-	Effort      string   // reasoning effort; empty keeps Codex's own
-	Env         []string // extra environment for Codex, as KEY=value
-	Sandbox     string   // Codex sandbox mode; empty keeps Codex's default
-	Threads     int      // main conversation plus sub-agents
-	DisabledApp string   // an app reserved for a server-side tool
-	Ephemeral   bool     // do not keep the conversation (for tests)
+	Command     []string  // how to start Codex, e.g. ["codex"]
+	Workspace   string    // the task repository; Codex works here
+	State       *disk.Dir // where the conversation ID and the socket live
+	Model       string    // empty keeps the model of Codex's own settings
+	Effort      string    // reasoning effort; empty keeps Codex's own
+	Env         []string  // extra environment for Codex, as KEY=value
+	Sandbox     string    // Codex sandbox mode; empty keeps Codex's default
+	Threads     int       // main conversation plus sub-agents
+	DisabledApp string    // an app reserved for a server-side tool
+	Ephemeral   bool      // do not keep the conversation (for tests)
 	// Instructions overrides the embedded text.
 	Instructions        string
 	CurrentInstructions func(context.Context) (string, rules.Revision)
@@ -104,11 +104,11 @@ type Bridge struct {
 	threadID    string
 	ruleVersion rules.Revision
 	turns       map[string]*turn
-	process     *exec.Cmd
+	process     *program.Cmd
 	routes      childRoutes
 
 	socketOnce sync.Once
-	socketPath string
+	socketDir  *disk.Dir
 }
 
 type turn struct {
@@ -119,7 +119,7 @@ type turn struct {
 	done   chan struct{}
 }
 
-// New prepares a bridge; nothing starts until Run.
+// Nothing starts until Run.
 func New(cfg Config) *Bridge {
 	if cfg.Threads == 0 {
 		cfg.Threads = 8
@@ -136,38 +136,36 @@ func New(cfg Config) *Bridge {
 	return &Bridge{cfg: cfg, turns: map[string]*turn{}}
 }
 
+const socketName = "codex.sock"
+
 func (b *Bridge) socket() string {
-	b.socketOnce.Do(func() { b.socketPath = socketPath(b.cfg.StateDir) })
-	return b.socketPath
+	b.socketOnce.Do(func() { b.socketDir = socketDir(b.cfg.State) })
+	return filepath.Join(b.socketDir.Path(), socketName)
 }
 
-// socketPath decides where the app-server listens. Codex refuses a socket
+// socketDir decides where the app-server listens. Codex refuses a socket
 // whose directory belongs to another user. If the state directory is on a
 // volume that maps ownership to another uid, use a private directory on
 // local disk. Name it after the state directory so a restarted server
 // finds the app-server it left running.
-func socketPath(stateDir string) string {
-	inState := filepath.Join(stateDir, "codex.sock")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return inState
-	}
-	info, err := os.Stat(stateDir)
+func socketDir(state *disk.Dir) *disk.Dir {
+	info, err := os.Stat(state.Path())
 	if err != nil {
-		return inState
+		return state
 	}
 	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) == os.Geteuid() {
-		return inState
+		return state
 	}
-	abs, err := filepath.Abs(stateDir)
+	abs, err := filepath.Abs(state.Path())
 	if err != nil {
-		abs = stateDir
+		abs = state.Path()
 	}
 	sum := sha256.Sum256([]byte(abs))
-	dir := filepath.Join(os.TempDir(), "lacia-codex-"+hex.EncodeToString(sum[:6]))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return inState
+	dir, err := disk.SocketDir("lacia-codex-" + hex.EncodeToString(sum[:6]))
+	if err != nil {
+		return state
 	}
-	return filepath.Join(dir, "codex.sock")
+	return dir
 }
 
 // ThreadID returns the main conversation's ID once connected.
@@ -199,18 +197,15 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 			return nil
 		}
 	}
-	if err := os.MkdirAll(b.cfg.StateDir, 0o700); err != nil {
-		return err
-	}
 	if !network.Listening(b.socket()) {
-		os.Remove(b.socket())
+		b.socketDir.Remove(socketName)
 		args := WithMemoryDefaults(append(append([]string{}, b.cfg.Command[1:]...), "app-server"))
 		args = append(args, "--enable", "multi_agent", "--disable", "wake_on_agent_messages", "--listen", "unix://"+b.socket())
-		cmd := exec.Command(b.cfg.Command[0], args...)
+		cmd := program.Codex(b.cfg.Command[0]).Command(context.Background(), args...)
 		cmd.Dir = b.cfg.Workspace
 		cmd.Env = append(os.Environ(), b.cfg.Env...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		logFile, err := os.OpenFile(filepath.Join(b.cfg.StateDir, "app-server.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		logFile, err := b.cfg.State.OpenAppend("app-server.log", 0o600)
 		if err != nil {
 			return err
 		}
@@ -221,7 +216,7 @@ func (b *Bridge) connectLocked(ctx context.Context) error {
 		}
 		logFile.Close()
 		b.process = cmd
-		os.WriteFile(filepath.Join(b.cfg.StateDir, "app-server.pid"), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600)
+		b.cfg.State.WriteFileNoSync("app-server.pid", []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600)
 		go cmd.Wait()
 		deadline := time.Now().Add(15 * time.Second)
 		for {
@@ -475,7 +470,7 @@ func (b *Bridge) RunForImages(ctx context.Context, text, requestID string, image
 	return res, nil
 }
 
-// Close drops the connection. The app-server keeps running.
+// The app-server keeps running.
 func (b *Bridge) Close() {
 	b.mu.Lock()
 	c := b.client

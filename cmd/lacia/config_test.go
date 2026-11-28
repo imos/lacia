@@ -79,7 +79,7 @@ func TestApplyConfig(t *testing.T) {
 
 func TestWriteShims(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "bin")
-	if err := writeShims(dir, "/opt/a place/lacia"); err != nil {
+	if err := writeShims(testDir(t, dir), "/opt/a place/lacia"); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
@@ -100,7 +100,7 @@ func TestWriteShims(t *testing.T) {
 	}
 	// A second start with another binary points the commands at it, and
 	// leaves nothing else behind.
-	if err := writeShims(dir, "/new/lacia"); err != nil {
+	if err := writeShims(testDir(t, dir), "/new/lacia"); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "pre-push"))

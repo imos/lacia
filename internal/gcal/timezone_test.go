@@ -17,7 +17,7 @@ func TestFetcherUsesConfiguredRangeAndMetadata(t *testing.T) {
 	defer srv.Close()
 	client := &Client{Endpoints: Endpoints{Auth: srv.URL + "/auth", Token: srv.URL + "/token", API: srv.URL + "/api"}}
 	root := t.TempDir()
-	store := &Store{Path: filepath.Join(root, "credentials.json")}
+	store := &Store{Dir: testState(t, root), Name: "credentials.json"}
 	for i, id := range []string{"work", "home"} {
 		cred, _, err := client.Exchange(context.Background(), id, "secret", "http://x/cb", "good-code", "verifier")
 		if err != nil {
@@ -28,7 +28,7 @@ func TestFetcherUsesConfiguredRangeAndMetadata(t *testing.T) {
 		}
 	}
 	loc, _ := time.LoadLocation("America/New_York")
-	f := &Fetcher{Store: store, Client: client, Location: loc, Path: filepath.Join(root, "snapshot.json"), Now: func() time.Time { return time.Date(2026, 11, 12, 0, 30, 0, 0, time.UTC) }}
+	f := &Fetcher{Store: store, Client: client, Location: loc, Path: filepath.Join(root, "snapshot.json"), Publish: publishTo(filepath.Join(root, "snapshot.json")), Now: func() time.Time { return time.Date(2026, 11, 12, 0, 30, 0, 0, time.UTC) }}
 	if err := f.Once(context.Background()); err != nil {
 		t.Fatal(err)
 	}

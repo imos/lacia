@@ -12,10 +12,10 @@ import (
 
 func TestResumePersistsSingleSuccessorAndContext(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := Open(dir)
+	q, _ := Open(testDir(t, dir))
 	original, _, _ := q.Add(Request{ID: "original-request", TaskID: "T1001", Text: "private-original"})
 	q.Resolve(original.ID, Running, "途中の返事", "", false)
-	q, _ = Open(dir)
+	q, _ = Open(testDir(t, dir))
 	original, _ = q.Get(original.ID)
 	if original.Status != Unknown || q.Pending() != 0 {
 		t.Fatal("restart replayed running request")
@@ -34,7 +34,7 @@ func TestResumePersistsSingleSuccessorAndContext(t *testing.T) {
 	if q.Pending() != 1 {
 		t.Fatal("duplicate resume")
 	}
-	q, _ = Open(dir)
+	q, _ = Open(testDir(t, dir))
 	successor, created, err := q.Resume(original.ID, "another-id", "Web", "")
 	if err != nil || created || successor.ResumeOf != original.ID || successor.Text != original.Text {
 		t.Fatalf("lost successor: %+v %v", successor, err)
@@ -70,7 +70,7 @@ func TestResumeRejectsUnsafeRequests(t *testing.T) {
 			}
 		})
 	}
-	q, _ := Open(t.TempDir())
+	q, _ := Open(testDir(t, t.TempDir()))
 	q.Add(base)
 	q.Resolve(base.ID, Failed, "", "failure", false)
 	q.Add(Request{ID: "task-in-flight", TaskID: "T1001", Text: "new request"})
@@ -81,10 +81,10 @@ func TestResumeRejectsUnsafeRequests(t *testing.T) {
 
 func TestWorkDoesNotRunWithoutDurableRunningState(t *testing.T) {
 	dir := t.TempDir()
-	q, _ := Open(dir)
+	q, _ := Open(testDir(t, dir))
 	saved, _, _ := q.Add(Request{ID: "save-failure", TaskID: "T1001", Text: "request", Author: "owner"})
 	// The queued record remains readable, but starting work cannot be persisted.
-	blocked := filepath.Dir(q.path(&saved))
+	blocked := filepath.Dir(filepath.Join(q.dir.Path(), q.name(&saved)))
 	if err := os.Chmod(blocked, 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestWorkDoesNotRunWithoutDurableRunningState(t *testing.T) {
 	if err := os.Chmod(blocked, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	q, _ = Open(dir)
+	q, _ = Open(testDir(t, dir))
 	current, _ = q.Get(saved.ID)
 	if current.Status != Queued {
 		t.Fatal("failed claim changed durable record")

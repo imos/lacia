@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/imos/lacia/internal/testrecords"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/imos/lacia/internal/testrecords"
 
 	"github.com/imos/lacia/internal/discord"
 	"github.com/imos/lacia/internal/request"
@@ -40,7 +41,7 @@ func TestAttachmentAPIUsesOriginalRouteAndSeparateResult(t *testing.T) {
 	}
 	os.Mkdir(filepath.Join(root, "local"), 0700)
 	os.WriteFile(filepath.Join(root, "local", "out.pdf"), []byte("%PDF-1.7\nexample"), 0600)
-	q, err := request.Open(t.TempDir())
+	q, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -317,7 +317,6 @@ func saveRoutineActionState(doc *Doc, state routineActionState) error {
 	return nil
 }
 
-// MarkRoutineActionNotified acknowledges sending a task action notification.
 func (s *Store) MarkRoutineActionNotified(id string, sequence uint64) error {
 	_, _, err := s.update(id, func(doc *Doc, _ time.Time) (Event, error) {
 		state, err := readRoutineActions(*doc)

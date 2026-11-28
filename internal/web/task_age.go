@@ -9,7 +9,7 @@ import (
 
 func (s *Server) setStatusAge(row *Row, list taskListContext) {
 	t := row.Task
-	if s.Store.Format() < 1 || (row.Waits.Running() && (t.Status != row.ListStatus || t.Snoozed(list.now))) {
+	if row.Waits.Running() && (t.Status != row.ListStatus || t.Snoozed(list.now)) {
 		return
 	}
 	lines := taskEvents(s.Store.Root(), t)

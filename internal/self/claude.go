@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/imos/lacia/internal/claudecode"
+	"github.com/imos/lacia/internal/effect/disk"
+	"github.com/imos/lacia/internal/effect/program"
 )
 
 type Think func(context.Context, string) (string, error)
@@ -43,7 +44,7 @@ func Claude(executable, model, root string, readRecords bool, privatePaths ...st
 				session = nil
 			}
 			if temporary != "" {
-				os.RemoveAll(temporary)
+				disk.RemoveTempDir(temporary)
 				temporary = ""
 			}
 		}
@@ -51,7 +52,7 @@ func Claude(executable, model, root string, readRecords bool, privatePaths ...st
 			if session == nil {
 				workspace := root
 				if !readRecords {
-					dir, err := os.MkdirTemp("", "lacia-self-")
+					dir, err := disk.TempDir("lacia-self-")
 					if err != nil {
 						return "", err
 					}
@@ -99,7 +100,7 @@ func recordReadDeny(root string, privatePaths []string) []string {
 }
 
 type claudeStream struct {
-	cmd    *exec.Cmd
+	cmd    *program.Cmd
 	cancel context.CancelFunc
 	input  io.WriteCloser
 	events *json.Decoder
@@ -108,7 +109,7 @@ type claudeStream struct {
 
 func startClaudeStream(ctx context.Context, executable string, flags []string, root string) (*claudeStream, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, executable, flags...)
+	cmd := program.ClaudeCode(executable).Command(ctx, flags...)
 	cmd.Dir = root
 	const disableGit = "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS="
 	env := slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, disableGit) })

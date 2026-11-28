@@ -21,6 +21,7 @@ import (
 	"github.com/imos/lacia/internal/caller"
 	"github.com/imos/lacia/internal/claudecode"
 	"github.com/imos/lacia/internal/codex"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/wait"
@@ -44,7 +45,8 @@ type Watcher struct {
 	Place          string // configured conversation place, local by default
 	HandoverSecret func() (string, error)
 	Dir            string // the task repository; continuations run here
-	LogDir         string // where the output of continuations is kept
+	Logs           *disk.Dir
+	LogDir         string // where in Logs the output of continuations is kept
 	// Runners maps codex and claude to the command that starts a new
 	// conversation and reads its first message from standard input.
 	// "{dir}" in an argument is replaced with Dir.
@@ -440,7 +442,6 @@ type codexSession struct {
 	last time.Time
 }
 
-// running reports whether a process of the conversation is still there.
 func (s codexSession) running(isAlive func(int) bool) bool {
 	for _, pid := range s.pids {
 		if isAlive(pid) {
@@ -654,8 +655,8 @@ func (w *Watcher) runContinuation(ctx context.Context, item handover.Handover, k
 	cmd.Stdin = strings.NewReader(Prompt(item, w.ownerName()))
 	var out io.Writer = io.Discard
 	tail := &tailBuffer{limit: 2000}
-	if w.LogDir != "" && os.MkdirAll(w.LogDir, 0o700) == nil {
-		if f, err := os.OpenFile(filepath.Join(w.LogDir, item.ID+".log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+	if w.Logs != nil {
+		if f, err := w.Logs.OpenAppend(filepath.Join(w.LogDir, item.ID+".log"), 0o600); err == nil {
 			defer f.Close()
 			out = f
 		}
@@ -672,7 +673,6 @@ func (w *Watcher) runContinuation(ctx context.Context, item handover.Handover, k
 	return code, tail.String()
 }
 
-// tailBuffer keeps the last bytes written to it.
 type tailBuffer struct {
 	mu    sync.Mutex
 	limit int

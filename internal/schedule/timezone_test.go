@@ -20,10 +20,10 @@ func scheduleFixture(t *testing.T, zone, definition string) (string, string) {
 	t.Helper()
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".lacia"), 0755)
-	os.MkdirAll(filepath.Join(root, "schedules"), 0755)
-	os.WriteFile(filepath.Join(root, ".lacia/config.json"), []byte(`{"format":1,"timezone":"`+zone+`"}`), 0600)
-	file := filepath.Join(root, "schedules/check.md")
-	os.WriteFile(file, []byte("---\n"+definition+"---\n\n確認します。\n"), 0600)
+	os.MkdirAll(filepath.Join(root, "areas/work/routines/S1001"), 0755)
+	os.WriteFile(filepath.Join(root, ".lacia/config.json"), []byte(`{"format":2,"areas":["work"],"timezone":"`+zone+`"}`), 0600)
+	file := filepath.Join(root, "areas/work/routines/S1001/routine.md")
+	os.WriteFile(file, []byte("---\nid: S1001\n"+definition+"---\n\n確認します。\n"), 0600)
 	return root, file
 }
 
@@ -36,7 +36,7 @@ func TestMultipleTimesAndClosedTask(t *testing.T) {
 	}
 	var got []Job
 	closed := false
-	r := &Runner{Root: root, State: filepath.Join(t.TempDir(), "state.json"), TaskClosed: func(string) bool { return closed }, Submit: func(id string, j Job) error { got = append(got, j); return nil }}
+	r := &Runner{Root: root, State: stateFile(t, filepath.Join(t.TempDir(), "state.json")), TaskClosed: func(string) bool { return closed }, Submit: func(id string, j Job) error { got = append(got, j); return nil }}
 	for _, value := range []string{"2026-11-24 09:00", "2026-11-24 09:00", "2026-11-24 17:00"} {
 		if err := r.Tick(zoneTime(t, loc, value)); err != nil {
 			t.Fatal(err)

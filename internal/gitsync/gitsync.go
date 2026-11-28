@@ -13,12 +13,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imos/lacia/internal/effect/program"
 )
 
 // Syncer commits and pushes whatever changed in Dir.
@@ -258,15 +259,12 @@ func message(status string) string {
 }
 
 func (s *Syncer) git(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", s.Dir}, args...)...)
+	cmd := program.Git().Command(ctx, append([]string{"-C", s.Dir}, args...)...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
 		detail := strings.TrimSpace(errOut.String())
-		if len(detail) > 300 {
-			detail = detail[:300]
-		}
-		return "", fmt.Errorf("git %s が失敗しました: %v: %s", args[0], err, detail)
+		return "", fmt.Errorf("git %s が失敗しました: %v: %s", args[0], err, detail[:min(len(detail), 300)])
 	}
 	return out.String(), nil
 }

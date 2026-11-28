@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
 	"github.com/imos/lacia/internal/self"
 )
@@ -111,7 +112,7 @@ func (n nightAgent) find() (string, string, error) {
 
 // open starts the night's conversation on what find chose. scratch is a
 // directory outside the records the night on Codex may work in.
-func (n nightAgent) open(model, root string, readRecords bool, scratch string, private ...string) func(context.Context) (self.Think, func(), error) {
+func (n nightAgent) open(model, root string, readRecords bool, scratch *disk.Dir, private ...string) func(context.Context) (self.Think, func(), error) {
 	return func(ctx context.Context) (self.Think, func(), error) {
 		kind, executable, err := n.find()
 		if err != nil {

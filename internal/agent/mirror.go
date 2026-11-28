@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/effect/program"
 	"golang.org/x/sys/unix"
 )
@@ -31,7 +32,7 @@ type MirrorResult struct {
 type mirrorGit struct {
 	ctx  context.Context
 	dir  string
-	root *os.Root
+	root *disk.Dir
 }
 
 type mirrorFile struct {
@@ -154,7 +155,7 @@ func AcknowledgeMirrorRecovery(dir, backup string) error {
 	if !g.ancestor(current.Target, head) {
 		return errors.New("退避のあとでサーバーの更新を取り込めたか、確かめられません。")
 	}
-	return g.root.Remove(mirrorPending)
+	return g.root.RemoveFile(mirrorPending)
 }
 
 func openMirror(ctx context.Context, dir string) (mirrorGit, func(), error) {
@@ -163,7 +164,7 @@ func openMirror(ctx context.Context, dir string) (mirrorGit, func(), error) {
 	if err != nil {
 		return g, nil, err
 	}
-	root, err := os.OpenRoot(absolute)
+	root, err := disk.OpenRecords(absolute)
 	if err != nil {
 		return g, nil, err
 	}
@@ -178,7 +179,7 @@ func openMirror(ctx context.Context, dir string) (mirrorGit, func(), error) {
 		root.Close()
 		return g, nil, errors.New("対象が手元の読み取り専用のコピーであることを確かめられません。")
 	}
-	lock, err := root.OpenFile(".git/lacia-mirror.lock", os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	lock, err := root.OpenLock(".git/lacia-mirror.lock", 0600)
 	if err != nil {
 		root.Close()
 		return g, nil, err
@@ -430,14 +431,11 @@ func (g mirrorGit) saveBackup(j *mirrorJournal) error {
 	if err := g.checkPath(mirrorPending); err != nil {
 		return err
 	}
-	if err := g.root.MkdirAll(mirrorRescue, 0700); err != nil {
-		return err
-	}
-	backup, err := os.MkdirTemp(filepath.Join(g.dir, mirrorRescue), "rescue-")
+	backup, err := g.root.MkdirTemp(mirrorRescue, "rescue-")
 	if err != nil {
 		return err
 	}
-	j.Backup = filepath.Join(mirrorRescue, filepath.Base(backup))
+	j.Backup = backup
 	tracked := []string{}
 	for i := range j.Entries {
 		e := &j.Entries[i]
@@ -488,28 +486,14 @@ func (g mirrorGit) saveBackup(j *mirrorJournal) error {
 }
 
 func (g mirrorGit) writeSaved(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Join(g.dir, filepath.Dir(path)), ".mirror-")
-	if err != nil {
+	if err := g.root.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
-	_, writeErr := f.Write(data)
-	if err := errors.Join(writeErr, f.Sync(), f.Close()); err != nil {
-		return err
-	}
-	roundTrip, err := os.ReadFile(f.Name())
+	roundTrip, err := g.root.ReadFile(path)
 	if err != nil || !bytes.Equal(roundTrip, data) {
 		return errors.New("退避したファイルの内容を読み戻せませんでした。")
 	}
-	err = g.root.Rename(filepath.Join(filepath.Dir(path), filepath.Base(f.Name())), path)
-	if err != nil {
-		return err
-	}
-	parent, err := g.root.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	return errors.Join(parent.Sync(), parent.Close())
+	return nil
 }
 
 func (g mirrorGit) pending() (*mirrorJournal, error) {
@@ -610,7 +594,7 @@ func (g mirrorGit) apply(head string, j *mirrorJournal) (MirrorResult, error) {
 	}
 	for _, path := range untracked {
 		// Only the verified non-directory entries in the journal reach this path.
-		if err := g.root.Remove(path); err != nil {
+		if err := g.root.RemoveFile(path); err != nil {
 			return MirrorResult{}, err
 		}
 	}

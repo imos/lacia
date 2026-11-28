@@ -83,7 +83,7 @@ func (s *Store) WriteDoc(ref, name, content, actor string) (Task, error) {
 			if err != nil {
 				return Event{}, err
 			}
-			if problems := ShapeProblems(t, s.format); len(problems) > 0 {
+			if problems := ShapeProblems(t); len(problems) > 0 {
 				return Event{}, shapeError(problems)
 			}
 			return entry, nil
@@ -103,7 +103,7 @@ func (s *Store) WriteDoc(ref, name, content, actor string) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current := s.tasks[id]
-	if err := writeAtomic(filepath.Join(s.root, current.Dir, NotesFile), content); err != nil {
+	if err := s.records.WriteFileNoSync(filepath.Join(current.Dir, NotesFile), []byte(content), 0o644); err != nil {
 		return Task{}, err
 	}
 	if err := s.record(current.Dir, s.now().In(s.Location()), entry); err != nil {

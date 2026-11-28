@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/imos/lacia/internal/calendar"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/gcal"
 )
 
@@ -34,7 +34,7 @@ func TestCalendarConnection(t *testing.T) {
 	defer fake.Close()
 
 	store, _ := setup(t)
-	creds := &gcal.Store{Path: filepath.Join(t.TempDir(), "gcal.json")}
+	creds := credentials(t)
 	connected := 0
 	h, err := (&Server{Store: store, Calendars: &Calendars{Store: creds, Site: "https://lacia.example",
 		Client:    &gcal.Client{Endpoints: gcal.Endpoints{Auth: fake.URL + "/auth", Token: fake.URL + "/token", API: fake.URL + "/api"}},
@@ -136,7 +136,7 @@ func TestCalendarConnectionWithADesktopClient(t *testing.T) {
 	defer fake.Close()
 
 	store, _ := setup(t)
-	creds := &gcal.Store{Path: filepath.Join(t.TempDir(), "gcal.json")}
+	creds := credentials(t)
 	h, err := (&Server{Store: store, Calendars: &Calendars{Store: creds, Local: "http://127.0.0.1:18300",
 		ClientID: "desktop-id", ClientSecret: "desktop-secret", Write: true,
 		Client: &gcal.Client{Endpoints: gcal.Endpoints{Auth: fake.URL + "/auth", Token: fake.URL + "/token", API: fake.URL + "/api"}}}}).Handler()
@@ -166,4 +166,15 @@ func TestCalendarConnectionWithADesktopClient(t *testing.T) {
 	if cred, ok := creds.Get(owner); !ok || cred.RefreshToken != "rt" || cred.ClientID != "desktop-id" {
 		t.Fatalf("stored credential: %+v %v", cred.ClientID, ok)
 	}
+}
+
+// credentials keeps the Google credentials in a new state directory.
+func credentials(t *testing.T) *gcal.Store {
+	t.Helper()
+	state, err := disk.OpenTools(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { state.Close() })
+	return &gcal.Store{Dir: state, Name: "gcal.json"}
 }

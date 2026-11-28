@@ -30,7 +30,7 @@ func (b *recordingScheduledDiscord) SendScheduled(_ context.Context, channel, _,
 
 func TestDiscordScheduledResultsUseTheScheduleDestination(t *testing.T) {
 	ctx := context.Background()
-	q, err := request.Open(t.TempDir())
+	q, err := request.Open(testDir(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

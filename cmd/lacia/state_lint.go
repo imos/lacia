@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/imos/lacia/internal/caller"
+	"github.com/imos/lacia/internal/effect/disk"
 	"github.com/imos/lacia/internal/handover"
 	"github.com/imos/lacia/internal/request"
 	"github.com/imos/lacia/internal/task"
@@ -26,7 +27,12 @@ func stateLintContext(state string) (task.StateContext, error) {
 	if _, err := os.Stat(path); err != nil {
 		return context, fmt.Errorf("会話の最終利用の記録を読めません: %w", err)
 	}
-	registry, err := caller.OpenRegistry(path)
+	dir, err := disk.OpenTools(state)
+	if err != nil {
+		return context, fmt.Errorf("会話の最終利用の記録を読めません: %w", err)
+	}
+	defer dir.Close()
+	registry, err := caller.OpenRegistry(dir, "sessions.json")
 	if err != nil {
 		return context, fmt.Errorf("会話の最終利用の記録を読めません: %w", err)
 	}
@@ -98,7 +104,7 @@ func localWaitConditions(state string, withRequests bool) (map[string]bool, erro
 	return live, nil
 }
 
-func openExistingState[T any](state, name string, open func(string) (*T, error)) (*T, error) {
+func openExistingState[T any](state, name string, open func(*disk.Dir) (*T, error)) (*T, error) {
 	path := filepath.Join(state, name)
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -106,5 +112,9 @@ func openExistingState[T any](state, name string, open func(string) (*T, error))
 		}
 		return nil, err
 	}
-	return open(path)
+	dir, err := disk.OpenTools(path)
+	if err != nil {
+		return nil, err
+	}
+	return open(dir)
 }

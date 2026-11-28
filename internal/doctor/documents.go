@@ -36,7 +36,7 @@ func checkDocuments(r *Report, root string, cfg task.Config, jobs []schedule.Job
 					r.notef("%s: %s は定義されていない項目です。独自に加える項目の名前は x_ で始めてください。", rel, field.Key)
 				}
 			}
-			for _, w := range task.LintFormat(doc.Body, cfg.Format) {
+			for _, w := range task.Lint(doc.Body) {
 				r.notef("%s: %s", rel, w)
 			}
 			return
@@ -63,12 +63,9 @@ func checkDocuments(r *Report, root string, cfg task.Config, jobs []schedule.Job
 		}
 	}
 	dirs := map[string]string{}
-	if cfg.Format < task.AreaRoutineFormat {
-		dirs[filepath.Join(root, "schedules")] = "schedule"
-	}
 	for _, area := range cfg.Areas {
 		for _, kind := range []string{"knowledge", "procedures", "projects"} {
-			dirs[filepath.Join(root, task.AreaDir(cfg.Format, area), kind)] = kind
+			dirs[filepath.Join(root, task.AreaDir(area), kind)] = kind
 		}
 	}
 	paths := make([]string, 0, len(dirs))
